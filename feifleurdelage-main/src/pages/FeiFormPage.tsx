@@ -54,8 +54,50 @@ const FeiFormPage = () => {
     const feiData = { ...form, user_id: user.id, declarant_nom: profile?.full_name || user.email || "Inconnu" };
     const { data, error } = await supabase.from("fei").insert(feiData).select().single();
     if (error) { toast.error("Erreur : " + error.message); setLoading(false); return; }
+
     const pdf = generateFeiPdf(data);
-    pdf.save(`FEI_${data.id.slice(0, 8)}_${form.date_evenement}.pdf`);
+    const fileName = `FEI_${data.id.slice(0, 8)}_${form.date_evenement}.pdf`;
+    pdf.save(fileName);
+
+    // Notification email avec PDF en pièce jointe
+    try {
+      const pdfBytes = new Uint8Array(pdf.output("arraybuffer") as ArrayBuffer);
+      let binary = "";
+      for (let i = 0; i < pdfBytes.byteLength; i++) {
+        binary += String.fromCharCode(pdfBytes[i]);
+      }
+      const pdfBase64 = btoa(binary);
+
+      await supabase.functions.invoke("send-email-notification", {
+        body: {
+          subject: `Nouvelle FEI — ${data.type_fei} — ${new Date(data.date_evenement).toLocaleDateString("fr-FR")}`,
+          htmlBody: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <div style="background-color: #c46b48; padding: 20px; border-radius: 8px 8px 0 0;">
+                <h2 style="color: white; margin: 0;">EHPAD La Fleur de l'Âge</h2>
+                <p style="color: rgba(255,255,255,0.85); margin: 4px 0 0;">Nouvelle Fiche d'Événement Indésirable</p>
+              </div>
+              <div style="background: #faf7f3; padding: 24px; border: 1px solid #dcd2c8; border-top: none; border-radius: 0 0 8px 8px;">
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Type d'événement</td><td style="padding: 6px 0; font-weight: bold;">${data.type_fei}</td></tr>
+                  <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Date</td><td style="padding: 6px 0;">${new Date(data.date_evenement).toLocaleDateString("fr-FR")}</td></tr>
+                  <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Lieu</td><td style="padding: 6px 0;">${data.lieu}</td></tr>
+                  <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Gravité</td><td style="padding: 6px 0;">${data.gravite}/5</td></tr>
+                  <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Déclarant</td><td style="padding: 6px 0;">${data.declarant_nom}</td></tr>
+                </table>
+                <p style="color: #6b6b6b; font-size: 13px; margin-top: 16px;">Le document PDF complet est joint à cet email.</p>
+                <hr style="border: none; border-top: 1px solid #dcd2c8; margin: 16px 0;">
+                <p style="color: #aaa; font-size: 11px; margin: 0;">Document confidentiel — EHPAD La Fleur de l'Âge — Système Qualité</p>
+              </div>
+            </div>`,
+          pdfBase64,
+          fileName,
+        },
+      });
+    } catch (emailErr) {
+      console.error("Échec de la notification email FEI :", emailErr);
+    }
+
     toast.success("FEI enregistrée et PDF généré !");
     setForm({ date_evenement: new Date().toISOString().split("T")[0], lieu: "", description: "", gravite: 0, type_fei: "", actions_correctives: "" });
     setStep(1);

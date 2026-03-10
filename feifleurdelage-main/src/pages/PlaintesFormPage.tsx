@@ -60,7 +60,46 @@ const PlaintesFormPage = () => {
     }
 
     const pdf = generatePlaintePdf(data);
-    pdf.save(`Plainte_${data.id.slice(0, 8)}_${form.date_plainte}.pdf`);
+    const fileName = `Plainte_${data.id.slice(0, 8)}_${form.date_plainte}.pdf`;
+    pdf.save(fileName);
+
+    // Notification email avec PDF en pièce jointe
+    try {
+      const pdfBytes = new Uint8Array(pdf.output("arraybuffer") as ArrayBuffer);
+      let binary = "";
+      for (let i = 0; i < pdfBytes.byteLength; i++) {
+        binary += String.fromCharCode(pdfBytes[i]);
+      }
+      const pdfBase64 = btoa(binary);
+
+      await supabase.functions.invoke("send-email-notification", {
+        body: {
+          subject: `Nouvelle Plainte — ${data.objet} — ${new Date(data.date_plainte).toLocaleDateString("fr-FR")}`,
+          htmlBody: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <div style="background-color: #c46b48; padding: 20px; border-radius: 8px 8px 0 0;">
+                <h2 style="color: white; margin: 0;">EHPAD La Fleur de l'Âge</h2>
+                <p style="color: rgba(255,255,255,0.85); margin: 4px 0 0;">Nouvelle Plainte / Réclamation</p>
+              </div>
+              <div style="background: #faf7f3; padding: 24px; border: 1px solid #dcd2c8; border-top: none; border-radius: 0 0 8px 8px;">
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Date</td><td style="padding: 6px 0;">${new Date(data.date_plainte).toLocaleDateString("fr-FR")}</td></tr>
+                  <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Demandeur</td><td style="padding: 6px 0; font-weight: bold;">${data.demandeur}</td></tr>
+                  <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Objet</td><td style="padding: 6px 0;">${data.objet}</td></tr>
+                  <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Déclarant</td><td style="padding: 6px 0;">${data.declarant_nom}</td></tr>
+                </table>
+                <p style="color: #6b6b6b; font-size: 13px; margin-top: 16px;">Le document PDF complet est joint à cet email.</p>
+                <hr style="border: none; border-top: 1px solid #dcd2c8; margin: 16px 0;">
+                <p style="color: #aaa; font-size: 11px; margin: 0;">Document confidentiel — EHPAD La Fleur de l'Âge — Système Qualité</p>
+              </div>
+            </div>`,
+          pdfBase64,
+          fileName,
+        },
+      });
+    } catch (emailErr) {
+      console.error("Échec de la notification email Plainte :", emailErr);
+    }
 
     toast.success("Plainte enregistrée et PDF généré !");
     setForm({
