@@ -31,6 +31,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
     { to: "/fei", label: "Saisir une FEI", icon: FileText, section: "agent" },
     { to: "/mes-fei", label: "Mes FEI", icon: History, section: "agent" },
     { to: "/plaintes", label: "Plaintes & Réclamations", icon: MessageSquareWarning, section: "agent" },
+    { to: "/mes-actions", label: "Mes Actions", icon: ClipboardCheck, section: "agent" },
     ...(isAdmin
       ? [
           { to: "/gestion-fei", label: "Gestion FEI", icon: ClipboardList, section: "admin" },
