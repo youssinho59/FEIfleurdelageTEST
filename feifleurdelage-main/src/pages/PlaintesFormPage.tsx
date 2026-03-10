@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -10,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { generatePlaintePdf } from "@/lib/pdfGenerator";
-import { MessageSquareWarning, Save, Calendar, User, FileText, MessageCircle, Info } from "lucide-react";
+import { MessageSquareWarning, Save, Calendar, User, FileText, MessageCircle, ArrowRight } from "lucide-react";
 
 const DEMANDEUR_TYPES = [
   "Résident",
@@ -143,23 +144,56 @@ const PlaintesFormPage = () => {
 
       {/* Définition Plainte / Réclamation */}
       <motion.div
-        initial={{ opacity: 0, y: 6 }}
+        initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="mb-6 rounded-xl border border-amber-200 bg-amber-50/70 p-4 flex gap-3"
+        className="mb-6 rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-orange-50/60 overflow-hidden"
       >
-        <Info className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-        <div className="space-y-1.5 text-sm">
-          <p className="font-semibold text-amber-800">Qu'est-ce qu'une plainte ou réclamation ?</p>
-          <p className="text-amber-700/80 leading-relaxed">
-            Une <strong>plainte ou réclamation</strong> exprime l'insatisfaction d'un résident, d'un membre de sa famille, d'un visiteur ou d'un professionnel vis-à-vis d'une prestation, d'un comportement ou du fonctionnement de l'établissement.
+        {/* Header coloré */}
+        <div className="flex items-center gap-4 px-5 pt-5 pb-4">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-md shrink-0">
+            <MessageSquareWarning className="w-7 h-7 text-white" />
+          </div>
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mb-0.5">Insatisfaction / Mécontentement</p>
+            <h3 className="text-base font-display font-bold text-amber-900">Qu'est-ce qu'une plainte ou réclamation ?</h3>
+          </div>
+        </div>
+
+        {/* Définition */}
+        <div className="px-5 pb-4">
+          <p className="text-sm text-amber-800/80 leading-relaxed">
+            Une <span className="font-semibold text-amber-900">plainte ou réclamation</span> exprime l'insatisfaction d'un résident, d'un membre de sa famille, d'un visiteur ou d'un professionnel vis-à-vis d'une prestation, d'un comportement ou du fonctionnement de l'établissement.
           </p>
-          <p className="text-amber-700/70 text-xs">
-            Exemples : qualité des repas, conditions d'accueil, comportement du personnel, délai de prise en charge, propreté des locaux…
+        </div>
+
+        {/* Séparateur + Exemples */}
+        <div className="mx-5 border-t border-amber-100/80" />
+        <div className="px-5 py-4">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-amber-400 mb-2.5">Exemples typiques</p>
+          <div className="flex flex-wrap gap-2">
+            {["Qualité des repas", "Comportement du personnel", "Conditions d'accueil", "Délai de prise en charge", "Propreté des locaux"].map((ex) => (
+              <span key={ex} className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">
+                {ex}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Lien vers l'autre formulaire */}
+        <div className="mx-5 border-t border-amber-100/80" />
+        <div className="px-5 py-3.5 flex items-center justify-between">
+          <p className="text-xs text-amber-600/70">
+            Vous souhaitez signaler un incident ou un accident ?
           </p>
-          <p className="text-amber-600/80 text-xs font-medium border-t border-amber-200 pt-1.5 mt-1.5">
-            Si le signalement concerne un <strong>incident ou accident survenu dans l'établissement</strong> (chute, erreur médicamenteuse, fugue…), utilisez plutôt le formulaire <strong>FEI</strong>.
-          </p>
+          <Link
+            to="/fei"
+            className="ml-3 shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 transition-colors px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            Saisir une FEI
+            <ArrowRight className="w-3 h-3" />
+          </Link>
         </div>
       </motion.div>
 
