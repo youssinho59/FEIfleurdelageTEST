@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAgents } from "@/hooks/useAgents";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +38,7 @@ type PlainteRecord = {
 
 const PlaintesManagementPage = () => {
   const { user } = useAuth();
+  const agents = useAgents();
   const [plaintesList, setPlaintesList] = useState<PlainteRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -98,11 +100,13 @@ const PlaintesManagementPage = () => {
     }
 
     // Création automatique dans le PACQ si les champs sont renseignés
-    if (pacqResponsable.trim() && pacqDateEcheance) {
+    if (pacqResponsable && pacqDateEcheance) {
+      const selectedAgent = agents.find((a) => a.id === pacqResponsable);
       const { error: pacqError } = await supabase.from("actions_correctives").insert({
         titre: pacqTitre.trim() || `Action corrective — Plainte : ${selectedPlainte.objet}`,
         description: editReponse.trim() || null,
-        responsable: pacqResponsable.trim(),
+        responsable: selectedAgent?.full_name || "",
+        responsable_id: pacqResponsable,
         date_echeance: pacqDateEcheance,
         priorite: pacqPriorite,
         statut: "a_faire",
@@ -311,12 +315,16 @@ const PlaintesManagementPage = () => {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label className="text-xs text-emerald-700">Responsable <span className="text-destructive">*</span></Label>
-                      <Input
-                        value={pacqResponsable}
-                        onChange={(e) => setPacqResponsable(e.target.value)}
-                        placeholder="Nom du responsable"
-                        className="h-8 text-sm"
-                      />
+                      <Select value={pacqResponsable} onValueChange={setPacqResponsable}>
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue placeholder="Sélectionner un agent" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {agents.map((a) => (
+                            <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs text-emerald-700">Date d'échéance <span className="text-destructive">*</span></Label>
