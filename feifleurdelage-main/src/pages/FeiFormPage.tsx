@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { generateFeiPdf } from "@/lib/pdfGenerator";
-import { FileText, Save, MapPin, AlertTriangle, Calendar, ClipboardList, Shield, ChevronRight, ChevronLeft, Check } from "lucide-react";
+import { FileText, Save, MapPin, AlertTriangle, Calendar, ClipboardList, Shield, ChevronRight, ChevronLeft, Check, Info } from "lucide-react";
 
 const FEI_TYPES = ["Chute", "Erreur médicamenteuse", "Fugue", "Agressivité", "Maltraitance", "Infection", "Autre"];
 
@@ -116,34 +116,81 @@ const FeiFormPage = () => {
     <div className="max-w-2xl mx-auto">
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shadow-warm">
+        {/* Title row */}
+        <div className="flex items-center gap-3 mb-7">
+          <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shadow-warm shrink-0">
             <FileText className="w-5 h-5 text-white" />
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <h1 className="text-xl font-display font-bold text-foreground">Fiche d'Événement Indésirable</h1>
-            <p className="text-xs text-muted-foreground">Étape {step} sur {STEPS.length}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              <span className="text-primary font-semibold">{STEPS[step - 1].label}</span>
+              {" · "}Étape {step} sur {STEPS.length}
+            </p>
           </div>
         </div>
 
-        {/* Progress bar */}
-        <div className="flex items-center gap-1">
+        {/* Stepper */}
+        <div className="flex items-start">
           {STEPS.map((s, i) => {
             const Icon = s.icon;
             const done = step > s.id;
             const active = step === s.id;
             return (
-              <div key={s.id} className="flex items-center flex-1">
-                <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${active ? "bg-primary text-white" : done ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>
-                  {done ? <Check className="w-3 h-3" /> : <Icon className="w-3 h-3" />}
-                  <span className="hidden sm:inline">{s.label}</span>
+              <Fragment key={s.id}>
+                <div className="flex flex-col items-center gap-2 shrink-0">
+                  {/* Circle */}
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center border-2 transition-all duration-300
+                    ${done
+                      ? "bg-primary border-primary text-white shadow-sm"
+                      : active
+                        ? "bg-background border-primary text-primary shadow-[0_0_0_4px_hsl(var(--primary)/0.12)]"
+                        : "bg-muted/50 border-border text-muted-foreground"
+                    }`}>
+                    {done
+                      ? <Check className="w-4 h-4" />
+                      : active
+                        ? <Icon className="w-4 h-4" />
+                        : <span className="text-xs font-bold">{s.id}</span>
+                    }
+                  </div>
+                  {/* Label */}
+                  <span className={`text-[10px] font-semibold text-center leading-tight max-w-[64px] hidden sm:block transition-colors duration-300
+                    ${active ? "text-primary" : done ? "text-primary/50" : "text-muted-foreground/50"}`}>
+                    {s.label}
+                  </span>
                 </div>
+                {/* Connector line */}
                 {i < STEPS.length - 1 && (
-                  <div className={`flex-1 h-0.5 mx-1 rounded-full transition-all ${step > s.id ? "bg-primary" : "bg-border"}`} />
+                  <div className="flex-1 mt-[18px] mx-2">
+                    <div className={`h-0.5 rounded-full transition-all duration-500 ${done ? "bg-primary" : "bg-border"}`} />
+                  </div>
                 )}
-              </div>
+              </Fragment>
             );
           })}
+        </div>
+      </motion.div>
+
+      {/* Définition FEI */}
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="mb-4 rounded-xl border border-blue-200 bg-blue-50/70 p-4 flex gap-3"
+      >
+        <Info className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
+        <div className="space-y-1.5 text-sm">
+          <p className="font-semibold text-blue-800">Qu'est-ce qu'une FEI ?</p>
+          <p className="text-blue-700/80 leading-relaxed">
+            Une <strong>Fiche d'Événement Indésirable</strong> signale tout incident ou accident survenu à un résident, un visiteur ou un professionnel au sein de l'établissement — qu'il y ait ou non des conséquences.
+          </p>
+          <p className="text-blue-700/70 text-xs">
+            Exemples : chute, erreur médicamenteuse, fugue, acte d'agressivité, infection, maltraitance…
+          </p>
+          <p className="text-blue-600/80 text-xs font-medium border-t border-blue-200 pt-1.5 mt-1.5">
+            Si le signalement concerne une <strong>insatisfaction ou un mécontentement</strong> exprimé par un résident ou sa famille, utilisez plutôt le formulaire <strong>Plainte / Réclamation</strong>.
+          </p>
         </div>
       </motion.div>
 

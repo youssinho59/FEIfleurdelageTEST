@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { generatePlaintePdf } from "@/lib/pdfGenerator";
-import { MessageSquareWarning, Save, Calendar, User, FileText, MessageCircle } from "lucide-react";
+import { MessageSquareWarning, Save, Calendar, User, FileText, MessageCircle, Info } from "lucide-react";
 
 const DEMANDEUR_TYPES = [
   "Résident",
@@ -138,6 +138,28 @@ const PlaintesFormPage = () => {
               Enregistrez une plainte ou une réclamation
             </p>
           </div>
+        </div>
+      </motion.div>
+
+      {/* Définition Plainte / Réclamation */}
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="mb-6 rounded-xl border border-amber-200 bg-amber-50/70 p-4 flex gap-3"
+      >
+        <Info className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+        <div className="space-y-1.5 text-sm">
+          <p className="font-semibold text-amber-800">Qu'est-ce qu'une plainte ou réclamation ?</p>
+          <p className="text-amber-700/80 leading-relaxed">
+            Une <strong>plainte ou réclamation</strong> exprime l'insatisfaction d'un résident, d'un membre de sa famille, d'un visiteur ou d'un professionnel vis-à-vis d'une prestation, d'un comportement ou du fonctionnement de l'établissement.
+          </p>
+          <p className="text-amber-700/70 text-xs">
+            Exemples : qualité des repas, conditions d'accueil, comportement du personnel, délai de prise en charge, propreté des locaux…
+          </p>
+          <p className="text-amber-600/80 text-xs font-medium border-t border-amber-200 pt-1.5 mt-1.5">
+            Si le signalement concerne un <strong>incident ou accident survenu dans l'établissement</strong> (chute, erreur médicamenteuse, fugue…), utilisez plutôt le formulaire <strong>FEI</strong>.
+          </p>
         </div>
       </motion.div>
 
