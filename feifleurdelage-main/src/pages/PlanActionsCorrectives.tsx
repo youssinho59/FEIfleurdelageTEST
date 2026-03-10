@@ -30,11 +30,13 @@ type ActionCorrective = {
   priorite: Priorite;
   statut: Statut;
   fei_id: string | null;
+  plainte_id: string | null;
   user_id: string;
   created_at: string;
 };
 
 type FeiOption = { id: string; type_fei: string; date_evenement: string };
+type PlainteOption = { id: string; objet: string; date_plainte: string };
 
 const PRIORITE_CONFIG: Record<Priorite, { label: string; color: string; dot: string; border: string }> = {
   haute:   { label: "Haute",   color: "bg-red-100 text-red-700",     dot: "bg-red-500",    border: "border-l-red-400" },
@@ -71,6 +73,7 @@ export default function PlanActionsCorrectives() {
   const { user, isAdmin } = useAuth();
   const [actions, setActions] = useState<ActionCorrective[]>([]);
   const [feiOptions, setFeiOptions] = useState<FeiOption[]>([]);
+  const [plainteOptions, setPlainteOptions] = useState<PlainteOption[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filters
@@ -100,16 +103,19 @@ export default function PlanActionsCorrectives() {
   };
 
   const fetchFei = async () => {
-    const { data } = await supabase
-      .from("fei")
-      .select("id, type_fei, date_evenement")
-      .order("date_evenement", { ascending: false });
+    const { data } = await supabase.from("fei").select("id, type_fei, date_evenement").order("date_evenement", { ascending: false });
     setFeiOptions((data as FeiOption[]) || []);
+  };
+
+  const fetchPlaintes = async () => {
+    const { data } = await supabase.from("plaintes").select("id, objet, date_plainte").order("date_plainte", { ascending: false });
+    setPlainteOptions((data as PlainteOption[]) || []);
   };
 
   useEffect(() => {
     fetchActions();
     fetchFei();
+    fetchPlaintes();
   }, []);
 
   // ── Stats ────────────────────────────────────────────────────
@@ -368,6 +374,15 @@ export default function PlanActionsCorrectives() {
                               FEI · {fei.type_fei} — {new Date(fei.date_evenement).toLocaleDateString("fr-FR")}
                             </span>
                           )}
+                          {action.plainte_id && (() => {
+                            const plainte = plainteOptions.find((p) => p.id === action.plainte_id);
+                            return plainte ? (
+                              <span className="flex items-center gap-1.5">
+                                <FileText className="w-3 h-3" />
+                                Plainte · {plainte.objet.slice(0, 40)}{plainte.objet.length > 40 ? "…" : ""}
+                              </span>
+                            ) : null;
+                          })()}
                         </div>
                       </div>
 

@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { MessageSquareWarning, Calendar, User, FileText, ChevronRight, Trash2 } from "lucide-react";
+import { MessageSquareWarning, Calendar, User, FileText, ChevronRight, Trash2, ClipboardCheck } from "lucide-react";
 
 const STATUTS_PLAINTE = [
   { value: "nouveau", label: "Nouveau", color: "bg-blue-100 text-blue-800" },
@@ -31,6 +36,7 @@ type PlainteRecord = {
 };
 
 const PlaintesManagementPage = () => {
+  const { user } = useAuth();
   const [plaintesList, setPlaintesList] = useState<PlainteRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -38,6 +44,17 @@ const PlaintesManagementPage = () => {
   const [selectedPlainte, setSelectedPlainte] = useState<PlainteRecord | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Formulaire de gestion
+  const [editStatut, setEditStatut] = useState("");
+  const [editReponse, setEditReponse] = useState("");
+
+  // Section PACQ
+  const [pacqTitre, setPacqTitre] = useState("");
+  const [pacqResponsable, setPacqResponsable] = useState("");
+  const [pacqDateEcheance, setPacqDateEcheance] = useState("");
+  const [pacqPriorite, setPacqPriorite] = useState("moyenne");
 
   const fetchPlaintes = async () => {
     setLoading(true);
@@ -45,24 +62,66 @@ const PlaintesManagementPage = () => {
       .from("plaintes")
       .select("*")
       .order("created_at", { ascending: false });
-
-    if (filterStatut !== "tous") {
-      query = query.eq("statut", filterStatut);
-    }
-
+    if (filterStatut !== "tous") query = query.eq("statut", filterStatut);
     const { data, error } = await query;
-    if (error) {
-      setFetchError(error.message + (error.details ? ` — ${error.details}` : ""));
-    } else {
-      setFetchError(null);
-    }
+    if (error) setFetchError(error.message + (error.details ? ` — ${error.details}` : ""));
+    else setFetchError(null);
     setPlaintesList((data as PlainteRecord[]) || []);
     setLoading(false);
   };
 
-  useEffect(() => {
+  useEffect(() => { fetchPlaintes(); }, [filterStatut]);
+
+  const openDetail = (plainte: PlainteRecord) => {
+    setSelectedPlainte(plainte);
+    setEditStatut(plainte.statut);
+    setEditReponse(plainte.reponse_apportee || "");
+    setPacqTitre(plainte.objet ? plainte.objet.slice(0, 120) : "");
+    setPacqResponsable("");
+    setPacqDateEcheance("");
+    setPacqPriorite("moyenne");
+  };
+
+  const handleSave = async () => {
+    if (!selectedPlainte || !user) return;
+    setSaving(true);
+
+    const { error } = await supabase
+      .from("plaintes")
+      .update({ statut: editStatut, reponse_apportee: editReponse || null })
+      .eq("id", selectedPlainte.id);
+
+    if (error) {
+      toast.error("Erreur lors de la mise à jour : " + error.message);
+      setSaving(false);
+      return;
+    }
+
+    // Création automatique dans le PACQ si les champs sont renseignés
+    if (pacqResponsable.trim() && pacqDateEcheance) {
+      const { error: pacqError } = await supabase.from("actions_correctives").insert({
+        titre: pacqTitre.trim() || `Action corrective — Plainte : ${selectedPlainte.objet}`,
+        description: editReponse.trim() || null,
+        responsable: pacqResponsable.trim(),
+        date_echeance: pacqDateEcheance,
+        priorite: pacqPriorite,
+        statut: "a_faire",
+        plainte_id: selectedPlainte.id,
+        user_id: user.id,
+      });
+      if (pacqError) {
+        toast.warning("Plainte mise à jour, mais erreur PACQ : " + pacqError.message);
+      } else {
+        toast.success("Réclamation mise à jour et action créée dans le PACQ ✓");
+      }
+    } else {
+      toast.success("Réclamation mise à jour avec succès");
+    }
+
+    setSelectedPlainte(null);
     fetchPlaintes();
-  }, [filterStatut]);
+    setSaving(false);
+  };
 
   const handleDelete = async () => {
     if (!selectedPlainte) return;
@@ -83,25 +142,16 @@ const PlaintesManagementPage = () => {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-display font-bold">Gestion des Réclamations</h1>
-        <p className="text-muted-foreground">Consultez et supprimez les plaintes et réclamations enregistrées</p>
+        <p className="text-muted-foreground">Traitez et suivez les plaintes et réclamations enregistrées</p>
       </div>
 
       {/* Filter tabs */}
       <div className="flex flex-wrap gap-2">
-        <Button
-          variant={filterStatut === "tous" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setFilterStatut("tous")}
-        >
+        <Button variant={filterStatut === "tous" ? "default" : "outline"} size="sm" onClick={() => setFilterStatut("tous")}>
           Toutes ({plaintesList.length})
         </Button>
         {STATUTS_PLAINTE.map((s) => (
-          <Button
-            key={s.value}
-            variant={filterStatut === s.value ? "default" : "outline"}
-            size="sm"
-            onClick={() => setFilterStatut(s.value)}
-          >
+          <Button key={s.value} variant={filterStatut === s.value ? "default" : "outline"} size="sm" onClick={() => setFilterStatut(s.value)}>
             {s.label}
           </Button>
         ))}
@@ -131,18 +181,12 @@ const PlaintesManagementPage = () => {
           {plaintesList.map((plainte) => {
             const statutInfo = getStatutInfo(plainte.statut);
             return (
-              <Card
-                key={plainte.id}
-                className="cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => setSelectedPlainte(plainte)}
-              >
+              <Card key={plainte.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => openDetail(plainte)}>
                 <CardContent className="py-4">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <Badge variant="outline" className={statutInfo.color}>
-                          {statutInfo.label}
-                        </Badge>
+                        <Badge variant="outline" className={statutInfo.color}>{statutInfo.label}</Badge>
                         <Badge variant="secondary">{plainte.demandeur}</Badge>
                       </div>
                       <p className="text-sm font-medium truncate">{plainte.objet}</p>
@@ -166,7 +210,7 @@ const PlaintesManagementPage = () => {
         </div>
       )}
 
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -175,23 +219,19 @@ const PlaintesManagementPage = () => {
               Supprimer définitivement cette réclamation ?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Cette action est <strong>irréversible</strong>. La réclamation et toutes ses données seront définitivement supprimées de la base de données.
+              Cette action est <strong>irréversible</strong>. La réclamation et toutes ses données seront définitivement supprimées.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={deleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
+            <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               {deleting ? "Suppression..." : "Supprimer définitivement"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Detail Dialog */}
+      {/* Detail / Management Dialog */}
       <Dialog open={!!selectedPlainte} onOpenChange={(open) => !open && setSelectedPlainte(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {selectedPlainte && (
@@ -199,10 +239,11 @@ const PlaintesManagementPage = () => {
               <DialogHeader>
                 <DialogTitle className="font-display flex items-center gap-2">
                   <MessageSquareWarning className="w-5 h-5" />
-                  Détail de la réclamation
+                  Gestion de la réclamation
                 </DialogTitle>
               </DialogHeader>
 
+              {/* Récap plainte */}
               <Card className="bg-secondary/50">
                 <CardContent className="py-4 space-y-3">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -212,46 +253,105 @@ const PlaintesManagementPage = () => {
                     <Badge variant="secondary">{selectedPlainte.demandeur}</Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Date : </span>
-                      {new Date(selectedPlainte.date_plainte).toLocaleDateString("fr-FR")}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Déclarant : </span>
-                      {selectedPlainte.declarant_nom}
-                    </div>
+                    <div><span className="text-muted-foreground">Date : </span>{new Date(selectedPlainte.date_plainte).toLocaleDateString("fr-FR")}</div>
+                    <div><span className="text-muted-foreground">Déclarant : </span>{selectedPlainte.declarant_nom}</div>
                   </div>
                   <div>
-                    <span className="text-sm font-medium flex items-center gap-1 mb-1">
-                      <FileText className="w-3 h-3" /> Objet
-                    </span>
+                    <span className="text-sm font-medium flex items-center gap-1 mb-1"><FileText className="w-3 h-3" /> Objet</span>
                     <p className="text-sm">{selectedPlainte.objet}</p>
                   </div>
                   <div>
                     <span className="text-sm font-medium mb-1 block">Description</span>
                     <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedPlainte.description}</p>
                   </div>
-                  {selectedPlainte.reponse_apportee && (
-                    <div>
-                      <span className="text-sm font-medium mb-1 block">Réponse apportée</span>
-                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedPlainte.reponse_apportee}</p>
-                    </div>
-                  )}
                 </CardContent>
               </Card>
 
-              <div className="flex gap-3 pt-2">
-                <Button variant="outline" onClick={() => setSelectedPlainte(null)} className="flex-1">
-                  Fermer
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => setDeleteDialogOpen(true)}
-                  className="gap-2"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Supprimer définitivement
-                </Button>
+              {/* Formulaire de gestion */}
+              <div className="space-y-4 mt-2">
+                <div className="space-y-2">
+                  <Label>Statut</Label>
+                  <Select value={editStatut} onValueChange={setEditStatut}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {STATUTS_PLAINTE.map((s) => (
+                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="reponse">Réponse apportée / Mesures prises</Label>
+                  <Textarea
+                    id="reponse"
+                    value={editReponse}
+                    onChange={(e) => setEditReponse(e.target.value)}
+                    placeholder="Réponse communiquée au demandeur, mesures correctives engagées..."
+                    rows={3}
+                  />
+                </div>
+
+                {/* ── Section PACQ ───────────────────────────────────── */}
+                <div className="rounded-xl border-l-4 border-l-emerald-400 border border-emerald-100 bg-emerald-50/50 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <ClipboardCheck className="w-4 h-4 text-emerald-600" />
+                    <p className="text-sm font-semibold text-emerald-800">Créer une action dans le PACQ</p>
+                    <span className="text-[10px] text-emerald-500 ml-1">(optionnel — remplissez responsable + échéance)</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-emerald-700">Titre de l'action</Label>
+                    <Input
+                      value={pacqTitre}
+                      onChange={(e) => setPacqTitre(e.target.value)}
+                      placeholder="Intitulé de l'action corrective…"
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-emerald-700">Responsable <span className="text-destructive">*</span></Label>
+                      <Input
+                        value={pacqResponsable}
+                        onChange={(e) => setPacqResponsable(e.target.value)}
+                        placeholder="Nom du responsable"
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-emerald-700">Date d'échéance <span className="text-destructive">*</span></Label>
+                      <Input
+                        type="date"
+                        value={pacqDateEcheance}
+                        onChange={(e) => setPacqDateEcheance(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-emerald-700">Priorité</Label>
+                    <Select value={pacqPriorite} onValueChange={setPacqPriorite}>
+                      <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="haute">🔴 Haute</SelectItem>
+                        <SelectItem value="moyenne">🟡 Moyenne</SelectItem>
+                        <SelectItem value="faible">🟢 Faible</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <Button onClick={handleSave} disabled={saving} className="flex-1">
+                    {saving ? "Enregistrement..." : "Enregistrer les modifications"}
+                  </Button>
+                  <Button variant="outline" onClick={() => setSelectedPlainte(null)}>
+                    Annuler
+                  </Button>
+                  <Button variant="destructive" size="icon" onClick={() => setDeleteDialogOpen(true)} title="Supprimer cette réclamation">
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
             </>
           )}
