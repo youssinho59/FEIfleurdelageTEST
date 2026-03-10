@@ -1,9 +1,13 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+const json = (data: unknown) =>
+  new Response(JSON.stringify(data), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -11,77 +15,86 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Verify the caller is an admin
-    const authHeader = req.headers.get("Authorization")!;
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anonKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY")!;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-    const callerClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
+    if (!supabaseUrl) return json({ error: "SUPABASE_URL manquant" });
+    if (!serviceKey) return json({ error: "SUPABASE_SERVICE_ROLE_KEY manquant" });
+
+    const adminHeaders = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${serviceKey}`,
+      "apikey": serviceKey,
+      "Prefer": "return=minimal",
+    };
+
+    // Vérifier le JWT de l'appelant
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return json({ error: "Non authentifié" });
+
+    const callerToken = authHeader.replace("Bearer ", "");
+    const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { "Authorization": `Bearer ${callerToken}`, "apikey": serviceKey },
     });
+    if (!userRes.ok) return json({ error: "Token invalide" });
+    const caller = await userRes.json();
 
-    const { data: { user: caller } } = await callerClient.auth.getUser();
-    if (!caller) {
-      return new Response(JSON.stringify({ error: "Non authentifié" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Vérifier le rôle admin via REST
+    const rolesRes = await fetch(
+      `${supabaseUrl}/rest/v1/user_roles?user_id=eq.${caller.id}&role=eq.admin&select=role`,
+      { headers: adminHeaders }
+    );
+    const roles = await rolesRes.json();
+    if (!Array.isArray(roles) || roles.length === 0) {
+      return json({ error: "Accès refusé : vous n'êtes pas administrateur" });
     }
 
-    // Check admin role
-    const adminClient = createClient(supabaseUrl, serviceRoleKey);
-    const { data: roles } = await adminClient
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", caller.id)
-      .eq("role", "admin");
-
-    if (!roles || roles.length === 0) {
-      return new Response(JSON.stringify({ error: "Accès refusé" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { nom, prenom, password } = await req.json();
-
+    const { nom, prenom, password, role } = await req.json();
     if (!nom || !prenom || !password) {
-      return new Response(JSON.stringify({ error: "Nom, prénom et mot de passe requis" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return json({ error: "Nom, prénom et mot de passe sont requis" });
     }
 
-    // Create fake email from nom + prenom
     const normalize = (s: string) =>
       s.toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     const fakeEmail = `${normalize(prenom)}.${normalize(nom)}@agent.internal`;
     const fullName = `${prenom.trim()} ${nom.trim()}`;
 
-    // Create user with admin API
-    const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
-      email: fakeEmail,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name: fullName },
+    // Créer l'utilisateur via l'API admin Auth
+    const createRes = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+      method: "POST",
+      headers: adminHeaders,
+      body: JSON.stringify({
+        email: fakeEmail,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: fullName },
+      }),
     });
+    const newUser = await createRes.json();
+    if (!createRes.ok) {
+      return json({ error: "Création impossible : " + (newUser.message || newUser.error_description || JSON.stringify(newUser)) });
+    }
 
-    if (createError) {
-      return new Response(JSON.stringify({ error: createError.message }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Appliquer le rôle admin si demandé (le trigger met 'user' par défaut)
+    if (role === "admin") {
+      await fetch(
+        `${supabaseUrl}/rest/v1/user_roles?user_id=eq.${newUser.id}`,
+        { method: "DELETE", headers: adminHeaders }
+      );
+      await fetch(`${supabaseUrl}/rest/v1/user_roles`, {
+        method: "POST",
+        headers: adminHeaders,
+        body: JSON.stringify({ user_id: newUser.id, role: "admin" }),
       });
     }
 
-    return new Response(
-      JSON.stringify({ success: true, user_id: newUser.user.id, identifiant: fakeEmail.replace("@agent.internal", "") }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return json({
+      success: true,
+      user_id: newUser.id,
+      identifiant: fakeEmail.replace("@agent.internal", ""),
     });
+
+  } catch (err) {
+    return json({ error: "Erreur serveur : " + err.message });
   }
 });

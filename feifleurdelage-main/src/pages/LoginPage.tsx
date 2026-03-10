@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Flower2, User, Shield, Eye, EyeOff } from "lucide-react";
+import { Flower2, User, Shield, Eye, EyeOff, Sparkles } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion } from "framer-motion";
 
@@ -25,11 +25,8 @@ const LoginPage = () => {
     setLoading(true);
     const fakeEmail = `${normalize(prenom)}.${normalize(nom)}@agent.internal`;
     const { error } = await supabase.auth.signInWithPassword({ email: fakeEmail, password });
-    if (error) {
-      toast.error("Identifiants incorrects");
-    } else {
-      toast.success("Connexion réussie !");
-    }
+    if (error) toast.error("Identifiants incorrects");
+    else toast.success("Connexion réussie !");
     setLoading(false);
   };
 
@@ -37,184 +34,155 @@ const LoginPage = () => {
     e.preventDefault();
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      toast.error("Identifiants incorrects");
-    } else {
-      toast.success("Connexion réussie !");
-    }
+    if (error) toast.error("Identifiants incorrects");
+    else toast.success("Connexion réussie !");
     setLoading(false);
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-background">
-      {/* Background decoration */}
-      <div className="absolute inset-0 gradient-warm" />
-      <div className="absolute top-[-20%] right-[-10%] w-[500px] h-[500px] rounded-full bg-primary/5 blur-3xl" />
-      <div className="absolute bottom-[-20%] left-[-10%] w-[400px] h-[400px] rounded-full bg-accent/10 blur-3xl" />
-
+    <div className="min-h-screen flex overflow-hidden">
+      {/* Left panel — decorative */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: "easeOut" }}
-        className="relative z-10 w-full max-w-md"
+        initial={{ opacity: 0, x: -40 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.7 }}
+        className="hidden lg:flex lg:w-1/2 gradient-primary flex-col justify-between p-12 relative overflow-hidden"
       >
-        {/* Logo & Title */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-          className="text-center mb-8"
-        >
-          <div className="mx-auto flex items-center justify-center w-20 h-20 rounded-2xl gradient-primary shadow-warm mb-4">
-            <Flower2 className="w-10 h-10 text-primary-foreground" />
-          </div>
-          <h1 className="font-display text-3xl font-bold text-foreground">
-            La Fleur de l'Âge
-          </h1>
-          <p className="text-muted-foreground font-body mt-1">
-            Espace Qualité
-          </p>
-        </motion.div>
+        {/* Background circles */}
+        <div className="absolute top-[-10%] left-[-10%] w-80 h-80 rounded-full bg-white/5 blur-3xl" />
+        <div className="absolute bottom-[-5%] right-[-5%] w-64 h-64 rounded-full bg-white/8 blur-2xl" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 opacity-5">
+          <Flower2 className="w-full h-full" strokeWidth={0.3} />
+        </div>
 
-        {/* Card */}
+        {/* Logo */}
+        <div className="relative z-10 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center backdrop-blur-sm">
+            <Flower2 className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <p className="text-white font-display font-bold text-lg leading-tight">La Fleur de l'Âge</p>
+            <p className="text-white/60 text-xs font-body uppercase tracking-widest">EHPAD</p>
+          </div>
+        </div>
+
+        {/* Center content */}
+        <div className="relative z-10 space-y-6">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/15 backdrop-blur-sm text-white/80 text-xs font-body">
+            <Sparkles className="w-3 h-3" />
+            Espace Qualité
+          </div>
+          <h2 className="text-4xl font-display font-bold text-white leading-tight">
+            Gérez la qualité<br />de vos soins<br />simplement.
+          </h2>
+          <p className="text-white/70 font-body text-sm leading-relaxed max-w-xs">
+            Déclarez vos événements indésirables, suivez vos fiches et améliorez continuellement la qualité des soins.
+          </p>
+        </div>
+
+        {/* Stats bottom */}
+        <div className="relative z-10 flex gap-6">
+          {[
+            { label: "Déclarations", value: "FEI" },
+            { label: "Plaintes", value: "P&R" },
+            { label: "Statistiques", value: "Stats" },
+          ].map((s) => (
+            <div key={s.label} className="text-center">
+              <p className="text-white font-display font-bold text-lg">{s.value}</p>
+              <p className="text-white/50 text-xs font-body">{s.label}</p>
+            </div>
+          ))}
+        </div>
+      </motion.div>
+
+      {/* Right panel — form */}
+      <div className="flex-1 flex items-center justify-center p-6 bg-background">
         <motion.div
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.2 }}
-          className="rounded-2xl border border-border bg-card shadow-warm backdrop-blur-sm p-8"
+          className="w-full max-w-sm space-y-8"
         >
+          {/* Mobile logo */}
+          <div className="lg:hidden flex items-center gap-3 mb-2">
+            <div className="w-9 h-9 rounded-xl gradient-primary flex items-center justify-center">
+              <Flower2 className="w-4.5 h-4.5 text-white" />
+            </div>
+            <div>
+              <p className="font-display font-bold text-base">La Fleur de l'Âge</p>
+              <p className="text-muted-foreground text-xs">Espace Qualité</p>
+            </div>
+          </div>
+
+          <div>
+            <h1 className="text-2xl font-display font-bold text-foreground">Connexion</h1>
+            <p className="text-muted-foreground text-sm mt-1 font-body">Bienvenue, identifiez-vous pour continuer.</p>
+          </div>
+
           <Tabs value={tab} onValueChange={(v) => { setTab(v); setPassword(""); setShowPassword(false); }}>
-            <TabsList className="grid w-full grid-cols-2 mb-6 h-12 rounded-xl bg-muted p-1">
-              <TabsTrigger
-                value="agent"
-                className="rounded-lg font-body font-semibold text-sm data-[state=active]:bg-card data-[state=active]:shadow-sm transition-all flex items-center gap-2"
-              >
-                <User className="w-4 h-4" />
-                Agent
+            <TabsList className="grid w-full grid-cols-2 h-11 rounded-xl bg-muted p-1">
+              <TabsTrigger value="agent" className="rounded-lg text-sm font-semibold data-[state=active]:bg-card data-[state=active]:shadow-sm flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5" /> Agent
               </TabsTrigger>
-              <TabsTrigger
-                value="admin"
-                className="rounded-lg font-body font-semibold text-sm data-[state=active]:bg-card data-[state=active]:shadow-sm transition-all flex items-center gap-2"
-              >
-                <Shield className="w-4 h-4" />
-                Administrateur
+              <TabsTrigger value="admin" className="rounded-lg text-sm font-semibold data-[state=active]:bg-card data-[state=active]:shadow-sm flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5" /> Administrateur
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="agent">
-              <form onSubmit={handleAgentLogin} className="space-y-5">
-                <div className="space-y-2">
-                  <Label htmlFor="nom" className="text-foreground font-body font-semibold">Nom</Label>
-                  <Input
-                    id="nom"
-                    value={nom}
-                    onChange={(e) => setNom(e.target.value)}
-                    placeholder="DUPONT"
-                    required
-                    className="h-12 rounded-xl bg-muted/50 border-border focus:border-primary"
-                  />
+            <TabsContent value="agent" className="mt-5">
+              <form onSubmit={handleAgentLogin} className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold">Nom</Label>
+                    <Input value={nom} onChange={(e) => setNom(e.target.value)} placeholder="DUPONT" required className="h-11 rounded-xl bg-muted/50" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold">Prénom</Label>
+                    <Input value={prenom} onChange={(e) => setPrenom(e.target.value)} placeholder="Jean" required className="h-11 rounded-xl bg-muted/50" />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="prenom" className="text-foreground font-body font-semibold">Prénom</Label>
-                  <Input
-                    id="prenom"
-                    value={prenom}
-                    onChange={(e) => setPrenom(e.target.value)}
-                    placeholder="Jean"
-                    required
-                    className="h-12 rounded-xl bg-muted/50 border-border focus:border-primary"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password-agent" className="text-foreground font-body font-semibold">Mot de passe</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Mot de passe</Label>
                   <div className="relative">
-                    <Input
-                      id="password-agent"
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      required
-                      minLength={6}
-                      className="h-12 rounded-xl bg-muted/50 border-border focus:border-primary pr-12"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    <Input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required minLength={6} className="h-11 rounded-xl bg-muted/50 pr-10" />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
-                <Button
-                  type="submit"
-                  className="w-full h-12 rounded-xl font-body font-bold text-base gradient-primary text-primary-foreground hover:opacity-90 transition-opacity shadow-warm"
-                  disabled={loading}
-                >
+                <Button type="submit" className="w-full h-11 rounded-xl font-semibold gradient-primary text-white hover:opacity-90 shadow-warm mt-2" disabled={loading}>
                   {loading ? "Connexion..." : "Se connecter"}
                 </Button>
               </form>
             </TabsContent>
 
-            <TabsContent value="admin">
-              <form onSubmit={handleAdminLogin} className="space-y-5">
-                <div className="space-y-2">
-                  <Label htmlFor="email" className="text-foreground font-body font-semibold">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@ehpad-lafleurdelage.fr"
-                    required
-                    className="h-12 rounded-xl bg-muted/50 border-border focus:border-primary"
-                  />
+            <TabsContent value="admin" className="mt-5">
+              <form onSubmit={handleAdminLogin} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Email</Label>
+                  <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@ehpad.fr" required className="h-11 rounded-xl bg-muted/50" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password-admin" className="text-foreground font-body font-semibold">Mot de passe</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold">Mot de passe</Label>
                   <div className="relative">
-                    <Input
-                      id="password-admin"
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      required
-                      minLength={6}
-                      className="h-12 rounded-xl bg-muted/50 border-border focus:border-primary pr-12"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    <Input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required minLength={6} className="h-11 rounded-xl bg-muted/50 pr-10" />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
                 </div>
-                <Button
-                  type="submit"
-                  className="w-full h-12 rounded-xl font-body font-bold text-base gradient-primary text-primary-foreground hover:opacity-90 transition-opacity shadow-warm"
-                  disabled={loading}
-                >
+                <Button type="submit" className="w-full h-11 rounded-xl font-semibold gradient-primary text-white hover:opacity-90 shadow-warm mt-2" disabled={loading}>
                   {loading ? "Connexion..." : "Se connecter"}
                 </Button>
               </form>
             </TabsContent>
           </Tabs>
-        </motion.div>
 
-        {/* Footer */}
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          className="text-center text-xs text-muted-foreground mt-6 font-body"
-        >
-          EHPAD La Fleur de l'Âge · Espace Qualité
-        </motion.p>
-      </motion.div>
+          <p className="text-center text-xs text-muted-foreground font-body">
+            EHPAD La Fleur de l'Âge · Espace Qualité
+          </p>
+        </motion.div>
+      </div>
     </div>
   );
 };
