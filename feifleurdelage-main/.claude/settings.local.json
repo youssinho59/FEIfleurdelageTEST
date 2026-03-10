@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"C:\\\\Users\\\\ybena\\\\Desktop\\\\Application FEI EHPAD\\\\feifleurdelage-main\\\\feifleurdelage-main\" && supabase functions logs send-email-notification --limit 50 2>&1)",
+      "Bash(where supabase:*)",
+      "Bash(cd \"C:\\\\Users\\\\ybena\\\\Desktop\\\\Application FEI EHPAD\\\\feifleurdelage-main\\\\feifleurdelage-main\" && npx supabase functions logs send-email-notification --project-ref ciflawnwdldeevabgnsk 2>&1)",
+      "Bash(curl -s -X POST \"https://ciflawnwdldeevabgnsk.supabase.co/functions/v1/send-email-notification\" \\\\\n  -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpZmxhd253ZGxkZWV2YWJnbnNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxMzM3NzgsImV4cCI6MjA4ODcwOTc3OH0.3chsc74c5RJBYehGglawuMIP0JJR0kNE7n7xWuVBBBI\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"subject\":\"Test email\",\"htmlBody\":\"<p>Test</p>\",\"pdfBase64\":\"dGVzdA==\",\"fileName\":\"test.pdf\"}' 2>&1)",
+      "Bash(curl -sk -X POST \"https://ciflawnwdldeevabgnsk.supabase.co/functions/v1/send-email-notification\" \\\\\n  -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpZmxhd253ZGxkZWV2YWJnbnNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxMzM3NzgsImV4cCI6MjA4ODcwOTc3OH0.3chsc74c5RJBYehGglawuMIP0JJR0kNE7n7xWuVBBBI\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d \"{\\\\\"subject\\\\\":\\\\\"Test email\\\\\",\\\\\"htmlBody\\\\\":\\\\\"<p>Test</p>\\\\\",\\\\\"pdfBase64\\\\\":\\\\\"dGVzdA==\\\\\",\\\\\"fileName\\\\\":\\\\\"test.pdf\\\\\"}\" 2>&1)"
+    ]
+  }
+}

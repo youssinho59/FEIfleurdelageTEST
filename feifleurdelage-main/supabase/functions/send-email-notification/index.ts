@@ -19,8 +19,8 @@ serve(async (req) => {
     }
 
     const emailPayload = {
-      from: "qualite@ehpad-lafleurdelage.fr",
-      to: ["finances@ehpad-lafleurdelage.fr"],
+      from: "onboarding@resend.dev",
+      to: ["y.benabdelkarim@gmail.com"],
       subject,
       html: htmlBody,
       attachments: [

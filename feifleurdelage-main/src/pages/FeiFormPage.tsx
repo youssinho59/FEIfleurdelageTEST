@@ -68,7 +68,7 @@ const FeiFormPage = () => {
       }
       const pdfBase64 = btoa(binary);
 
-      await supabase.functions.invoke("send-email-notification", {
+      const { error: emailError } = await supabase.functions.invoke("send-email-notification", {
         body: {
           subject: `Nouvelle FEI — ${data.type_fei} — ${new Date(data.date_evenement).toLocaleDateString("fr-FR")}`,
           htmlBody: `
@@ -94,11 +94,17 @@ const FeiFormPage = () => {
           fileName,
         },
       });
+      if (emailError) {
+        console.error("Échec de la notification email FEI :", emailError);
+        toast.error("FEI enregistrée, mais l'email n'a pas pu être envoyé : " + emailError.message);
+      } else {
+        toast.success("FEI enregistrée, PDF généré et email envoyé !");
+      }
     } catch (emailErr) {
       console.error("Échec de la notification email FEI :", emailErr);
+      toast.error("FEI enregistrée, mais erreur lors de l'envoi email.");
     }
 
-    toast.success("FEI enregistrée et PDF généré !");
     setForm({ date_evenement: new Date().toISOString().split("T")[0], lieu: "", description: "", gravite: 0, type_fei: "", actions_correctives: "" });
     setStep(1);
     setLoading(false);

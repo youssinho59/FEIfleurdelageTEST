@@ -72,7 +72,7 @@ const PlaintesFormPage = () => {
       }
       const pdfBase64 = btoa(binary);
 
-      await supabase.functions.invoke("send-email-notification", {
+      const { error: emailError } = await supabase.functions.invoke("send-email-notification", {
         body: {
           subject: `Nouvelle Plainte — ${data.objet} — ${new Date(data.date_plainte).toLocaleDateString("fr-FR")}`,
           htmlBody: `
@@ -97,11 +97,16 @@ const PlaintesFormPage = () => {
           fileName,
         },
       });
+      if (emailError) {
+        console.error("Échec de la notification email Plainte :", emailError);
+        toast.error("Plainte enregistrée, mais l'email n'a pas pu être envoyé : " + emailError.message);
+      } else {
+        toast.success("Plainte enregistrée, PDF généré et email envoyé !");
+      }
     } catch (emailErr) {
       console.error("Échec de la notification email Plainte :", emailErr);
+      toast.error("Plainte enregistrée, mais erreur lors de l'envoi email.");
     }
-
-    toast.success("Plainte enregistrée et PDF généré !");
     setForm({
       date_plainte: new Date().toISOString().split("T")[0],
       demandeur: "",
