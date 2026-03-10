@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { ClipboardList, ArrowLeft, Calendar, MapPin, AlertTriangle, User, ChevronRight, Filter, Trash2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { ClipboardList, Calendar, MapPin, User, ChevronRight, Trash2, ClipboardCheck } from "lucide-react";
 
 const STATUTS = [
   { value: "nouveau", label: "Nouveau", color: "bg-blue-100 text-blue-800" },
@@ -75,6 +76,12 @@ const FeiManagementPage = () => {
   const [editRetour, setEditRetour] = useState("");
   const [editActions, setEditActions] = useState("");
 
+  // Section PACQ
+  const [pacqTitre, setPacqTitre] = useState("");
+  const [pacqResponsable, setPacqResponsable] = useState("");
+  const [pacqDateEcheance, setPacqDateEcheance] = useState("");
+  const [pacqPriorite, setPacqPriorite] = useState("moyenne");
+
   const fetchFei = async () => {
     setLoading(true);
     let query = supabase
@@ -108,6 +115,11 @@ const FeiManagementPage = () => {
     setEditPlanAction(fei.plan_action || "");
     setEditRetour(fei.retour_declarant || "");
     setEditActions(fei.actions_correctives || "");
+    // Réinitialiser la section PACQ à chaque ouverture
+    setPacqTitre(fei.plan_action ? fei.plan_action.slice(0, 120) : "");
+    setPacqResponsable("");
+    setPacqDateEcheance("");
+    setPacqPriorite("moyenne");
   };
 
   const handleSave = async () => {
@@ -135,11 +147,33 @@ const FeiManagementPage = () => {
 
     if (error) {
       toast.error("Erreur lors de la mise à jour : " + error.message);
+      setSaving(false);
+      return;
+    }
+
+    // Création automatique dans le PACQ si les champs sont renseignés
+    if (pacqResponsable.trim() && pacqDateEcheance) {
+      const { error: pacqError } = await supabase.from("actions_correctives").insert({
+        titre: pacqTitre.trim() || `Action corrective — FEI ${selectedFei.type_fei}`,
+        description: editActions.trim() || null,
+        responsable: pacqResponsable.trim(),
+        date_echeance: pacqDateEcheance,
+        priorite: pacqPriorite,
+        statut: "a_faire",
+        fei_id: selectedFei.id,
+        user_id: user.id,
+      });
+      if (pacqError) {
+        toast.warning("FEI mise à jour, mais erreur PACQ : " + pacqError.message);
+      } else {
+        toast.success("FEI mise à jour et action créée dans le PACQ ✓");
+      }
     } else {
       toast.success("FEI mise à jour avec succès");
-      setSelectedFei(null);
-      fetchFei();
     }
+
+    setSelectedFei(null);
+    fetchFei();
     setSaving(false);
   };
 
@@ -386,6 +420,57 @@ const FeiManagementPage = () => {
                     placeholder="Message de retour à communiquer au déclarant..."
                     rows={2}
                   />
+                </div>
+
+                {/* ── Section PACQ ───────────────────────────────────── */}
+                <div className="rounded-xl border-l-4 border-l-emerald-400 border border-emerald-100 bg-emerald-50/50 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <ClipboardCheck className="w-4 h-4 text-emerald-600" />
+                    <p className="text-sm font-semibold text-emerald-800">Créer une action dans le PACQ</p>
+                    <span className="text-[10px] text-emerald-500 ml-1">(optionnel — remplissez responsable + échéance)</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-emerald-700">Titre de l'action</Label>
+                    <Input
+                      value={pacqTitre}
+                      onChange={(e) => setPacqTitre(e.target.value)}
+                      placeholder="Intitulé de l'action corrective…"
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-emerald-700">Responsable <span className="text-destructive">*</span></Label>
+                      <Input
+                        value={pacqResponsable}
+                        onChange={(e) => setPacqResponsable(e.target.value)}
+                        placeholder="Nom du responsable"
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-emerald-700">Date d'échéance <span className="text-destructive">*</span></Label>
+                      <Input
+                        type="date"
+                        value={pacqDateEcheance}
+                        onChange={(e) => setPacqDateEcheance(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-emerald-700">Priorité</Label>
+                    <Select value={pacqPriorite} onValueChange={setPacqPriorite}>
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="haute">🔴 Haute</SelectItem>
+                        <SelectItem value="moyenne">🟡 Moyenne</SelectItem>
+                        <SelectItem value="faible">🟢 Faible</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
                 <div className="flex gap-3 pt-2">

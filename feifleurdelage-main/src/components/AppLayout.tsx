@@ -31,11 +31,11 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
     { to: "/fei", label: "Saisir une FEI", icon: FileText, section: "agent" },
     { to: "/mes-fei", label: "Mes FEI", icon: History, section: "agent" },
     { to: "/plaintes", label: "Plaintes & Réclamations", icon: MessageSquareWarning, section: "agent" },
-    { to: "/plan-actions", label: "Plan d'Actions", icon: ClipboardCheck, section: "agent" },
     ...(isAdmin
       ? [
           { to: "/gestion-fei", label: "Gestion FEI", icon: ClipboardList, section: "admin" },
           { to: "/gestion-reclamations", label: "Gestion Réclamations", icon: MessageSquareWarning, section: "admin" },
+          { to: "/plan-actions", label: "Plan d'Actions", icon: ClipboardCheck, section: "admin" },
           { to: "/agents", label: "Agents", icon: Users, section: "admin" },
           { to: "/statistiques", label: "Statistiques", icon: BarChart3, section: "admin" },
         ]
