@@ -1,4 +1,5 @@
 import { useState, Fragment } from "react";
+import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -9,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { generateFeiPdf } from "@/lib/pdfGenerator";
-import { FileText, Save, MapPin, AlertTriangle, Calendar, ClipboardList, Shield, ChevronRight, ChevronLeft, Check, Info } from "lucide-react";
+import { FileText, Save, MapPin, AlertTriangle, Calendar, ClipboardList, Shield, ChevronRight, ChevronLeft, Check, ArrowRight, MessageSquareWarning } from "lucide-react";
 
 const FEI_TYPES = ["Chute", "Erreur médicamenteuse", "Fugue", "Agressivité", "Maltraitance", "Infection", "Autre"];
 
@@ -174,23 +175,56 @@ const FeiFormPage = () => {
 
       {/* Définition FEI */}
       <motion.div
-        initial={{ opacity: 0, y: 6 }}
+        initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
-        className="mb-4 rounded-xl border border-blue-200 bg-blue-50/70 p-4 flex gap-3"
+        className="mb-5 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 to-indigo-50/60 overflow-hidden"
       >
-        <Info className="w-4 h-4 text-blue-500 mt-0.5 shrink-0" />
-        <div className="space-y-1.5 text-sm">
-          <p className="font-semibold text-blue-800">Qu'est-ce qu'une FEI ?</p>
-          <p className="text-blue-700/80 leading-relaxed">
-            Une <strong>Fiche d'Événement Indésirable</strong> signale tout incident ou accident survenu à un résident, un visiteur ou un professionnel au sein de l'établissement — qu'il y ait ou non des conséquences.
+        {/* Header coloré */}
+        <div className="flex items-center gap-4 px-5 pt-5 pb-4">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md shrink-0">
+            <FileText className="w-7 h-7 text-white" />
+          </div>
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-widest text-blue-400 mb-0.5">Événement indésirable</p>
+            <h3 className="text-base font-display font-bold text-blue-900">Qu'est-ce qu'une FEI ?</h3>
+          </div>
+        </div>
+
+        {/* Définition */}
+        <div className="px-5 pb-4">
+          <p className="text-sm text-blue-800/80 leading-relaxed">
+            Une <span className="font-semibold text-blue-900">Fiche d'Événement Indésirable</span> signale tout incident ou accident survenu à un résident, un visiteur ou un professionnel — qu'il y ait ou non des conséquences graves.
           </p>
-          <p className="text-blue-700/70 text-xs">
-            Exemples : chute, erreur médicamenteuse, fugue, acte d'agressivité, infection, maltraitance…
+        </div>
+
+        {/* Séparateur + Exemples */}
+        <div className="mx-5 border-t border-blue-100/80" />
+        <div className="px-5 py-4">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-blue-400 mb-2.5">Exemples typiques</p>
+          <div className="flex flex-wrap gap-2">
+            {["Chute", "Erreur médicamenteuse", "Fugue", "Agressivité", "Infection", "Maltraitance"].map((ex) => (
+              <span key={ex} className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
+                {ex}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Lien vers l'autre formulaire */}
+        <div className="mx-5 border-t border-blue-100/80" />
+        <div className="px-5 py-3.5 flex items-center justify-between">
+          <p className="text-xs text-blue-600/70">
+            Vous souhaitez signaler une insatisfaction ou un mécontentement ?
           </p>
-          <p className="text-blue-600/80 text-xs font-medium border-t border-blue-200 pt-1.5 mt-1.5">
-            Si le signalement concerne une <strong>insatisfaction ou un mécontentement</strong> exprimé par un résident ou sa famille, utilisez plutôt le formulaire <strong>Plainte / Réclamation</strong>.
-          </p>
+          <Link
+            to="/plaintes"
+            className="ml-3 shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm"
+          >
+            <MessageSquareWarning className="w-3.5 h-3.5" />
+            Plainte / Réclamation
+            <ArrowRight className="w-3 h-3" />
+          </Link>
         </div>
       </motion.div>
 
