@@ -11,8 +11,11 @@ import {
   Users,
   LayoutDashboard,
   ChevronRight,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useState } from "react";
+import { useTheme } from "@/hooks/useTheme";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +23,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
   const { user, profile, isAdmin, signOut } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   const navItems = [
     { to: "/", label: "Tableau de bord", icon: LayoutDashboard, section: "agent" },
@@ -29,6 +33,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
     ...(isAdmin
       ? [
           { to: "/gestion-fei", label: "Gestion FEI", icon: ClipboardList, section: "admin" },
+          { to: "/gestion-reclamations", label: "Gestion Réclamations", icon: MessageSquareWarning, section: "admin" },
           { to: "/agents", label: "Agents", icon: Users, section: "admin" },
           { to: "/statistiques", label: "Statistiques", icon: BarChart3, section: "admin" },
         ]
@@ -123,6 +128,23 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
               )}
             </AnimatePresence>
           </div>
+
+          <button
+            onClick={toggleTheme}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors",
+              collapsed && "justify-center"
+            )}
+          >
+            {theme === "dark" ? <Sun className="w-4 h-4 shrink-0" /> : <Moon className="w-4 h-4 shrink-0" />}
+            <AnimatePresence>
+              {!collapsed && (
+                <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-xs font-body font-medium whitespace-nowrap">
+                  {theme === "dark" ? "Mode clair" : "Mode sombre"}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </button>
 
           <button
             onClick={signOut}

@@ -8,8 +8,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { ClipboardList, ArrowLeft, Calendar, MapPin, AlertTriangle, User, ChevronRight, Filter } from "lucide-react";
+import { ClipboardList, ArrowLeft, Calendar, MapPin, AlertTriangle, User, ChevronRight, Filter, Trash2 } from "lucide-react";
 
 const STATUTS = [
   { value: "nouveau", label: "Nouveau", color: "bg-blue-100 text-blue-800" },
@@ -60,9 +61,12 @@ const FeiManagementPage = () => {
   const { user } = useAuth();
   const [feiList, setFeiList] = useState<FeiRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [filterStatut, setFilterStatut] = useState<string>("tous");
   const [selectedFei, setSelectedFei] = useState<FeiRecord | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Edit form state
   const [editStatut, setEditStatut] = useState("");
@@ -82,7 +86,13 @@ const FeiManagementPage = () => {
       query = query.eq("statut", filterStatut);
     }
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      console.error("Erreur fetchFei:", error);
+      setFetchError(error.message + (error.details ? ` — ${error.details}` : "") + (error.hint ? ` (${error.hint})` : ""));
+    } else {
+      setFetchError(null);
+    }
     setFeiList((data as FeiRecord[]) || []);
     setLoading(false);
   };
@@ -133,6 +143,21 @@ const FeiManagementPage = () => {
     setSaving(false);
   };
 
+  const handleDelete = async () => {
+    if (!selectedFei) return;
+    setDeleting(true);
+    const { error } = await supabase.from("fei").delete().eq("id", selectedFei.id);
+    if (error) {
+      toast.error("Erreur lors de la suppression : " + error.message);
+    } else {
+      toast.success("FEI supprimée définitivement");
+      setDeleteDialogOpen(false);
+      setSelectedFei(null);
+      fetchFei();
+    }
+    setDeleting(false);
+  };
+
   const countByStatut = (statut: string) =>
     statut === "tous"
       ? feiList.length
@@ -171,6 +196,13 @@ const FeiManagementPage = () => {
         <div className="flex justify-center py-12">
           <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
         </div>
+      ) : fetchError ? (
+        <Card className="border-destructive/50">
+          <CardContent className="py-10 text-center space-y-2">
+            <p className="text-destructive font-semibold">Erreur de chargement</p>
+            <p className="text-sm text-muted-foreground font-mono bg-muted rounded p-2">{fetchError}</p>
+          </CardContent>
+        </Card>
       ) : feiList.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
@@ -222,6 +254,31 @@ const FeiManagementPage = () => {
           })}
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="w-5 h-5" />
+              Supprimer définitivement cette FEI ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est <strong>irréversible</strong>. La FEI et toutes ses données associées (analyse, plan d'action, retour déclarant) seront définitivement supprimées de la base de données.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Suppression..." : "Supprimer définitivement"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Detail / Management Dialog */}
       <Dialog open={!!selectedFei} onOpenChange={(open) => !open && setSelectedFei(null)}>
@@ -337,6 +394,14 @@ const FeiManagementPage = () => {
                   </Button>
                   <Button variant="outline" onClick={() => setSelectedFei(null)}>
                     Annuler
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    onClick={() => setDeleteDialogOpen(true)}
+                    title="Supprimer définitivement cette FEI"
+                  >
+                    <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
 

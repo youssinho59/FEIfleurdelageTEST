@@ -11,6 +11,7 @@ import FeiFormPage from "@/pages/FeiFormPage";
 import PlaintesFormPage from "@/pages/PlaintesFormPage";
 import StatsPage from "@/pages/StatsPage";
 import FeiManagementPage from "@/pages/FeiManagementPage";
+import PlaintesManagementPage from "@/pages/PlaintesManagementPage";
 import MesFeiPage from "@/pages/MesFeiPage";
 import AgentsManagementPage from "@/pages/AgentsManagementPage";
 import NotFound from "./pages/NotFound";
@@ -54,6 +55,7 @@ const AppRoutes = () => {
       <Route path="/plaintes" element={<ProtectedRoute><PlaintesFormPage /></ProtectedRoute>} />
       <Route path="/statistiques" element={<ProtectedRoute adminOnly><StatsPage /></ProtectedRoute>} />
       <Route path="/gestion-fei" element={<ProtectedRoute adminOnly><FeiManagementPage /></ProtectedRoute>} />
+      <Route path="/gestion-reclamations" element={<ProtectedRoute adminOnly><PlaintesManagementPage /></ProtectedRoute>} />
       <Route path="/agents" element={<ProtectedRoute adminOnly><AgentsManagementPage /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
