@@ -14,6 +14,7 @@ import FeiManagementPage from "@/pages/FeiManagementPage";
 import PlaintesManagementPage from "@/pages/PlaintesManagementPage";
 import MesFeiPage from "@/pages/MesFeiPage";
 import AgentsManagementPage from "@/pages/AgentsManagementPage";
+import PlanActionsCorrectives from "@/pages/PlanActionsCorrectives";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -57,6 +58,7 @@ const AppRoutes = () => {
       <Route path="/gestion-fei" element={<ProtectedRoute adminOnly><FeiManagementPage /></ProtectedRoute>} />
       <Route path="/gestion-reclamations" element={<ProtectedRoute adminOnly><PlaintesManagementPage /></ProtectedRoute>} />
       <Route path="/agents" element={<ProtectedRoute adminOnly><AgentsManagementPage /></ProtectedRoute>} />
+      <Route path="/plan-actions" element={<ProtectedRoute><PlanActionsCorrectives /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
