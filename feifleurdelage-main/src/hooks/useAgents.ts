@@ -8,9 +8,17 @@ export function useAgents() {
   useEffect(() => {
     supabase
       .from("profiles")
-      .select("id, full_name")
+      .select("user_id, full_name")
       .order("full_name")
-      .then(({ data }) => setAgents((data as Agent[]) || []));
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("[useAgents] Erreur chargement profils :", error.message);
+          return;
+        }
+        setAgents(
+          (data ?? []).map((d) => ({ id: d.user_id, full_name: d.full_name }))
+        );
+      });
   }, []);
   return agents;
 }
