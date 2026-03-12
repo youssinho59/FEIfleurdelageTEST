@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
     if (action === "list") {
       const [profilesRes, rolesListRes, usersRes] = await Promise.all([
         fetch(`${supabaseUrl}/rest/v1/profiles?select=user_id,full_name,created_at`, { headers: adminHeaders }),
-        fetch(`${supabaseUrl}/rest/v1/user_roles?select=user_id,role`, { headers: adminHeaders }),
+        fetch(`${supabaseUrl}/rest/v1/user_roles?select=user_id,role,service`, { headers: adminHeaders }),
         fetch(`${supabaseUrl}/auth/v1/admin/users?per_page=1000`, { headers: adminHeaders }),
       ]);
 
@@ -70,13 +70,21 @@ Deno.serve(async (req) => {
 
       const agents = profiles.map((p: any) => {
         const authUser = users.find((u: any) => u.id === p.user_id);
-        const userRoles = safeRoles.filter((r: any) => r.user_id === p.user_id).map((r: any) => r.role);
+        const userRoles = safeRoles.filter((r: any) => r.user_id === p.user_id);
+        const roleNames = userRoles.map((r: any) => r.role);
+        const responsableRow = userRoles.find((r: any) => r.role === "responsable");
+        const resolvedRole = roleNames.includes("admin")
+          ? "admin"
+          : roleNames.includes("responsable")
+          ? "responsable"
+          : "user";
         return {
           user_id: p.user_id,
           full_name: p.full_name,
           email: authUser?.email || "",
           identifiant: (authUser?.email || "").replace("@agent.internal", ""),
-          role: userRoles.includes("admin") ? "admin" : "user",
+          role: resolvedRole,
+          service: responsableRow?.service ?? null,
           created_at: p.created_at,
         };
       });
@@ -86,7 +94,7 @@ Deno.serve(async (req) => {
 
     // --- MODIFIER un agent ---
     if (action === "update") {
-      const { userId, fullName, role, password, nom, prenom } = body;
+      const { userId, fullName, role, service, password, nom, prenom } = body;
       if (!userId) return json({ error: "userId requis" });
 
       if (fullName !== undefined) {
@@ -116,7 +124,11 @@ Deno.serve(async (req) => {
         await fetch(`${supabaseUrl}/rest/v1/user_roles`, {
           method: "POST",
           headers: adminHeaders,
-          body: JSON.stringify({ user_id: userId, role }),
+          body: JSON.stringify({
+            user_id: userId,
+            role,
+            ...(role === "responsable" && service ? { service } : {}),
+          }),
         });
       }
 

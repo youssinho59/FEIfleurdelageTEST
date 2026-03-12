@@ -9,11 +9,20 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { UserPlus, Check, Pencil, RefreshCw, ShieldCheck, User, KeyRound, Calendar } from "lucide-react";
+import { UserPlus, Check, Pencil, RefreshCw, ShieldCheck, User, KeyRound, Calendar, Briefcase } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 const PROJECT_REF = import.meta.env.VITE_SUPABASE_PROJECT_ID as string;
+
+const SERVICES = [
+  "Administration",
+  "Cuisine",
+  "Technique",
+  "Lingerie",
+  "Animation",
+  "Soins/Hôtellerie",
+];
 
 // Récupère le token JWT depuis localStorage sans passer par le client supabase-js
 function getToken(): string {
@@ -58,42 +67,61 @@ type Agent = {
   full_name: string;
   email: string;
   identifiant: string;
-  role: "admin" | "user";
+  role: "admin" | "user" | "responsable";
+  service: string | null;
   created_at: string;
 };
 
-const RoleBadge = ({ role }: { role: string }) =>
-  role === "admin" ? (
+const RoleBadge = ({ role, service }: { role: string; service?: string | null }) => {
+  if (role === "admin") return (
     <Badge className="gap-1 bg-primary/10 text-primary border-primary/20 hover:bg-primary/10">
       <ShieldCheck className="w-3 h-3" /> Administrateur
     </Badge>
-  ) : (
+  );
+  if (role === "responsable") return (
+    <Badge className="gap-1 bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100">
+      <Briefcase className="w-3 h-3" /> Responsable{service ? ` — ${service}` : ""}
+    </Badge>
+  );
+  return (
     <Badge variant="secondary" className="gap-1">
       <User className="w-3 h-3" /> Agent
     </Badge>
   );
+};
 
 // ── Création ──────────────────────────────────────────────────────────────────
 const CreateForm = ({ onCreated }: { onCreated: () => void }) => {
   const [nom, setNom] = useState("");
   const [prenom, setPrenom] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"user" | "admin">("user");
+  const [role, setRole] = useState<"user" | "admin" | "responsable">("user");
+  const [service, setService] = useState("");
   const [loading, setLoading] = useState(false);
   const [lastCreated, setLastCreated] = useState<string | null>(null);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (role === "responsable" && !service) {
+      toast.error("Veuillez sélectionner un service pour le rôle Responsable.");
+      return;
+    }
     setLoading(true);
     setLastCreated(null);
     try {
-      const { data, error } = await callFunction("create-agent", { nom, prenom, password, role });
+      const { data, error } = await callFunction("create-agent", {
+        nom,
+        prenom,
+        password,
+        role,
+        ...(role === "responsable" ? { service } : {}),
+      });
       if (error) {
         toast.error(error);
       } else {
         toast.success(`Agent ${prenom} ${nom} créé avec succès !`);
         setLastCreated(data.identifiant);
-        setNom(""); setPrenom(""); setPassword(""); setRole("user");
+        setNom(""); setPrenom(""); setPassword(""); setRole("user"); setService("");
         onCreated();
       }
     } catch (err: any) {
@@ -125,16 +153,32 @@ const CreateForm = ({ onCreated }: { onCreated: () => void }) => {
           </div>
           <div className="space-y-2">
             <Label>Type d'accès</Label>
-            <Select value={role} onValueChange={(v) => setRole(v as "user" | "admin")}>
+            <Select value={role} onValueChange={(v) => { setRole(v as "user" | "admin" | "responsable"); setService(""); }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="user">Agent</SelectItem>
+                <SelectItem value="responsable">Responsable de service</SelectItem>
                 <SelectItem value="admin">Administrateur</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {role === "responsable" && (
+            <div className="space-y-2">
+              <Label>Service <span className="text-destructive">*</span></Label>
+              <Select value={service} onValueChange={setService} required>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner un service" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SERVICES.map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="password">Mot de passe</Label>
             <Input
@@ -180,11 +224,16 @@ const EditDialog = ({
 }) => {
   const [prenom, setPrenom] = useState(agent.full_name.split(" ")[0] || "");
   const [nom, setNom] = useState(agent.full_name.split(" ").slice(1).join(" ") || "");
-  const [role, setRole] = useState<"user" | "admin">(agent.role);
+  const [role, setRole] = useState<"user" | "admin" | "responsable">(agent.role);
+  const [service, setService] = useState<string>(agent.service || "");
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
+    if (role === "responsable" && !service) {
+      toast.error("Veuillez sélectionner un service pour le rôle Responsable.");
+      return;
+    }
     setSaving(true);
     const { error } = await callFunction("manage-agent", {
       action: "update",
@@ -193,6 +242,7 @@ const EditDialog = ({
       nom: nom.trim(),
       prenom: prenom.trim(),
       role,
+      ...(role === "responsable" ? { service } : {}),
       ...(password ? { password } : {}),
     });
 
@@ -230,14 +280,29 @@ const EditDialog = ({
 
           <div className="space-y-2">
             <Label>Type d'accès</Label>
-            <Select value={role} onValueChange={(v) => setRole(v as "user" | "admin")}>
+            <Select value={role} onValueChange={(v) => { setRole(v as "user" | "admin" | "responsable"); if (v !== "responsable") setService(""); }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="user">Agent</SelectItem>
+                <SelectItem value="responsable">Responsable de service</SelectItem>
                 <SelectItem value="admin">Administrateur</SelectItem>
               </SelectContent>
             </Select>
           </div>
+
+          {role === "responsable" && (
+            <div className="space-y-2">
+              <Label>Service <span className="text-destructive">*</span></Label>
+              <Select value={service} onValueChange={setService}>
+                <SelectTrigger><SelectValue placeholder="Sélectionner un service" /></SelectTrigger>
+                <SelectContent>
+                  {SERVICES.map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label className="flex items-center gap-1.5">
@@ -322,7 +387,7 @@ const AgentsManagementPage = () => {
                 <TableRow>
                   <TableHead>Nom complet</TableHead>
                   <TableHead>Identifiant</TableHead>
-                  <TableHead>Type d'accès</TableHead>
+                  <TableHead>Rôle</TableHead>
                   <TableHead className="hidden sm:table-cell">
                     <span className="flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5" /> Créé le
@@ -338,7 +403,7 @@ const AgentsManagementPage = () => {
                     <TableCell>
                       <span className="font-mono text-sm text-muted-foreground">{agent.identifiant || agent.email}</span>
                     </TableCell>
-                    <TableCell><RoleBadge role={agent.role} /></TableCell>
+                    <TableCell><RoleBadge role={agent.role} service={agent.service} /></TableCell>
                     <TableCell className="hidden sm:table-cell text-muted-foreground text-sm">
                       {new Date(agent.created_at).toLocaleDateString("fr-FR")}
                     </TableCell>

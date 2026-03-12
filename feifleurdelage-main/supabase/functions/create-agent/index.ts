@@ -49,9 +49,12 @@ Deno.serve(async (req) => {
       return json({ error: "Accès refusé : vous n'êtes pas administrateur" });
     }
 
-    const { nom, prenom, password, role } = await req.json();
+    const { nom, prenom, password, role, service } = await req.json();
     if (!nom || !prenom || !password) {
       return json({ error: "Nom, prénom et mot de passe sont requis" });
+    }
+    if (role === "responsable" && !service) {
+      return json({ error: "Le service est requis pour le rôle Responsable" });
     }
 
     const normalize = (s: string) =>
@@ -75,8 +78,8 @@ Deno.serve(async (req) => {
       return json({ error: "Création impossible : " + (newUser.message || newUser.error_description || JSON.stringify(newUser)) });
     }
 
-    // Appliquer le rôle admin si demandé (le trigger met 'user' par défaut)
-    if (role === "admin") {
+    // Appliquer le rôle si différent de 'user' (le trigger met 'user' par défaut)
+    if (role === "admin" || role === "responsable") {
       await fetch(
         `${supabaseUrl}/rest/v1/user_roles?user_id=eq.${newUser.id}`,
         { method: "DELETE", headers: adminHeaders }
@@ -84,7 +87,11 @@ Deno.serve(async (req) => {
       await fetch(`${supabaseUrl}/rest/v1/user_roles`, {
         method: "POST",
         headers: adminHeaders,
-        body: JSON.stringify({ user_id: newUser.id, role: "admin" }),
+        body: JSON.stringify({
+          user_id: newUser.id,
+          role,
+          ...(role === "responsable" ? { service } : {}),
+        }),
       });
     }
 

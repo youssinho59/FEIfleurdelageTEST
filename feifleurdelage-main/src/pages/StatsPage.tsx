@@ -40,6 +40,7 @@ import {
 } from "recharts";
 import { generateStatsPdf } from "@/lib/pdfGenerator";
 import { insertSeedData } from "@/lib/seedData";
+import { PLAINTE_CATEGORIES, CATEGORIE_TO_FAMILLE, FAMILLE_COLOR } from "@/lib/plaintesCategories";
 import { toast } from "sonner";
 
 // ─── Palette ────────────────────────────────────────────────────────────────
@@ -196,9 +197,16 @@ const StatsPage = () => {
 
     const byDemandeur: Record<string, number> = {};
     const byStatutPlaintes: Record<string, number> = {};
+    const byCategorie: Record<string, number> = {};
+    const byFamille: Record<string, number> = {};
     plaintesData.forEach((p) => {
       byDemandeur[p.demandeur] = (byDemandeur[p.demandeur] || 0) + 1;
       byStatutPlaintes[p.statut] = (byStatutPlaintes[p.statut] || 0) + 1;
+      if (p.objet) {
+        byCategorie[p.objet] = (byCategorie[p.objet] || 0) + 1;
+        const famille = CATEGORIE_TO_FAMILLE[p.objet] || "Autre";
+        byFamille[famille] = (byFamille[famille] || 0) + 1;
+      }
     });
 
     // Monthly evolution
@@ -233,7 +241,7 @@ const StatsPage = () => {
       totalFei, avgGravite, withActions, critiques, clotures, tauxCloture, tauxActions,
       byType, byGravite, byStatut, byDeclarant, byLieu,
       totalPlaintes, plaintesTraitees, plaintesEnCours, tauxResolution,
-      byDemandeur, byStatutPlaintes, monthlyData,
+      byDemandeur, byStatutPlaintes, byCategorie, byFamille, monthlyData,
       totalDeclarants: declarants.size,
     };
   }, [feiData, plaintesData]);
@@ -259,6 +267,27 @@ const StatsPage = () => {
     .map(([name, value]) => ({ name, value }));
 
   const demandeurChartData = Object.entries(stats.byDemandeur).map(([name, value]) => ({ name, value }));
+
+  // Répartition par famille (dans l'ordre de la constante)
+  const familleChartData = PLAINTE_CATEGORIES
+    .map(({ famille, color }) => ({
+      name: famille,
+      value: stats.byFamille[famille] || 0,
+      fill: color,
+    }))
+    .filter((d) => d.value > 0);
+
+  // Répartition par catégorie — regroupée par famille pour le bar chart
+  const categorieChartData = PLAINTE_CATEGORIES.flatMap(({ famille, color, items }) =>
+    items
+      .filter((cat) => (stats.byCategorie[cat] || 0) > 0)
+      .map((cat) => ({
+        name: cat,
+        value: stats.byCategorie[cat] || 0,
+        fill: color,
+        famille,
+      }))
+  ).sort((a, b) => b.value - a.value);
 
   const statutPlaintesData = Object.entries(stats.byStatutPlaintes).map(([key, value]) => ({
     name: key === "traite" ? "Traité" : key === "en_cours" ? "En cours" : "Nouveau",
@@ -716,7 +745,111 @@ const StatsPage = () => {
                 </Card>
 
               </div>
+
+              {/* ── Répartition par famille ── */}
+              {familleChartData.length > 0 && (
+                <Card className="lg:col-span-2">
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <CardTitle className="font-display text-base flex items-center gap-2">
+                      <MessageSquareWarning className="w-4 h-4 text-accent-foreground" />
+                      Répartition par famille de plainte
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-col sm:flex-row items-center gap-6">
+                      <ResponsiveContainer width={220} height={220}>
+                        <PieChart>
+                          <Pie
+                            data={familleChartData}
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={96}
+                            innerRadius={40}
+                            dataKey="value"
+                            labelLine={false}
+                            label={renderPieLabel}
+                          >
+                            {familleChartData.map((d, i) => (
+                              <Cell key={i} fill={d.fill} />
+                            ))}
+                          </Pie>
+                          <Tooltip content={<CustomTooltip />} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="flex flex-col gap-2 flex-1 min-w-0">
+                        {familleChartData.map((d) => (
+                          <div key={d.name} className="flex items-center gap-2.5">
+                            <span className="w-3 h-3 rounded-full shrink-0" style={{ background: d.fill }} />
+                            <span className="text-xs text-muted-foreground flex-1 truncate">{d.name}</span>
+                            <span className="text-xs font-bold text-foreground tabular-nums">{d.value}</span>
+                            <span className="text-[10px] text-muted-foreground/70 tabular-nums w-8 text-right">
+                              {stats.totalPlaintes > 0 ? Math.round((d.value / stats.totalPlaintes) * 100) : 0}%
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* ── Répartition par catégorie ── */}
+              {categorieChartData.length > 0 && (
+                <Card className="lg:col-span-2">
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <CardTitle className="font-display text-base flex items-center gap-2">
+                      <MessageSquareWarning className="w-4 h-4 text-accent-foreground" />
+                      Détail des catégories de plainte
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-2 pb-4">
+                    <div className="flex flex-wrap gap-1.5 px-3 mb-3">
+                      {PLAINTE_CATEGORIES.filter((f) => (stats.byFamille[f.famille] || 0) > 0).map((f) => (
+                        <span
+                          key={f.famille}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full"
+                          style={{ background: f.color + "18", color: f.color, border: `1px solid ${f.color}40` }}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: f.color }} />
+                          {f.famille}
+                        </span>
+                      ))}
+                    </div>
+                    <ResponsiveContainer width="100%" height={Math.max(180, categorieChartData.length * 32)}>
+                      <BarChart
+                        data={categorieChartData}
+                        layout="vertical"
+                        margin={{ top: 4, right: 40, left: 12, bottom: 4 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                        <YAxis dataKey="name" type="category" width={200} tick={{ fontSize: 11 }} />
+                        <Tooltip
+                          content={({ active, payload }) => {
+                            if (!active || !payload?.length) return null;
+                            const d = payload[0].payload;
+                            return (
+                              <div className="bg-background border border-border rounded-lg px-3 py-2 shadow-lg text-xs space-y-0.5">
+                                <p className="font-semibold text-foreground">{d.name}</p>
+                                <p style={{ color: d.fill }}>{d.famille}</p>
+                                <p className="font-bold">{d.value} plainte{d.value > 1 ? "s" : ""}</p>
+                              </div>
+                            );
+                          }}
+                        />
+                        <Bar dataKey="value" name="Plaintes" radius={[0, 4, 4, 0]}>
+                          {categorieChartData.map((d, i) => (
+                            <Cell key={i} fill={d.fill} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              )}
+
             </div>
+          </div>
           )}
 
           {/* ══════════════════════════════════════════════════════════════════

@@ -138,15 +138,47 @@ export function generateFeiPdf(data: {
   actions_correctives: string | null;
   declarant_nom: string;
   created_at: string;
+  // Catégorie
+  categorie_fei?: string;
+  // ARS (FEIGS)
+  nature_evenement_ars?: string | null;
+  circonstances_ars?: string | null;
+  consequences_resident_ars?: string | null;
+  mesures_prises_ars?: string | null;
+  statut_ars?: string | null;
+  date_envoi_ars?: string | null;
+  // Traitement admin (optionnel — complet si fourni)
+  statut?: string;
+  analyse?: string | null;
+  plan_action?: string | null;
+  retour_declarant?: string | null;
+  date_cloture?: string | null;
+  managed_at?: string | null;
+  gestionnaire_nom?: string;
 }) {
+  const categorie = data.categorie_fei || "standard";
+  const docTitle = categorie === "feigs"
+    ? "Fiche d'Événement Indésirable Grave et Significatif (FEIGS)"
+    : categorie === "feig"
+    ? "Fiche d'Événement Indésirable Grave (FEIG)"
+    : "Fiche d'Événement Indésirable (FEI)";
+  const catLabel = categorie === "feigs"
+    ? "FEIGS — Événement Indésirable Grave et Significatif"
+    : categorie === "feig"
+    ? "FEIG — Événement Indésirable Grave"
+    : "FEI Standard";
+
+  const hasAdminContent = !!(data.analyse || data.plan_action || data.retour_declarant || data.date_cloture);
+
   const doc = new jsPDF();
-  addHeader(doc, "Fiche d'Événement Indésirable (FEI)");
+  addHeader(doc, docTitle);
 
   let y = 48;
   y = addRefBadge(doc, data.id, y);
 
   // Section: Identification
   y = addSectionBox(doc, "Identification", [
+    { key: "Catégorie", value: catLabel },
     { key: "Date de l'événement", value: new Date(data.date_evenement).toLocaleDateString("fr-FR") },
     { key: "Type d'événement", value: data.type_fei },
     { key: "Déclarant", value: data.declarant_nom },
@@ -164,12 +196,77 @@ export function generateFeiPdf(data: {
     { key: "Détail", value: data.description },
   ], y, [100, 100, 120]);
 
-  // Section: Actions correctives
-  y = addSectionBox(doc, "Actions correctives", [
+  // Section: Actions correctives (agent)
+  y = addSectionBox(doc, "Actions correctives (déclarant)", [
     { key: "Mesures prises", value: data.actions_correctives || "Aucune action corrective renseignée" },
   ], y, [80, 140, 100]);
 
-  addFooter(doc);
+  // ── Page 2 : Traitement administratif (si disponible) ──
+  if (hasAdminContent) {
+    addFooter(doc);
+    doc.addPage();
+    addHeader(doc, "Traitement administratif — FEI");
+    let adminY = 48;
+    adminY = addRefBadge(doc, data.id, adminY);
+
+    const ADMIN_BLUE: [number, number, number] = [37, 99, 235];
+    const statuts: Record<string, string> = {
+      nouveau: "Nouveau", en_cours_analyse: "En cours d'analyse",
+      actions_en_cours: "Actions en cours", cloture: "Clôturé", archive: "Archivé",
+    };
+
+    adminY = addSectionBox(doc, "Synthèse du traitement", [
+      { key: "Statut", value: statuts[data.statut || ""] || (data.statut || "—") },
+      { key: "Gestionnaire", value: data.gestionnaire_nom || "—" },
+      { key: "Traité le", value: data.managed_at ? new Date(data.managed_at).toLocaleDateString("fr-FR") : "—" },
+      { key: "Date de clôture", value: data.date_cloture ? new Date(data.date_cloture).toLocaleDateString("fr-FR") : "Non clôturée" },
+    ], adminY, ADMIN_BLUE);
+
+    if (data.analyse) {
+      adminY = addSectionBox(doc, "Analyse de l'événement", [
+        { key: "Analyse", value: data.analyse },
+      ], adminY, [100, 60, 180]);
+    }
+    if (data.plan_action) {
+      adminY = addSectionBox(doc, "Plan d'action", [
+        { key: "Actions planifiées", value: data.plan_action },
+      ], adminY, [180, 140, 40]);
+    }
+    if (data.retour_declarant) {
+      adminY = addSectionBox(doc, "Retour au déclarant", [
+        { key: "Message", value: data.retour_declarant },
+      ], adminY, [30, 140, 80]);
+    }
+
+    addFooter(doc);
+  }
+
+  // ── Page ARS : Déclaration ARS (FEIGS uniquement) ──
+  if (categorie === "feigs") {
+    if (!hasAdminContent) addFooter(doc);
+    const ARS_RED: [number, number, number] = [185, 28, 28];
+    const arsStatutLabel = data.statut_ars === "declare"
+      ? `Déclaré à l'ARS${data.date_envoi_ars ? ` le ${new Date(data.date_envoi_ars).toLocaleDateString("fr-FR")}` : ""}`
+      : "À déclarer à l'ARS";
+
+    doc.addPage();
+    addHeader(doc, "Déclaration ARS — Informations réglementaires");
+    let arsY = 48;
+    arsY = addRefBadge(doc, data.id, arsY);
+
+    addSectionBox(doc, "Déclaration ARS — FEIGS", [
+      { key: "Statut de la déclaration", value: arsStatutLabel },
+      { key: "Nature de l'événement", value: data.nature_evenement_ars || "Non renseigné" },
+      { key: "Circonstances", value: data.circonstances_ars || "Non renseigné" },
+      { key: "Conséquences pour le résident", value: data.consequences_resident_ars || "Non renseigné" },
+      { key: "Mesures prises", value: data.mesures_prises_ars || "Non renseigné" },
+    ], arsY, ARS_RED);
+
+    addFooter(doc);
+  } else if (!hasAdminContent) {
+    addFooter(doc);
+  }
+
   return doc;
 }
 
@@ -182,7 +279,18 @@ export function generatePlaintePdf(data: {
   reponse_apportee: string | null;
   declarant_nom: string;
   created_at: string;
+  // Traitement admin (optionnel)
+  statut?: string;
+  analyse?: string | null;
+  plan_action?: string | null;
+  actions_correctives?: string | null;
+  retour_declarant?: string | null;
+  date_cloture?: string | null;
+  managed_at?: string | null;
+  gestionnaire_nom?: string;
 }) {
+  const hasAdminContent = !!(data.analyse || data.plan_action || data.actions_correctives || data.retour_declarant || data.date_cloture);
+
   const doc = new jsPDF();
   addHeader(doc, "Fiche Plainte / Réclamation");
 
@@ -199,15 +307,60 @@ export function generatePlaintePdf(data: {
     { key: "Objet", value: data.objet },
   ], y, [180, 90, 60]);
 
+  y = addSectionBox(doc, "Réponse initiale (déclarant)", [
+    { key: "Réponse / Mesures immédiates", value: data.reponse_apportee || "Aucune réponse initiale renseignée" },
+  ], y, [80, 140, 100]);
+
   y = addSectionBox(doc, "Description détaillée", [
     { key: "Détail", value: data.description },
   ], y, [100, 100, 120]);
 
-  y = addSectionBox(doc, "Réponse apportée", [
-    { key: "Mesures / Réponse", value: data.reponse_apportee || "En attente de traitement" },
-  ], y, [80, 140, 100]);
+  // ── Page 2 : Traitement administratif (si disponible) ──
+  if (hasAdminContent) {
+    addFooter(doc);
+    doc.addPage();
+    addHeader(doc, "Traitement administratif — Réclamation");
+    let adminY = 48;
+    adminY = addRefBadge(doc, data.id, adminY);
 
-  addFooter(doc);
+    const ADMIN_BLUE: [number, number, number] = [37, 99, 235];
+    const statuts: Record<string, string> = {
+      nouveau: "Nouveau", en_cours: "En cours", traite: "Traité",
+    };
+
+    adminY = addSectionBox(doc, "Synthèse du traitement", [
+      { key: "Statut", value: statuts[data.statut || ""] || (data.statut || "—") },
+      { key: "Gestionnaire", value: data.gestionnaire_nom || "—" },
+      { key: "Traité le", value: data.managed_at ? new Date(data.managed_at).toLocaleDateString("fr-FR") : "—" },
+      { key: "Date de clôture", value: data.date_cloture ? new Date(data.date_cloture).toLocaleDateString("fr-FR") : "Non clôturée" },
+    ], adminY, ADMIN_BLUE);
+
+    if (data.analyse) {
+      adminY = addSectionBox(doc, "Analyse de la réclamation", [
+        { key: "Analyse", value: data.analyse },
+      ], adminY, [100, 60, 180]);
+    }
+    if (data.plan_action) {
+      adminY = addSectionBox(doc, "Plan d'action", [
+        { key: "Actions planifiées", value: data.plan_action },
+      ], adminY, [180, 140, 40]);
+    }
+    if (data.actions_correctives) {
+      adminY = addSectionBox(doc, "Actions correctives mises en place", [
+        { key: "Mesures concrètes", value: data.actions_correctives },
+      ], adminY, [80, 140, 100]);
+    }
+    if (data.retour_declarant) {
+      adminY = addSectionBox(doc, "Retour au déclarant", [
+        { key: "Message", value: data.retour_declarant },
+      ], adminY, [30, 140, 80]);
+    }
+
+    addFooter(doc);
+  } else {
+    addFooter(doc);
+  }
+
   return doc;
 }
 

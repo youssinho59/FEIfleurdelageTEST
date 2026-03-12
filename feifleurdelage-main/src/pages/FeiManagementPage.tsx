@@ -12,7 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
-import { ClipboardList, Calendar, MapPin, User, ChevronRight, Trash2, ClipboardCheck } from "lucide-react";
+import { ClipboardList, Calendar, MapPin, User, ChevronRight, Trash2, ClipboardCheck, Building2, AlertTriangle, CheckCircle2, FileDown } from "lucide-react";
+import { generateFeiPdf } from "@/lib/pdfGenerator";
 
 const STATUTS = [
   { value: "nouveau", label: "Nouveau", color: "bg-blue-100 text-blue-800" },
@@ -23,6 +24,34 @@ const STATUTS = [
 ];
 
 const getStatutInfo = (statut: string) => STATUTS.find((s) => s.value === statut) || STATUTS[0];
+
+const CategorieBadge = ({ categorie }: { categorie: string }) => {
+  if (categorie === "feigs") return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-700 border border-red-200">
+      <AlertTriangle className="w-3 h-3" /> FEIGS
+    </span>
+  );
+  if (categorie === "feig") return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-orange-100 text-orange-700 border border-orange-200">
+      <AlertTriangle className="w-3 h-3" /> FEIG
+    </span>
+  );
+  return null;
+};
+
+const ArsBadge = ({ statut_ars }: { statut_ars: string | null }) => {
+  if (!statut_ars) return null;
+  if (statut_ars === "declare") return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700 border border-green-200">
+      <CheckCircle2 className="w-3 h-3" /> Déclaré à l'ARS
+    </span>
+  );
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 border border-red-300 animate-pulse">
+      <Building2 className="w-3 h-3" /> À déclarer à l'ARS
+    </span>
+  );
+};
 
 const GraviteBadge = ({ gravite }: { gravite: number }) => {
   const colors = [
@@ -51,16 +80,24 @@ type FeiRecord = {
   statut: string;
   created_at: string;
   user_id: string;
+  service: string | null;
   analyse: string | null;
   plan_action: string | null;
   retour_declarant: string | null;
   date_cloture: string | null;
   managed_by: string | null;
   managed_at: string | null;
+  categorie_fei: string;
+  nature_evenement_ars: string | null;
+  circonstances_ars: string | null;
+  consequences_resident_ars: string | null;
+  mesures_prises_ars: string | null;
+  date_envoi_ars: string | null;
+  statut_ars: string | null;
 };
 
 const FeiManagementPage = () => {
-  const { user } = useAuth();
+  const { user, isAdmin, isResponsable, userService } = useAuth();
   const agents = useAgents();
   const [feiList, setFeiList] = useState<FeiRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,6 +115,9 @@ const FeiManagementPage = () => {
   const [editRetour, setEditRetour] = useState("");
   const [editActions, setEditActions] = useState("");
 
+  // Section ARS (FEIGS)
+  const [editDateEnvoiArs, setEditDateEnvoiArs] = useState("");
+
   // Section PACQ
   const [pacqTitre, setPacqTitre] = useState("");
   const [pacqResponsable, setPacqResponsable] = useState("");
@@ -93,6 +133,11 @@ const FeiManagementPage = () => {
 
     if (filterStatut !== "tous") {
       query = query.eq("statut", filterStatut);
+    }
+
+    // Responsable : filtrer par service uniquement
+    if (isResponsable && !isAdmin && userService) {
+      query = query.eq("service", userService);
     }
 
     const { data, error } = await query;
@@ -117,6 +162,8 @@ const FeiManagementPage = () => {
     setEditPlanAction(fei.plan_action || "");
     setEditRetour(fei.retour_declarant || "");
     setEditActions(fei.actions_correctives || "");
+    // ARS
+    setEditDateEnvoiArs(fei.date_envoi_ars || "");
     // Réinitialiser la section PACQ à chaque ouverture
     setPacqTitre(fei.plan_action ? fei.plan_action.slice(0, 120) : "");
     setPacqResponsable("");
@@ -140,6 +187,12 @@ const FeiManagementPage = () => {
 
     if (editStatut === "cloture" || editStatut === "archive") {
       updates.date_cloture = new Date().toISOString().split("T")[0];
+    }
+
+    // Mise à jour ARS pour les FEIGS
+    if (selectedFei.categorie_fei === "feigs") {
+      updates.date_envoi_ars = editDateEnvoiArs || null;
+      updates.statut_ars = editDateEnvoiArs ? "declare" : "a_declarer";
     }
 
     const { error } = await supabase
@@ -201,6 +254,17 @@ const FeiManagementPage = () => {
       ? feiList.length
       : feiList.filter((f) => f.statut === statut).length;
 
+  const handleDownloadPdf = (fei: FeiRecord, e: React.MouseEvent) => {
+    e.stopPropagation(); // éviter d'ouvrir le dialog de gestion
+    const gestionnaire = agents.find((a) => a.id === fei.managed_by);
+    const pdf = generateFeiPdf({
+      ...fei,
+      gestionnaire_nom: gestionnaire?.full_name,
+    });
+    const catPrefix = fei.categorie_fei === "feigs" ? "FEIGS" : fei.categorie_fei === "feig" ? "FEIG" : "FEI";
+    pdf.save(`${catPrefix}_COMPLET_${fei.id.slice(0, 8)}_${fei.date_evenement}.pdf`);
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -252,21 +316,36 @@ const FeiManagementPage = () => {
         <div className="space-y-3">
           {feiList.map((fei) => {
             const statutInfo = getStatutInfo(fei.statut);
+            const isFeigs = fei.categorie_fei === "feigs";
+            const isFeig = fei.categorie_fei === "feig";
             return (
               <Card
                 key={fei.id}
-                className="cursor-pointer hover:shadow-md transition-shadow"
+                className={`cursor-pointer hover:shadow-md transition-shadow ${
+                  isFeigs
+                    ? "border-l-4 border-l-red-500 bg-red-50/30 hover:shadow-red-100"
+                    : isFeig
+                    ? "border-l-4 border-l-orange-400 bg-orange-50/20"
+                    : ""
+                }`}
                 onClick={() => openDetail(fei)}
               >
                 <CardContent className="py-4">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <CategorieBadge categorie={fei.categorie_fei} />
                         <Badge variant="outline" className={statutInfo.color}>
                           {statutInfo.label}
                         </Badge>
                         <GraviteBadge gravite={fei.gravite} />
                         <Badge variant="secondary">{fei.type_fei}</Badge>
+                        {fei.service && (
+                          <Badge variant="outline" className="text-muted-foreground border-muted-foreground/30">
+                            {fei.service}
+                          </Badge>
+                        )}
+                        {isFeigs && <ArsBadge statut_ars={fei.statut_ars} />}
                       </div>
                       <p className="text-sm font-medium truncate">{fei.description}</p>
                       <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
@@ -284,7 +363,16 @@ const FeiManagementPage = () => {
                         </span>
                       </div>
                     </div>
-                    <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={(e) => handleDownloadPdf(fei, e)}
+                        title="Télécharger le PDF complet"
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      >
+                        <FileDown className="w-4 h-4" />
+                      </button>
+                      <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -331,11 +419,13 @@ const FeiManagementPage = () => {
               </DialogHeader>
 
               {/* FEI Summary */}
-              <Card className="bg-secondary/50">
+              <Card className={`${selectedFei.categorie_fei === "feigs" ? "bg-red-50/40 border-red-200" : selectedFei.categorie_fei === "feig" ? "bg-orange-50/30 border-orange-200" : "bg-secondary/50"}`}>
                 <CardContent className="py-4 space-y-2">
                   <div className="flex items-center gap-2 flex-wrap">
+                    <CategorieBadge categorie={selectedFei.categorie_fei} />
                     <Badge variant="secondary">{selectedFei.type_fei}</Badge>
                     <GraviteBadge gravite={selectedFei.gravite} />
+                    {selectedFei.categorie_fei === "feigs" && <ArsBadge statut_ars={selectedFei.statut_ars} />}
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
@@ -346,6 +436,12 @@ const FeiManagementPage = () => {
                       <span className="text-muted-foreground">Lieu : </span>
                       {selectedFei.lieu}
                     </div>
+                    {selectedFei.service && (
+                      <div>
+                        <span className="text-muted-foreground">Service : </span>
+                        <span className="font-medium">{selectedFei.service}</span>
+                      </div>
+                    )}
                     <div className="col-span-2">
                       <span className="text-muted-foreground">Déclarant : </span>
                       {selectedFei.declarant_nom}
@@ -426,6 +522,60 @@ const FeiManagementPage = () => {
                   />
                 </div>
 
+                {/* ── Section ARS (FEIGS uniquement) ──────────────────── */}
+                {selectedFei.categorie_fei === "feigs" && (
+                  <div className="rounded-xl border-l-4 border-l-red-500 border border-red-200 bg-red-50/50 p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Building2 className="w-4 h-4 text-red-600" />
+                      <p className="text-sm font-semibold text-red-800">Déclaration ARS — FEIGS</p>
+                    </div>
+                    {/* Données déclarées (lecture seule) */}
+                    {selectedFei.nature_evenement_ars && (
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400">Nature de l'événement</p>
+                        <p className="text-xs text-red-900 bg-white/70 rounded p-2 border border-red-100">{selectedFei.nature_evenement_ars}</p>
+                      </div>
+                    )}
+                    {selectedFei.circonstances_ars && (
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400">Circonstances</p>
+                        <p className="text-xs text-red-900 bg-white/70 rounded p-2 border border-red-100">{selectedFei.circonstances_ars}</p>
+                      </div>
+                    )}
+                    {selectedFei.consequences_resident_ars && (
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400">Conséquences pour le résident</p>
+                        <p className="text-xs text-red-900 bg-white/70 rounded p-2 border border-red-100">{selectedFei.consequences_resident_ars}</p>
+                      </div>
+                    )}
+                    {selectedFei.mesures_prises_ars && (
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400">Mesures prises</p>
+                        <p className="text-xs text-red-900 bg-white/70 rounded p-2 border border-red-100">{selectedFei.mesures_prises_ars}</p>
+                      </div>
+                    )}
+                    {/* Champ date d'envoi à l'ARS */}
+                    <div className="border-t border-red-200 pt-3 space-y-1.5">
+                      <Label className="text-xs text-red-700 font-semibold flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Date d'envoi à l'ARS
+                        <span className="text-red-400 font-normal">(laisser vide si pas encore envoyé)</span>
+                      </Label>
+                      <Input
+                        type="date"
+                        value={editDateEnvoiArs}
+                        onChange={(e) => setEditDateEnvoiArs(e.target.value)}
+                        className="h-8 text-sm border-red-200 focus:border-red-400"
+                      />
+                      <p className="text-[11px] text-red-400">
+                        {editDateEnvoiArs
+                          ? `Statut : Déclaré à l'ARS le ${new Date(editDateEnvoiArs).toLocaleDateString("fr-FR")}`
+                          : "Statut : À déclarer à l'ARS"}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* ── Section PACQ ───────────────────────────────────── */}
                 <div className="rounded-xl border-l-4 border-l-emerald-400 border border-emerald-100 bg-emerald-50/50 p-4 space-y-3">
                   <div className="flex items-center gap-2">
@@ -485,17 +635,27 @@ const FeiManagementPage = () => {
                   <Button onClick={handleSave} disabled={saving} className="flex-1">
                     {saving ? "Enregistrement..." : "Enregistrer les modifications"}
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    title="Télécharger le PDF complet"
+                    onClick={(e) => handleDownloadPdf(selectedFei, e)}
+                  >
+                    <FileDown className="w-4 h-4" />
+                  </Button>
                   <Button variant="outline" onClick={() => setSelectedFei(null)}>
                     Annuler
                   </Button>
-                  <Button
-                    variant="destructive"
-                    size="icon"
-                    onClick={() => setDeleteDialogOpen(true)}
-                    title="Supprimer définitivement cette FEI"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  {isAdmin && (
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      onClick={() => setDeleteDialogOpen(true)}
+                      title="Supprimer définitivement cette FEI"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  )}
                 </div>
 
                 {selectedFei.managed_at && (

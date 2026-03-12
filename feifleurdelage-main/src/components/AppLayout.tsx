@@ -14,6 +14,7 @@ import {
   Sun,
   Moon,
   ClipboardCheck,
+  CalendarRange,
 } from "lucide-react";
 import { useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
@@ -21,7 +22,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 const AppLayout = ({ children }: { children: React.ReactNode }) => {
-  const { user, profile, isAdmin, signOut } = useAuth();
+  const { user, profile, isAdmin, isResponsable, userService, signOut } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
@@ -39,6 +40,12 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
           { to: "/plan-actions", label: "Plan d'Actions", icon: ClipboardCheck, section: "admin" },
           { to: "/agents", label: "Agents", icon: Users, section: "admin" },
           { to: "/statistiques", label: "Statistiques", icon: BarChart3, section: "admin" },
+          { to: "/suivi-instances", label: "Suivi des Instances", icon: CalendarRange, section: "admin" },
+        ]
+      : isResponsable
+      ? [
+          { to: "/gestion-fei", label: "Gestion FEI", icon: ClipboardList, section: "admin" },
+          { to: "/gestion-reclamations", label: "Gestion Réclamations", icon: MessageSquareWarning, section: "admin" },
         ]
       : []),
   ];
@@ -94,7 +101,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
               <div className={cn("pt-4 pb-1 px-2", collapsed && "px-0")}>
                 {!collapsed ? (
                   <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 font-body">
-                    Administration
+                    {isAdmin ? "Administration" : "Mon Service"}
                   </p>
                 ) : (
                   <div className="h-px bg-border mx-1" />
@@ -125,7 +132,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
                     {profile?.full_name || user?.email}
                   </p>
                   <p className="text-[10px] text-muted-foreground font-body">
-                    {isAdmin ? "Administrateur" : "Agent"}
+                    {isAdmin ? "Administrateur" : isResponsable ? `Responsable${userService ? ` — ${userService}` : ""}` : "Agent"}
                   </p>
                 </motion.div>
               )}

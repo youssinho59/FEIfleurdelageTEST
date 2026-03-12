@@ -16,12 +16,21 @@ import MesFeiPage from "@/pages/MesFeiPage";
 import AgentsManagementPage from "@/pages/AgentsManagementPage";
 import PlanActionsCorrectives from "@/pages/PlanActionsCorrectives";
 import MesActionsCorrectives from "@/pages/MesActionsCorrectives";
+import SuiviInstancesPage from "@/pages/SuiviInstancesPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const ProtectedRoute = ({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) => {
-  const { user, isAdmin, loading } = useAuth();
+const ProtectedRoute = ({
+  children,
+  adminOnly = false,
+  adminOrResponsable = false,
+}: {
+  children: React.ReactNode;
+  adminOnly?: boolean;
+  adminOrResponsable?: boolean;
+}) => {
+  const { user, isAdmin, isResponsable, loading } = useAuth();
 
   if (loading) {
     return (
@@ -33,6 +42,7 @@ const ProtectedRoute = ({ children, adminOnly = false }: { children: React.React
 
   if (!user) return <Navigate to="/login" replace />;
   if (adminOnly && !isAdmin) return <Navigate to="/" replace />;
+  if (adminOrResponsable && !isAdmin && !isResponsable) return <Navigate to="/" replace />;
 
   return <AppLayout>{children}</AppLayout>;
 };
@@ -56,11 +66,12 @@ const AppRoutes = () => {
       <Route path="/mes-fei" element={<ProtectedRoute><MesFeiPage /></ProtectedRoute>} />
       <Route path="/plaintes" element={<ProtectedRoute><PlaintesFormPage /></ProtectedRoute>} />
       <Route path="/statistiques" element={<ProtectedRoute adminOnly><StatsPage /></ProtectedRoute>} />
-      <Route path="/gestion-fei" element={<ProtectedRoute adminOnly><FeiManagementPage /></ProtectedRoute>} />
-      <Route path="/gestion-reclamations" element={<ProtectedRoute adminOnly><PlaintesManagementPage /></ProtectedRoute>} />
+      <Route path="/gestion-fei" element={<ProtectedRoute adminOrResponsable><FeiManagementPage /></ProtectedRoute>} />
+      <Route path="/gestion-reclamations" element={<ProtectedRoute adminOrResponsable><PlaintesManagementPage /></ProtectedRoute>} />
       <Route path="/agents" element={<ProtectedRoute adminOnly><AgentsManagementPage /></ProtectedRoute>} />
       <Route path="/plan-actions" element={<ProtectedRoute adminOnly><PlanActionsCorrectives /></ProtectedRoute>} />
       <Route path="/mes-actions" element={<ProtectedRoute><MesActionsCorrectives /></ProtectedRoute>} />
+      <Route path="/suivi-instances" element={<ProtectedRoute adminOnly><SuiviInstancesPage /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
