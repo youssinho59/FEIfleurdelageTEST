@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion } from "framer-motion";
 
 const LoginPage = () => {
+  const { applySession } = useAuth();
+  const navigate = useNavigate();
   const [nom, setNom] = useState("");
   const [prenom, setPrenom] = useState("");
   const [email, setEmail] = useState("");
@@ -24,19 +28,29 @@ const LoginPage = () => {
     e.preventDefault();
     setLoading(true);
     const fakeEmail = `${normalize(prenom)}.${normalize(nom)}@agent.internal`;
-    const { error } = await supabase.auth.signInWithPassword({ email: fakeEmail, password });
-    if (error) toast.error("Identifiants incorrects");
-    else toast.success("Connexion réussie !");
-    setLoading(false);
+    const { data, error } = await supabase.auth.signInWithPassword({ email: fakeEmail, password });
+    if (error || !data.session) {
+      toast.error("Identifiants incorrects");
+      setLoading(false);
+    } else {
+      await applySession(data.session);
+      toast.success("Connexion réussie !");
+      navigate("/", { replace: true });
+    }
   };
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) toast.error("Identifiants incorrects");
-    else toast.success("Connexion réussie !");
-    setLoading(false);
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error || !data.session) {
+      toast.error("Identifiants incorrects");
+      setLoading(false);
+    } else {
+      await applySession(data.session);
+      toast.success("Connexion réussie !");
+      navigate("/", { replace: true });
+    }
   };
 
   return (
