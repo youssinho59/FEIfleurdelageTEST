@@ -12,6 +12,7 @@ type AuthContextType = {
   loading: boolean;
   userDataLoading: boolean;
   signOut: () => Promise<void>;
+  applySession: (session: Session) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType>({
@@ -24,6 +25,7 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   userDataLoading: false,
   signOut: async () => {},
+  applySession: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -38,7 +40,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [userDataLoading, setUserDataLoading] = useState(false);
 
-  // fetchUserData gère son propre état userDataLoading
   const fetchUserData = async (userId: string) => {
     setUserDataLoading(true);
     try {
@@ -73,10 +74,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUserDataLoading(false);
   };
 
+  // Appelé directement par LoginPage après signInWithPassword réussi.
+  // Ne dépend pas de onAuthStateChange pour le redirect.
+  const applySession = async (newSession: Session) => {
+    setSession(newSession);
+    setUser(newSession.user);
+    await fetchUserData(newSession.user.id);
+  };
+
+  // Déconnexion immédiate : on réinitialise l'état localement sans attendre
+  // que l'événement SIGNED_OUT remonte depuis Supabase.
+  const signOut = async () => {
+    resetUserData();
+    setLoading(false);
+    await supabase.auth.signOut().catch(() => {});
+  };
+
   useEffect(() => {
     let isMounted = true;
 
-    // Safety timeout : si getSession ne répond pas en 4s, on débloque quand même
     const safetyTimeout = setTimeout(() => {
       if (isMounted) {
         setLoading(false);
@@ -84,38 +100,34 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     }, 4000);
 
-    // ── 1. Session initiale ──────────────────────────────────────────────────
-    // On débloquer le routing dès que getSession() répond (lecture localStorage, rapide).
-    // fetchUserData tourne en arrière-plan via userDataLoading.
+    // ── Session initiale (lecture depuis localStorage, rapide) ───────────────
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!isMounted) return;
       clearTimeout(safetyTimeout);
       setSession(session);
       setUser(session?.user ?? null);
-      setLoading(false); // débloque le routing immédiatement
+      setLoading(false);
       if (session?.user) {
-        // fetchUserData appelle setUserDataLoading(true) de façon synchrone
-        // avant son premier await → React batch avec le render ci-dessus
         await fetchUserData(session.user.id);
       }
     });
 
-    // ── 2. Événements suivants ───────────────────────────────────────────────
+    // ── Événements suivants (TOKEN_REFRESHED, SIGNED_OUT côté serveur…) ──────
+    // SIGNED_IN est géré par applySession() dans LoginPage.
+    // On conserve l'écoute TOKEN_REFRESHED pour les refresh automatiques.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (!isMounted) return;
-        if (event === "INITIAL_SESSION") return;
+        if (event === "INITIAL_SESSION" || event === "SIGNED_IN") return;
 
-        if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        if (event === "TOKEN_REFRESHED") {
           setSession(session);
           setUser(session?.user ?? null);
           if (session?.user) {
-            // fetchUserData appelle setUserDataLoading(true) de façon synchrone
-            // → batché avec setUser dans le même rendu React 18
             await fetchUserData(session.user.id);
           }
-          setLoading(false);
         } else if (event === "SIGNED_OUT") {
+          // Peut arriver si le serveur révoque la session à distance
           resetUserData();
           setLoading(false);
         }
@@ -130,12 +142,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
-  };
-
   return (
-    <AuthContext.Provider value={{ session, user, profile, isAdmin, isResponsable, userService, loading, userDataLoading, signOut }}>
+    <AuthContext.Provider value={{ session, user, profile, isAdmin, isResponsable, userService, loading, userDataLoading, signOut, applySession }}>
       {children}
     </AuthContext.Provider>
   );
