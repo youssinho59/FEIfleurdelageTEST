@@ -10,6 +10,7 @@ type AuthContextType = {
   isResponsable: boolean;
   userService: string | null;
   loading: boolean;
+  userDataLoading: boolean;
   signOut: () => Promise<void>;
 };
 
@@ -21,6 +22,7 @@ const AuthContext = createContext<AuthContextType>({
   isResponsable: false,
   userService: null,
   loading: true,
+  userDataLoading: false,
   signOut: async () => {},
 });
 
@@ -34,8 +36,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isResponsable, setIsResponsable] = useState(false);
   const [userService, setUserService] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [userDataLoading, setUserDataLoading] = useState(false);
 
+  // fetchUserData gère son propre état userDataLoading
   const fetchUserData = async (userId: string) => {
+    setUserDataLoading(true);
     try {
       const [profileResult, rolesResult] = await Promise.all([
         supabase.from("profiles").select("full_name").eq("user_id", userId).maybeSingle(),
@@ -53,6 +58,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsAdmin(false);
       setIsResponsable(false);
       setUserService(null);
+    } finally {
+      setUserDataLoading(false);
     }
   };
 
@@ -63,38 +70,48 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsAdmin(false);
     setIsResponsable(false);
     setUserService(null);
+    setUserDataLoading(false);
   };
 
   useEffect(() => {
     let isMounted = true;
-    const safetyTimeout = setTimeout(() => setLoading(false), 8000);
+
+    // Safety timeout : si getSession ne répond pas en 4s, on débloque quand même
+    const safetyTimeout = setTimeout(() => {
+      if (isMounted) {
+        setLoading(false);
+        setUserDataLoading(false);
+      }
+    }, 4000);
 
     // ── 1. Session initiale ──────────────────────────────────────────────────
-    // getSession() garantit que le client Supabase a propagé ses headers auth
-    // avant d'interroger user_roles (évite la race condition avec INITIAL_SESSION)
+    // On débloquer le routing dès que getSession() répond (lecture localStorage, rapide).
+    // fetchUserData tourne en arrière-plan via userDataLoading.
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!isMounted) return;
+      clearTimeout(safetyTimeout);
       setSession(session);
       setUser(session?.user ?? null);
+      setLoading(false); // débloque le routing immédiatement
       if (session?.user) {
+        // fetchUserData appelle setUserDataLoading(true) de façon synchrone
+        // avant son premier await → React batch avec le render ci-dessus
         await fetchUserData(session.user.id);
       }
-      setLoading(false);
     });
 
     // ── 2. Événements suivants ───────────────────────────────────────────────
-    // onAuthStateChange écoute SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED.
-    // On ignore INITIAL_SESSION (déjà traité ci-dessus via getSession).
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (!isMounted) return;
         if (event === "INITIAL_SESSION") return;
 
-        setSession(session);
-        setUser(session?.user ?? null);
-
         if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+          setSession(session);
+          setUser(session?.user ?? null);
           if (session?.user) {
+            // fetchUserData appelle setUserDataLoading(true) de façon synchrone
+            // → batché avec setUser dans le même rendu React 18
             await fetchUserData(session.user.id);
           }
           setLoading(false);
@@ -118,7 +135,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ session, user, profile, isAdmin, isResponsable, userService, loading, signOut }}>
+    <AuthContext.Provider value={{ session, user, profile, isAdmin, isResponsable, userService, loading, userDataLoading, signOut }}>
       {children}
     </AuthContext.Provider>
   );

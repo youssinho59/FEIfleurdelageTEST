@@ -30,8 +30,9 @@ const ProtectedRoute = ({
   adminOnly?: boolean;
   adminOrResponsable?: boolean;
 }) => {
-  const { user, isAdmin, isResponsable, loading } = useAuth();
+  const { user, isAdmin, isResponsable, loading, userDataLoading } = useAuth();
 
+  // Attendre la session initiale
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -41,6 +42,17 @@ const ProtectedRoute = ({
   }
 
   if (!user) return <Navigate to="/login" replace />;
+
+  // Pour les pages avec restriction de rôle, attendre que les rôles soient chargés
+  // pour éviter la redirection prématurée (race condition admin)
+  if (userDataLoading && (adminOnly || adminOrResponsable)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
   if (adminOnly && !isAdmin) return <Navigate to="/" replace />;
   if (adminOrResponsable && !isAdmin && !isResponsable) return <Navigate to="/" replace />;
 
@@ -50,6 +62,8 @@ const ProtectedRoute = ({
 const AppRoutes = () => {
   const { user, loading } = useAuth();
 
+  // Bloquer uniquement pendant la vérification de session (lecture localStorage)
+  // userDataLoading est géré au niveau de chaque ProtectedRoute
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center gradient-warm">
