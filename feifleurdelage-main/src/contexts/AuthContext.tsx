@@ -56,36 +56,58 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout>;
+  const resetUserData = () => {
+    setSession(null);
+    setUser(null);
+    setProfile(null);
+    setIsAdmin(false);
+    setIsResponsable(false);
+    setUserService(null);
+  };
 
+  useEffect(() => {
+    let isMounted = true;
+    const safetyTimeout = setTimeout(() => setLoading(false), 8000);
+
+    // ── 1. Session initiale ──────────────────────────────────────────────────
+    // getSession() garantit que le client Supabase a propagé ses headers auth
+    // avant d'interroger user_roles (évite la race condition avec INITIAL_SESSION)
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!isMounted) return;
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        await fetchUserData(session.user.id);
+      }
+      setLoading(false);
+    });
+
+    // ── 2. Événements suivants ───────────────────────────────────────────────
+    // onAuthStateChange écoute SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED.
+    // On ignore INITIAL_SESSION (déjà traité ci-dessus via getSession).
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        if (!isMounted) return;
+        if (event === "INITIAL_SESSION") return;
+
         setSession(session);
         setUser(session?.user ?? null);
 
-        if (session?.user) {
-          setTimeout(async () => {
+        if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+          if (session?.user) {
             await fetchUserData(session.user.id);
-            setLoading(false);
-          }, 0);
-        } else {
-          setProfile(null);
-          setIsAdmin(false);
-          setIsResponsable(false);
-          setUserService(null);
+          }
+          setLoading(false);
+        } else if (event === "SIGNED_OUT") {
+          resetUserData();
           setLoading(false);
         }
       }
     );
 
-    // Safety timeout
-    timeoutId = setTimeout(() => {
-      setLoading(false);
-    }, 8000);
-
     return () => {
-      clearTimeout(timeoutId);
+      isMounted = false;
+      clearTimeout(safetyTimeout);
       subscription.unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
