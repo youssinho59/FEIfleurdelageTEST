@@ -12,12 +12,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { MessageSquareWarning, Calendar, User, FileText, ChevronRight, Trash2, ClipboardCheck } from "lucide-react";
+import { generatePlaintePdf } from "@/lib/pdfGenerator";
+import { MessageSquareWarning, Calendar, User, FileText, ChevronRight, Trash2, ClipboardCheck, Search, MessageCircle, FileDown } from "lucide-react";
 
 const STATUTS_PLAINTE = [
-  { value: "nouveau", label: "Nouveau", color: "bg-blue-100 text-blue-800" },
-  { value: "en_cours", label: "En cours", color: "bg-yellow-100 text-yellow-800" },
-  { value: "traite", label: "Traité", color: "bg-green-100 text-green-800" },
+  { value: "nouveau",   label: "Nouveau",    color: "bg-blue-100 text-blue-800" },
+  { value: "en_cours",  label: "En cours",   color: "bg-yellow-100 text-yellow-800" },
+  { value: "traite",    label: "Traité",     color: "bg-green-100 text-green-800" },
 ];
 
 const getStatutInfo = (statut: string) =>
@@ -34,10 +35,20 @@ type PlainteRecord = {
   statut: string;
   created_at: string;
   user_id: string;
+  service: string | null;
+  precisions: string | null;
+  // Champs gestion admin
+  analyse: string | null;
+  plan_action: string | null;
+  actions_correctives: string | null;
+  retour_declarant: string | null;
+  managed_by: string | null;
+  managed_at: string | null;
+  date_cloture: string | null;
 };
 
 const PlaintesManagementPage = () => {
-  const { user } = useAuth();
+  const { user, isAdmin, isResponsable, userService } = useAuth();
   const agents = useAgents();
   const [plaintesList, setPlaintesList] = useState<PlainteRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,9 +59,12 @@ const PlaintesManagementPage = () => {
   const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Formulaire de gestion
+  // Formulaire de gestion (aligné sur FEI)
   const [editStatut, setEditStatut] = useState("");
-  const [editReponse, setEditReponse] = useState("");
+  const [editAnalyse, setEditAnalyse] = useState("");
+  const [editPlanAction, setEditPlanAction] = useState("");
+  const [editActions, setEditActions] = useState("");
+  const [editRetour, setEditRetour] = useState("");
 
   // Section PACQ
   const [pacqTitre, setPacqTitre] = useState("");
@@ -65,6 +79,12 @@ const PlaintesManagementPage = () => {
       .select("*")
       .order("created_at", { ascending: false });
     if (filterStatut !== "tous") query = query.eq("statut", filterStatut);
+
+    // Responsable : filtrer par service uniquement
+    if (isResponsable && !isAdmin && userService) {
+      query = query.eq("service", userService);
+    }
+
     const { data, error } = await query;
     if (error) setFetchError(error.message + (error.details ? ` — ${error.details}` : ""));
     else setFetchError(null);
@@ -77,8 +97,11 @@ const PlaintesManagementPage = () => {
   const openDetail = (plainte: PlainteRecord) => {
     setSelectedPlainte(plainte);
     setEditStatut(plainte.statut);
-    setEditReponse(plainte.reponse_apportee || "");
-    setPacqTitre(plainte.objet ? plainte.objet.slice(0, 120) : "");
+    setEditAnalyse(plainte.analyse || "");
+    setEditPlanAction(plainte.plan_action || "");
+    setEditActions(plainte.actions_correctives || "");
+    setEditRetour(plainte.retour_declarant || "");
+    setPacqTitre(plainte.plan_action ? plainte.plan_action.slice(0, 120) : "");
     setPacqResponsable("");
     setPacqDateEcheance("");
     setPacqPriorite("moyenne");
@@ -88,10 +111,21 @@ const PlaintesManagementPage = () => {
     if (!selectedPlainte || !user) return;
     setSaving(true);
 
-    const { error } = await supabase
-      .from("plaintes")
-      .update({ statut: editStatut, reponse_apportee: editReponse || null })
-      .eq("id", selectedPlainte.id);
+    const updates: Record<string, unknown> = {
+      statut:              editStatut,
+      analyse:             editAnalyse || null,
+      plan_action:         editPlanAction || null,
+      actions_correctives: editActions || null,
+      retour_declarant:    editRetour || null,
+      managed_by:          user.id,
+      managed_at:          new Date().toISOString(),
+    };
+
+    if (editStatut === "traite") {
+      updates.date_cloture = new Date().toISOString().split("T")[0];
+    }
+
+    const { error } = await supabase.from("plaintes").update(updates).eq("id", selectedPlainte.id);
 
     if (error) {
       toast.error("Erreur lors de la mise à jour : " + error.message);
@@ -103,15 +137,15 @@ const PlaintesManagementPage = () => {
     if (pacqResponsable && pacqDateEcheance) {
       const selectedAgent = agents.find((a) => a.id === pacqResponsable);
       const { error: pacqError } = await supabase.from("actions_correctives").insert({
-        titre: pacqTitre.trim() || `Action corrective — Plainte : ${selectedPlainte.objet}`,
-        description: editReponse.trim() || null,
-        responsable: selectedAgent?.full_name || "",
+        titre:        pacqTitre.trim() || `Action corrective — Plainte : ${selectedPlainte.objet}`,
+        description:  editActions.trim() || null,
+        responsable:  selectedAgent?.full_name || "",
         responsable_id: pacqResponsable,
         date_echeance: pacqDateEcheance,
-        priorite: pacqPriorite,
-        statut: "a_faire",
-        plainte_id: selectedPlainte.id,
-        user_id: user.id,
+        priorite:     pacqPriorite,
+        statut:       "a_faire",
+        plainte_id:   selectedPlainte.id,
+        user_id:      user.id,
       });
       if (pacqError) {
         toast.warning("Plainte mise à jour, mais erreur PACQ : " + pacqError.message);
@@ -140,6 +174,16 @@ const PlaintesManagementPage = () => {
       fetchPlaintes();
     }
     setDeleting(false);
+  };
+
+  const handleDownloadPdf = (plainte: PlainteRecord, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const gestionnaire = agents.find((a) => a.id === plainte.managed_by);
+    const pdf = generatePlaintePdf({
+      ...plainte,
+      gestionnaire_nom: gestionnaire?.full_name,
+    });
+    pdf.save(`Plainte_COMPLET_${plainte.id.slice(0, 8)}_${plainte.date_plainte}.pdf`);
   };
 
   return (
@@ -184,16 +228,34 @@ const PlaintesManagementPage = () => {
         <div className="space-y-3">
           {plaintesList.map((plainte) => {
             const statutInfo = getStatutInfo(plainte.statut);
+            const hasAdminFeedback = plainte.analyse || plainte.plan_action || plainte.retour_declarant;
             return (
-              <Card key={plainte.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => openDetail(plainte)}>
+              <Card
+                key={plainte.id}
+                className="cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => openDetail(plainte)}
+              >
                 <CardContent className="py-4">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <Badge variant="outline" className={statutInfo.color}>{statutInfo.label}</Badge>
                         <Badge variant="secondary">{plainte.demandeur}</Badge>
+                        {plainte.service && (
+                          <Badge variant="outline" className="text-muted-foreground border-muted-foreground/30">
+                            {plainte.service}
+                          </Badge>
+                        )}
+                        {hasAdminFeedback && (
+                          <Badge className="bg-primary/10 text-primary border-primary/20 gap-1">
+                            <MessageCircle className="w-3 h-3" /> Traitement en cours
+                          </Badge>
+                        )}
                       </div>
-                      <p className="text-sm font-medium truncate">{plainte.objet}</p>
+                      <p className="text-sm font-medium truncate">
+                        {plainte.objet}
+                        {plainte.precisions && <span className="text-muted-foreground font-normal"> — {plainte.precisions}</span>}
+                      </p>
                       <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
@@ -205,7 +267,16 @@ const PlaintesManagementPage = () => {
                         </span>
                       </div>
                     </div>
-                    <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={(e) => handleDownloadPdf(plainte, e)}
+                        title="Télécharger le PDF complet"
+                        className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      >
+                        <FileDown className="w-4 h-4" />
+                      </button>
+                      <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -259,19 +330,34 @@ const PlaintesManagementPage = () => {
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div><span className="text-muted-foreground">Date : </span>{new Date(selectedPlainte.date_plainte).toLocaleDateString("fr-FR")}</div>
                     <div><span className="text-muted-foreground">Déclarant : </span>{selectedPlainte.declarant_nom}</div>
+                    {selectedPlainte.service && (
+                      <div className="col-span-2">
+                        <span className="text-muted-foreground">Service : </span>
+                        <span className="font-medium">{selectedPlainte.service}</span>
+                      </div>
+                    )}
                   </div>
                   <div>
-                    <span className="text-sm font-medium flex items-center gap-1 mb-1"><FileText className="w-3 h-3" /> Objet</span>
-                    <p className="text-sm">{selectedPlainte.objet}</p>
+                    <span className="text-sm font-medium flex items-center gap-1 mb-1"><FileText className="w-3 h-3" /> Catégorie</span>
+                    <p className="text-sm font-medium">{selectedPlainte.objet}</p>
+                    {selectedPlainte.precisions && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{selectedPlainte.precisions}</p>
+                    )}
                   </div>
                   <div>
                     <span className="text-sm font-medium mb-1 block">Description</span>
                     <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedPlainte.description}</p>
                   </div>
+                  {selectedPlainte.reponse_apportee && (
+                    <div>
+                      <span className="text-sm text-muted-foreground">Réponse initiale (déclarant) : </span>
+                      <p className="text-sm mt-1">{selectedPlainte.reponse_apportee}</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
-              {/* Formulaire de gestion */}
+              {/* ── Formulaire de gestion ──────────────────────────── */}
               <div className="space-y-4 mt-2">
                 <div className="space-y-2">
                   <Label>Statut</Label>
@@ -286,13 +372,46 @@ const PlaintesManagementPage = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="reponse">Réponse apportée / Mesures prises</Label>
+                  <Label htmlFor="actions">Actions correctives mises en place</Label>
                   <Textarea
-                    id="reponse"
-                    value={editReponse}
-                    onChange={(e) => setEditReponse(e.target.value)}
-                    placeholder="Réponse communiquée au demandeur, mesures correctives engagées..."
+                    id="actions"
+                    value={editActions}
+                    onChange={(e) => setEditActions(e.target.value)}
+                    placeholder="Mesures concrètes mises en œuvre suite à la réclamation..."
                     rows={3}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="analyse">Analyse de la réclamation</Label>
+                  <Textarea
+                    id="analyse"
+                    value={editAnalyse}
+                    onChange={(e) => setEditAnalyse(e.target.value)}
+                    placeholder="Analyse des causes, facteurs, contexte de la réclamation..."
+                    rows={3}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="plan_action">Plan d'action</Label>
+                  <Textarea
+                    id="plan_action"
+                    value={editPlanAction}
+                    onChange={(e) => setEditPlanAction(e.target.value)}
+                    placeholder="Actions correctives et préventives, échéances, responsables..."
+                    rows={3}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="retour">Retour au déclarant</Label>
+                  <Textarea
+                    id="retour"
+                    value={editRetour}
+                    onChange={(e) => setEditRetour(e.target.value)}
+                    placeholder="Message de retour à communiquer au déclarant..."
+                    rows={2}
                   />
                 </div>
 
@@ -353,13 +472,35 @@ const PlaintesManagementPage = () => {
                   <Button onClick={handleSave} disabled={saving} className="flex-1">
                     {saving ? "Enregistrement..." : "Enregistrer les modifications"}
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    title="Télécharger le PDF complet"
+                    onClick={(e) => handleDownloadPdf(selectedPlainte, e)}
+                  >
+                    <FileDown className="w-4 h-4" />
+                  </Button>
                   <Button variant="outline" onClick={() => setSelectedPlainte(null)}>
                     Annuler
                   </Button>
-                  <Button variant="destructive" size="icon" onClick={() => setDeleteDialogOpen(true)} title="Supprimer cette réclamation">
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  {isAdmin && (
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      onClick={() => setDeleteDialogOpen(true)}
+                      title="Supprimer cette réclamation"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  )}
                 </div>
+
+                {selectedPlainte.managed_at && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    Dernière modification le {new Date(selectedPlainte.managed_at).toLocaleDateString("fr-FR")} à{" "}
+                    {new Date(selectedPlainte.managed_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                )}
               </div>
             </>
           )}

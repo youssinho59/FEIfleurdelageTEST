@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { generatePlaintePdf } from "@/lib/pdfGenerator";
-import { MessageSquareWarning, Save, Calendar, User, FileText, MessageCircle, ArrowRight } from "lucide-react";
+import { PLAINTE_CATEGORIES } from "@/lib/plaintesCategories";
+import { MessageSquareWarning, Save, Calendar, FileText, MessageCircle, ArrowRight, Briefcase } from "lucide-react";
 
 const DEMANDEUR_TYPES = [
   "Résident",
@@ -19,6 +20,15 @@ const DEMANDEUR_TYPES = [
   "Personnel",
   "Visiteur",
   "Autre",
+];
+
+const SERVICES = [
+  "Administration",
+  "Cuisine",
+  "Technique",
+  "Lingerie",
+  "Animation",
+  "Soins/Hôtellerie",
 ];
 
 const container = {
@@ -31,12 +41,14 @@ const item = {
 };
 
 const PlaintesFormPage = () => {
-  const { user, profile } = useAuth();
+  const { user, profile, userService } = useAuth();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     date_plainte: new Date().toISOString().split("T")[0],
     demandeur: "",
+    service: userService || "",
     objet: "",
+    precisions: "",
     description: "",
     reponse_apportee: "",
   });
@@ -47,7 +59,13 @@ const PlaintesFormPage = () => {
     setLoading(true);
 
     const plainteData = {
-      ...form,
+      date_plainte: form.date_plainte,
+      demandeur: form.demandeur,
+      service: form.service || null,
+      objet: form.objet,
+      precisions: form.precisions || null,
+      description: form.description,
+      reponse_apportee: form.reponse_apportee || null,
       user_id: user.id,
       declarant_nom: profile?.full_name || user.email || "Inconnu",
     };
@@ -86,7 +104,8 @@ const PlaintesFormPage = () => {
                 <table style="width: 100%; border-collapse: collapse;">
                   <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Date</td><td style="padding: 6px 0;">${new Date(data.date_plainte).toLocaleDateString("fr-FR")}</td></tr>
                   <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Demandeur</td><td style="padding: 6px 0; font-weight: bold;">${data.demandeur}</td></tr>
-                  <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Objet</td><td style="padding: 6px 0;">${data.objet}</td></tr>
+                  <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Catégorie</td><td style="padding: 6px 0;">${data.objet}</td></tr>
+                  ${data.precisions ? `<tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Précisions</td><td style="padding: 6px 0;">${data.precisions}</td></tr>` : ""}
                   <tr><td style="padding: 6px 0; color: #8c8278; font-size: 13px;">Déclarant</td><td style="padding: 6px 0;">${data.declarant_nom}</td></tr>
                 </table>
                 <p style="color: #6b6b6b; font-size: 13px; margin-top: 16px;">Le document PDF complet est joint à cet email.</p>
@@ -111,7 +130,9 @@ const PlaintesFormPage = () => {
     setForm({
       date_plainte: new Date().toISOString().split("T")[0],
       demandeur: "",
+      service: userService || "",
       objet: "",
+      precisions: "",
       description: "",
       reponse_apportee: "",
     });
@@ -240,22 +261,75 @@ const PlaintesFormPage = () => {
             </Card>
           </motion.div>
 
-          {/* Section: Objet */}
+          {/* Section: Catégorie (remplace Objet) */}
           <motion.div variants={item}>
             <Card className="border-border/50 shadow-warm overflow-hidden">
               <div className="px-5 py-3 bg-accent/30 border-b border-border/50 flex items-center gap-2">
                 <FileText className="w-4 h-4 text-accent-foreground" />
-                <span className="text-sm font-semibold text-foreground">Objet</span>
+                <span className="text-sm font-semibold text-foreground">Qualification de la plainte</span>
+              </div>
+              <CardContent className="p-5 space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="objet">Catégorie <span className="text-destructive">*</span></Label>
+                  <Select
+                    value={form.objet}
+                    onValueChange={(v) => setForm({ ...form, objet: v })}
+                    required
+                  >
+                    <SelectTrigger id="objet">
+                      <SelectValue placeholder="Sélectionnez une catégorie…" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-80">
+                      {PLAINTE_CATEGORIES.map((famille) => (
+                        <SelectGroup key={famille.famille}>
+                          <SelectLabel
+                            className="text-[11px] font-bold uppercase tracking-widest px-2 py-1.5"
+                            style={{ color: famille.color }}
+                          >
+                            {famille.famille}
+                          </SelectLabel>
+                          {famille.items.map((cat) => (
+                            <SelectItem key={cat} value={cat} className="pl-5">
+                              {cat}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="precisions">
+                    Précisions <span className="text-muted-foreground text-xs">(optionnel)</span>
+                  </Label>
+                  <Input
+                    id="precisions"
+                    value={form.precisions}
+                    onChange={(e) => setForm({ ...form, precisions: e.target.value })}
+                    placeholder="Complétez si nécessaire…"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Section: Réponse immédiate apportée */}
+          <motion.div variants={item}>
+            <Card className="border-border/50 shadow-warm overflow-hidden">
+              <div className="px-5 py-3 bg-success/10 border-b border-border/50 flex items-center gap-2">
+                <MessageCircle className="w-4 h-4 text-success" />
+                <span className="text-sm font-semibold text-foreground">Réponse immédiate apportée</span>
               </div>
               <CardContent className="p-5">
                 <div className="space-y-2">
-                  <Label htmlFor="objet">Objet de la plainte</Label>
-                  <Input
-                    id="objet"
-                    value={form.objet}
-                    onChange={(e) => setForm({ ...form, objet: e.target.value })}
-                    placeholder="Objet de la plainte ou réclamation..."
-                    required
+                  <Label htmlFor="reponse">Mesures prises ou réponse donnée <span className="text-muted-foreground">(optionnel)</span></Label>
+                  <Textarea
+                    id="reponse"
+                    value={form.reponse_apportee}
+                    onChange={(e) => setForm({ ...form, reponse_apportee: e.target.value })}
+                    placeholder="Décrivez la réponse ou les mesures prises immédiatement suite à cette réclamation..."
+                    rows={3}
                   />
                 </div>
               </CardContent>
@@ -266,17 +340,17 @@ const PlaintesFormPage = () => {
           <motion.div variants={item}>
             <Card className="border-border/50 shadow-warm overflow-hidden">
               <div className="px-5 py-3 bg-secondary/50 border-b border-border/50 flex items-center gap-2">
-                <User className="w-4 h-4 text-foreground" />
+                <MessageSquareWarning className="w-4 h-4 text-foreground" />
                 <span className="text-sm font-semibold text-foreground">Description détaillée</span>
               </div>
               <CardContent className="p-5">
                 <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
+                  <Label htmlFor="description">Description complète de la situation</Label>
                   <Textarea
                     id="description"
                     value={form.description}
                     onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    placeholder="Décrivez la situation en détail..."
+                    placeholder="Décrivez la situation en détail, le contexte, les personnes concernées..."
                     rows={4}
                     required
                   />
@@ -285,23 +359,34 @@ const PlaintesFormPage = () => {
             </Card>
           </motion.div>
 
-          {/* Section: Réponse */}
+          {/* Section: Service */}
           <motion.div variants={item}>
             <Card className="border-border/50 shadow-warm overflow-hidden">
-              <div className="px-5 py-3 bg-success/10 border-b border-border/50 flex items-center gap-2">
-                <MessageCircle className="w-4 h-4 text-success" />
-                <span className="text-sm font-semibold text-foreground">Réponse apportée</span>
+              <div className="px-5 py-3 bg-muted/40 border-b border-border/50 flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm font-semibold text-foreground">Service</span>
               </div>
               <CardContent className="p-5">
                 <div className="space-y-2">
-                  <Label htmlFor="reponse">Réponse ou mesures prises</Label>
-                  <Textarea
-                    id="reponse"
-                    value={form.reponse_apportee}
-                    onChange={(e) => setForm({ ...form, reponse_apportee: e.target.value })}
-                    placeholder="Réponse ou mesures prises..."
-                    rows={3}
-                  />
+                  <Label htmlFor="service">Service concerné <span className="text-destructive">*</span></Label>
+                  <Select
+                    value={form.service}
+                    onValueChange={(v) => setForm({ ...form, service: v })}
+                    disabled={!!userService}
+                    required
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sélectionnez un service" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SERVICES.map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {userService && (
+                    <p className="text-xs text-muted-foreground">Service pré-sélectionné selon votre rôle.</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -312,7 +397,7 @@ const PlaintesFormPage = () => {
             <Button
               type="submit"
               className="w-full gap-2 h-12 text-base font-semibold rounded-xl shadow-warm"
-              disabled={loading || !form.demandeur}
+              disabled={loading || !form.demandeur || !form.objet || !form.service}
             >
               <Save className="w-5 h-5" />
               {loading ? "Enregistrement..." : "Enregistrer et générer le PDF"}

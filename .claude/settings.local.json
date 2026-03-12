@@ -3,7 +3,13 @@
     "allow": [
       "Bash(cd \"C:\\\\Users\\\\ybena\\\\Desktop\\\\Application FEI EHPAD\\\\feifleurdelage-main\\\\feifleurdelage-main\" && npm run build 2>&1 | tail -30)",
       "Bash(cd \"C:\\\\Users\\\\ybena\\\\Desktop\\\\Application FEI EHPAD\\\\feifleurdelage-main\\\\feifleurdelage-main\" && npm run build 2>&1 | tail -20)",
-      "Bash(cd \"C:\\\\Users\\\\ybena\\\\Desktop\\\\Application FEI EHPAD\\\\feifleurdelage-main\\\\feifleurdelage-main\" && npm run build 2>&1 | tail -10)"
+      "Bash(cd \"C:\\\\Users\\\\ybena\\\\Desktop\\\\Application FEI EHPAD\\\\feifleurdelage-main\\\\feifleurdelage-main\" && npm run build 2>&1 | tail -10)",
+      "Bash(cd \"C:\\\\Users\\\\ybena\\\\Desktop\\\\Application FEI EHPAD\\\\feifleurdelage-main\\\\feifleurdelage-main\" && npx tsc --noEmit 2>&1 | head -50)",
+      "Bash(grep -l \"CREATE TABLE.*plainte\" \"C:\\\\Users\\\\ybena\\\\Desktop\\\\Application FEI EHPAD\\\\feifleurdelage-main\\\\feifleurdelage-main\\\\supabase\\\\migrations\"/*.sql)",
+      "Bash(cd \"C:\\\\Users\\\\ybena\\\\Desktop\\\\Application FEI EHPAD\\\\feifleurdelage-main\\\\feifleurdelage-main\" && npx tsc --noEmit 2>&1)",
+      "Bash(find \"C:/Users/ybena/Desktop/Application FEI EHPAD/feifleurdelage-main/feifleurdelage-main\" -name \"*.sql\" -o -name \"*.ts\" -path \"*/functions/*\" 2>/dev/null | head -20)",
+      "Bash(cd \"C:/Users/ybena/Desktop/Application FEI EHPAD/feifleurdelage-main/feifleurdelage-main\" && npx tsc --noEmit 2>&1 | head -50)",
+      "Bash(cd \"C:/Users/ybena/Desktop/Application FEI EHPAD/feifleurdelage-main/feifleurdelage-main\" && npx tsc --noEmit 2>&1)"
     ]
   }
 }
