@@ -22,7 +22,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 const AppLayout = ({ children }: { children: React.ReactNode }) => {
-  const { user, profile, isAdmin, isResponsable, userService, signOut } = useAuth();
+  const { user, profile, isAdmin, isResponsable, userServices, signOut } = useAuth();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
@@ -132,7 +132,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
                     {profile?.full_name || user?.email}
                   </p>
                   <p className="text-[10px] text-muted-foreground font-body">
-                    {isAdmin ? "Administrateur" : isResponsable ? `Responsable${userService ? ` — ${userService}` : ""}` : "Agent"}
+                    {isAdmin ? "Administrateur" : isResponsable ? `Responsable${userServices.length > 0 ? ` — ${userServices.join(", ")}` : ""}` : "Agent"}
                   </p>
                 </motion.div>
               )}

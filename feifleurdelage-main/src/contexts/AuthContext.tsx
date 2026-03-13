@@ -8,7 +8,7 @@ type AuthContextType = {
   profile: { full_name: string } | null;
   isAdmin: boolean;
   isResponsable: boolean;
-  userService: string | null;
+  userServices: string[];
   loading: boolean;
   userDataLoading: boolean;
   signOut: () => Promise<void>;
@@ -21,7 +21,7 @@ const AuthContext = createContext<AuthContextType>({
   profile: null,
   isAdmin: false,
   isResponsable: false,
-  userService: null,
+  userServices: [],
   loading: true,
   userDataLoading: false,
   signOut: async () => {},
@@ -36,16 +36,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [profile, setProfile] = useState<{ full_name: string } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isResponsable, setIsResponsable] = useState(false);
-  const [userService, setUserService] = useState<string | null>(null);
+  const [userServices, setUserServices] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [userDataLoading, setUserDataLoading] = useState(false);
 
   const fetchUserData = async (userId: string) => {
     setUserDataLoading(true);
     try {
-      const [profileResult, rolesResult] = await Promise.all([
+      const [profileResult, rolesResult, servicesResult] = await Promise.all([
         supabase.from("profiles").select("full_name").eq("user_id", userId).maybeSingle(),
-        supabase.from("user_roles").select("role, service").eq("user_id", userId),
+        supabase.from("user_roles").select("role").eq("user_id", userId),
+        supabase.from("user_services").select("service").eq("user_id", userId),
       ]);
       setProfile(profileResult.data);
       if (rolesResult.error) {
@@ -53,15 +54,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
       const roles = rolesResult.data || [];
       setIsAdmin(roles.some((r) => r.role === "admin"));
-      const responsableRow = roles.find((r) => r.role === "responsable");
-      setIsResponsable(!!responsableRow);
-      setUserService(responsableRow?.service ?? null);
+      setIsResponsable(roles.some((r) => r.role === "responsable"));
+      setUserServices(servicesResult.data?.map((s) => s.service) ?? []);
     } catch (e) {
       console.error("Error fetching user data:", e);
       setProfile(null);
       setIsAdmin(false);
       setIsResponsable(false);
-      setUserService(null);
+      setUserServices([]);
     } finally {
       setUserDataLoading(false);
     }
@@ -73,7 +73,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setProfile(null);
     setIsAdmin(false);
     setIsResponsable(false);
-    setUserService(null);
+    setUserServices([]);
     setUserDataLoading(false);
   };
 
@@ -146,7 +146,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ session, user, profile, isAdmin, isResponsable, userService, loading, userDataLoading, signOut, applySession }}>
+    <AuthContext.Provider value={{ session, user, profile, isAdmin, isResponsable, userServices, loading, userDataLoading, signOut, applySession }}>
       {children}
     </AuthContext.Provider>
   );

@@ -164,6 +164,24 @@ export type Database = {
         }
         Relationships: []
       }
+      user_services: {
+        Row: {
+          id: string
+          user_id: string
+          service: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          service: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          service?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

@@ -65,7 +65,9 @@ const BASE_STEPS = [
 const ARS_STEP = { id: 5, label: "Déclaration ARS", icon: Building2 };
 
 const FeiFormPage = () => {
-  const { user, profile, userService } = useAuth();
+  const { user, profile, userServices } = useAuth();
+  const singleService = userServices.length === 1 ? userServices[0] : null;
+  const serviceOptions = userServices.length > 0 ? userServices : SERVICES;
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
@@ -76,7 +78,7 @@ const FeiFormPage = () => {
     type_fei: "",
     actions_correctives: "",
     categorie_fei: "standard",
-    service: userService || "",
+    service: singleService || "",
     nature_evenement_ars: "",
     circonstances_ars: "",
     consequences_resident_ars: "",
@@ -187,7 +189,7 @@ const FeiFormPage = () => {
       date_evenement: new Date().toISOString().split("T")[0],
       lieu: "", description: "", gravite: 0, type_fei: "", actions_correctives: "",
       categorie_fei: "standard",
-      service: userService || "",
+      service: singleService || "",
       nature_evenement_ars: "", circonstances_ars: "", consequences_resident_ars: "", mesures_prises_ars: "",
     });
     setStep(1);
@@ -342,14 +344,14 @@ const FeiFormPage = () => {
                   <Select
                     value={form.service}
                     onValueChange={(v) => setForm({ ...form, service: v })}
-                    disabled={!!userService}
+                    disabled={!!singleService}
                   >
                     <SelectTrigger><SelectValue placeholder="Sélectionnez un service" /></SelectTrigger>
                     <SelectContent>
-                      {SERVICES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                      {serviceOptions.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  {userService && (
+                  {singleService && (
                     <p className="text-xs text-muted-foreground">Service pré-sélectionné selon votre rôle.</p>
                   )}
                 </div>
