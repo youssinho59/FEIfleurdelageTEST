@@ -54,25 +54,30 @@ Deno.serve(async (req) => {
 
     // --- LISTER tous les agents ---
     if (action === "list") {
-      const [profilesRes, rolesListRes, usersRes] = await Promise.all([
+      const [profilesRes, rolesListRes, servicesListRes, usersRes] = await Promise.all([
         fetch(`${supabaseUrl}/rest/v1/profiles?select=user_id,full_name,created_at`, { headers: adminHeaders }),
-        fetch(`${supabaseUrl}/rest/v1/user_roles?select=user_id,role,service`, { headers: adminHeaders }),
+        fetch(`${supabaseUrl}/rest/v1/user_roles?select=user_id,role`, { headers: adminHeaders }),
+        fetch(`${supabaseUrl}/rest/v1/user_services?select=user_id,service`, { headers: adminHeaders }),
         fetch(`${supabaseUrl}/auth/v1/admin/users?per_page=1000`, { headers: adminHeaders }),
       ]);
 
       const profiles = await profilesRes.json();
       const allRoles = await rolesListRes.json();
+      const allServices = await servicesListRes.json();
       const usersData = await usersRes.json();
       const users = usersData.users ?? [];
 
       if (!Array.isArray(profiles)) return json({ error: "Erreur chargement profils : " + JSON.stringify(profiles) });
       const safeRoles = Array.isArray(allRoles) ? allRoles : [];
+      const safeServices = Array.isArray(allServices) ? allServices : [];
 
       const agents = profiles.map((p: any) => {
         const authUser = users.find((u: any) => u.id === p.user_id);
         const userRoles = safeRoles.filter((r: any) => r.user_id === p.user_id);
         const roleNames = userRoles.map((r: any) => r.role);
-        const responsableRow = userRoles.find((r: any) => r.role === "responsable");
+        const userServicesList = safeServices
+          .filter((s: any) => s.user_id === p.user_id)
+          .map((s: any) => s.service);
         const resolvedRole = roleNames.includes("admin")
           ? "admin"
           : roleNames.includes("responsable")
@@ -84,7 +89,7 @@ Deno.serve(async (req) => {
           email: authUser?.email || "",
           identifiant: (authUser?.email || "").replace("@agent.internal", ""),
           role: resolvedRole,
-          service: responsableRow?.service ?? null,
+          services: userServicesList,
           created_at: p.created_at,
         };
       });
@@ -94,7 +99,7 @@ Deno.serve(async (req) => {
 
     // --- MODIFIER un agent ---
     if (action === "update") {
-      const { userId, fullName, role, service, password, nom, prenom } = body;
+      const { userId, fullName, role, services, password, nom, prenom } = body;
       if (!userId) return json({ error: "userId requis" });
 
       if (fullName !== undefined) {
@@ -117,6 +122,11 @@ Deno.serve(async (req) => {
       }
 
       if (role !== undefined) {
+        if (role === "responsable" && (!Array.isArray(services) || services.length === 0)) {
+          return json({ error: "Au moins un service est requis pour le rôle Responsable" });
+        }
+
+        // Remplacer le rôle
         await fetch(`${supabaseUrl}/rest/v1/user_roles?user_id=eq.${userId}`, {
           method: "DELETE",
           headers: adminHeaders,
@@ -124,12 +134,21 @@ Deno.serve(async (req) => {
         await fetch(`${supabaseUrl}/rest/v1/user_roles`, {
           method: "POST",
           headers: adminHeaders,
-          body: JSON.stringify({
-            user_id: userId,
-            role,
-            ...(role === "responsable" && service ? { service } : {}),
-          }),
+          body: JSON.stringify({ user_id: userId, role }),
         });
+
+        // Remplacer les services
+        await fetch(`${supabaseUrl}/rest/v1/user_services?user_id=eq.${userId}`, {
+          method: "DELETE",
+          headers: adminHeaders,
+        });
+        if (role === "responsable" && Array.isArray(services) && services.length > 0) {
+          await fetch(`${supabaseUrl}/rest/v1/user_services`, {
+            method: "POST",
+            headers: adminHeaders,
+            body: JSON.stringify(services.map((s: string) => ({ user_id: userId, service: s }))),
+          });
+        }
       }
 
       if (password) {

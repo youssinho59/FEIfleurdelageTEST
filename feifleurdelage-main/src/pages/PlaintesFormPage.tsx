@@ -41,12 +41,14 @@ const item = {
 };
 
 const PlaintesFormPage = () => {
-  const { user, profile, userService } = useAuth();
+  const { user, profile, userServices } = useAuth();
+  const singleService = userServices.length === 1 ? userServices[0] : null;
+  const serviceOptions = userServices.length > 0 ? userServices : SERVICES;
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     date_plainte: new Date().toISOString().split("T")[0],
     demandeur: "",
-    service: userService || "",
+    service: singleService || "",
     objet: "",
     precisions: "",
     description: "",
@@ -130,7 +132,7 @@ const PlaintesFormPage = () => {
     setForm({
       date_plainte: new Date().toISOString().split("T")[0],
       demandeur: "",
-      service: userService || "",
+      service: singleService || "",
       objet: "",
       precisions: "",
       description: "",
@@ -372,19 +374,19 @@ const PlaintesFormPage = () => {
                   <Select
                     value={form.service}
                     onValueChange={(v) => setForm({ ...form, service: v })}
-                    disabled={!!userService}
+                    disabled={!!singleService}
                     required
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Sélectionnez un service" />
                     </SelectTrigger>
                     <SelectContent>
-                      {SERVICES.map((s) => (
+                      {serviceOptions.map((s) => (
                         <SelectItem key={s} value={s}>{s}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  {userService && (
+                  {singleService && (
                     <p className="text-xs text-muted-foreground">Service pré-sélectionné selon votre rôle.</p>
                   )}
                 </div>

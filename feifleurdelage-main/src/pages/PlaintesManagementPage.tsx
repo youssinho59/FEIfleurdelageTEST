@@ -48,7 +48,7 @@ type PlainteRecord = {
 };
 
 const PlaintesManagementPage = () => {
-  const { user, isAdmin, isResponsable, userService } = useAuth();
+  const { user, isAdmin, isResponsable, userServices } = useAuth();
   const agents = useAgents();
   const [plaintesList, setPlaintesList] = useState<PlainteRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,9 +80,9 @@ const PlaintesManagementPage = () => {
       .order("created_at", { ascending: false });
     if (filterStatut !== "tous") query = query.eq("statut", filterStatut);
 
-    // Responsable : filtrer par service uniquement
-    if (isResponsable && !isAdmin && userService) {
-      query = query.eq("service", userService);
+    // Responsable : filtrer par ses services (potentiellement plusieurs)
+    if (isResponsable && !isAdmin && userServices.length > 0) {
+      query = query.in("service", userServices);
     }
 
     const { data, error } = await query;
