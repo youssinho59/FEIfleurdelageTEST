@@ -48,6 +48,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         supabase.from("user_roles").select("role, service").eq("user_id", userId),
       ]);
       setProfile(profileResult.data);
+      if (rolesResult.error) {
+        console.error("Erreur lecture user_roles:", rolesResult.error);
+      }
       const roles = rolesResult.data || [];
       setIsAdmin(roles.some((r) => r.role === "admin"));
       const responsableRow = roles.find((r) => r.role === "responsable");
