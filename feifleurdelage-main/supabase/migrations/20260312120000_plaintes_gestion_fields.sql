@@ -1,7 +1,7 @@
 -- Ajout des champs de gestion admin sur la table plaintes (alignement avec la table fei)
 
 ALTER TABLE public.plaintes
-  ADD COLUMN IF NOT EXISTS analyse          TEXT,
+  ADD COLUMN IF NOT EXISTS "analyse"        TEXT,
   ADD COLUMN IF NOT EXISTS plan_action      TEXT,
   ADD COLUMN IF NOT EXISTS actions_correctives TEXT,
   ADD COLUMN IF NOT EXISTS retour_declarant TEXT,
