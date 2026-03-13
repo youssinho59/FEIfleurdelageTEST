@@ -167,7 +167,7 @@ const FeiManagementPage = () => {
     setEditAnalyse(fei.analyse || "");
     setEditPlanAction(fei.plan_action || "");
     setEditRetour(fei.retour_declarant || "");
-    setEditActions(fei.actions_correctives || "");
+    setEditActions("");
     // ARS
     setEditDateEnvoiArs(fei.date_envoi_ars || "");
     setEditNatureArs(fei.nature_evenement_ars || "");
@@ -523,23 +523,23 @@ const FeiManagementPage = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="plan_action">Plan d'action</Label>
-                  <Textarea
-                    id="plan_action"
-                    value={editPlanAction}
-                    onChange={(e) => setEditPlanAction(e.target.value)}
-                    placeholder="Actions correctives et préventives, échéances, responsables..."
-                    rows={3}
-                  />
-                </div>
-
-                <div className="space-y-2">
                   <Label htmlFor="actions_correctives">Actions correctives mises en place</Label>
                   <Textarea
                     id="actions_correctives"
                     value={editActions}
                     onChange={(e) => setEditActions(e.target.value)}
                     placeholder="Mesures concrètes mises en œuvre..."
+                    rows={3}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="plan_action">Plan d'action</Label>
+                  <Textarea
+                    id="plan_action"
+                    value={editPlanAction}
+                    onChange={(e) => setEditPlanAction(e.target.value)}
+                    placeholder="Actions correctives et préventives, échéances, responsables..."
                     rows={3}
                   />
                 </div>
