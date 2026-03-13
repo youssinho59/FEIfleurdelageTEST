@@ -110,6 +110,7 @@ const FeiManagementPage = () => {
 
   // Edit form state
   const [editStatut, setEditStatut] = useState("");
+  const [editCategorie, setEditCategorie] = useState("standard");
   const [editAnalyse, setEditAnalyse] = useState("");
   const [editPlanAction, setEditPlanAction] = useState("");
   const [editRetour, setEditRetour] = useState("");
@@ -117,6 +118,10 @@ const FeiManagementPage = () => {
 
   // Section ARS (FEIGS)
   const [editDateEnvoiArs, setEditDateEnvoiArs] = useState("");
+  const [editNatureArs, setEditNatureArs] = useState("");
+  const [editCirconstancesArs, setEditCirconstancesArs] = useState("");
+  const [editConsequencesArs, setEditConsequencesArs] = useState("");
+  const [editMesuresprisesArs, setEditMesuresprisesArs] = useState("");
 
   // Section PACQ
   const [pacqTitre, setPacqTitre] = useState("");
@@ -158,12 +163,17 @@ const FeiManagementPage = () => {
   const openDetail = (fei: FeiRecord) => {
     setSelectedFei(fei);
     setEditStatut(fei.statut);
+    setEditCategorie(fei.categorie_fei || "standard");
     setEditAnalyse(fei.analyse || "");
     setEditPlanAction(fei.plan_action || "");
     setEditRetour(fei.retour_declarant || "");
     setEditActions(fei.actions_correctives || "");
     // ARS
     setEditDateEnvoiArs(fei.date_envoi_ars || "");
+    setEditNatureArs(fei.nature_evenement_ars || "");
+    setEditCirconstancesArs(fei.circonstances_ars || "");
+    setEditConsequencesArs(fei.consequences_resident_ars || "");
+    setEditMesuresprisesArs(fei.mesures_prises_ars || "");
     // Réinitialiser la section PACQ à chaque ouverture
     setPacqTitre(fei.plan_action ? fei.plan_action.slice(0, 120) : "");
     setPacqResponsable("");
@@ -189,10 +199,19 @@ const FeiManagementPage = () => {
       updates.date_cloture = new Date().toISOString().split("T")[0];
     }
 
+    // Catégorie (admin peut qualifier)
+    updates.categorie_fei = editCategorie;
+
     // Mise à jour ARS pour les FEIGS
-    if (selectedFei.categorie_fei === "feigs") {
+    if (editCategorie === "feigs") {
       updates.date_envoi_ars = editDateEnvoiArs || null;
       updates.statut_ars = editDateEnvoiArs ? "declare" : "a_declarer";
+      updates.nature_evenement_ars = editNatureArs || null;
+      updates.circonstances_ars = editCirconstancesArs || null;
+      updates.consequences_resident_ars = editConsequencesArs || null;
+      updates.mesures_prises_ars = editMesuresprisesArs || null;
+    } else {
+      updates.statut_ars = null;
     }
 
     const { error } = await supabase
@@ -479,6 +498,20 @@ const FeiManagementPage = () => {
                 </div>
 
                 <div className="space-y-2">
+                  <Label>Catégorie FEI</Label>
+                  <Select value={editCategorie} onValueChange={setEditCategorie}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="standard">Standard</SelectItem>
+                      <SelectItem value="feig">FEIG — Événement grave</SelectItem>
+                      <SelectItem value="feigs">FEIGS — Événement grave sériel (ARS)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="analyse">Analyse de l'événement</Label>
                   <Textarea
                     id="analyse"
@@ -523,37 +556,52 @@ const FeiManagementPage = () => {
                 </div>
 
                 {/* ── Section ARS (FEIGS uniquement) ──────────────────── */}
-                {selectedFei.categorie_fei === "feigs" && (
+                {editCategorie === "feigs" && (
                   <div className="rounded-xl border-l-4 border-l-red-500 border border-red-200 bg-red-50/50 p-4 space-y-3">
                     <div className="flex items-center gap-2">
                       <Building2 className="w-4 h-4 text-red-600" />
                       <p className="text-sm font-semibold text-red-800">Déclaration ARS — FEIGS</p>
                     </div>
-                    {/* Données déclarées (lecture seule) */}
-                    {selectedFei.nature_evenement_ars && (
-                      <div className="space-y-1">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400">Nature de l'événement</p>
-                        <p className="text-xs text-red-900 bg-white/70 rounded p-2 border border-red-100">{selectedFei.nature_evenement_ars}</p>
-                      </div>
-                    )}
-                    {selectedFei.circonstances_ars && (
-                      <div className="space-y-1">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400">Circonstances</p>
-                        <p className="text-xs text-red-900 bg-white/70 rounded p-2 border border-red-100">{selectedFei.circonstances_ars}</p>
-                      </div>
-                    )}
-                    {selectedFei.consequences_resident_ars && (
-                      <div className="space-y-1">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400">Conséquences pour le résident</p>
-                        <p className="text-xs text-red-900 bg-white/70 rounded p-2 border border-red-100">{selectedFei.consequences_resident_ars}</p>
-                      </div>
-                    )}
-                    {selectedFei.mesures_prises_ars && (
-                      <div className="space-y-1">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-red-400">Mesures prises</p>
-                        <p className="text-xs text-red-900 bg-white/70 rounded p-2 border border-red-100">{selectedFei.mesures_prises_ars}</p>
-                      </div>
-                    )}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-red-700 font-semibold uppercase tracking-wider">Nature de l'événement</Label>
+                      <Textarea
+                        value={editNatureArs}
+                        onChange={(e) => setEditNatureArs(e.target.value)}
+                        placeholder="Nature et type de l'événement grave sériel..."
+                        rows={2}
+                        className="text-sm border-red-200 focus:border-red-400"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-red-700 font-semibold uppercase tracking-wider">Circonstances</Label>
+                      <Textarea
+                        value={editCirconstancesArs}
+                        onChange={(e) => setEditCirconstancesArs(e.target.value)}
+                        placeholder="Circonstances dans lesquelles l'événement s'est produit..."
+                        rows={2}
+                        className="text-sm border-red-200 focus:border-red-400"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-red-700 font-semibold uppercase tracking-wider">Conséquences pour le résident</Label>
+                      <Textarea
+                        value={editConsequencesArs}
+                        onChange={(e) => setEditConsequencesArs(e.target.value)}
+                        placeholder="Conséquences observées pour le(s) résident(s) concerné(s)..."
+                        rows={2}
+                        className="text-sm border-red-200 focus:border-red-400"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-red-700 font-semibold uppercase tracking-wider">Mesures prises</Label>
+                      <Textarea
+                        value={editMesuresprisesArs}
+                        onChange={(e) => setEditMesuresprisesArs(e.target.value)}
+                        placeholder="Mesures immédiates prises pour protéger les résidents..."
+                        rows={2}
+                        className="text-sm border-red-200 focus:border-red-400"
+                      />
+                    </div>
                     {/* Champ date d'envoi à l'ARS */}
                     <div className="border-t border-red-200 pt-3 space-y-1.5">
                       <Label className="text-xs text-red-700 font-semibold flex items-center gap-1">
