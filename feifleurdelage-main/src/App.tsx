@@ -17,6 +17,8 @@ import AgentsManagementPage from "@/pages/AgentsManagementPage";
 import PlanActionsCorrectives from "@/pages/PlanActionsCorrectives";
 import MesActionsCorrectives from "@/pages/MesActionsCorrectives";
 import SuiviInstancesPage from "@/pages/SuiviInstancesPage";
+import PacqStrategiquePage from "@/pages/PacqStrategiquePage";
+import MesPacqStrategiquePage from "@/pages/MesPacqStrategiquePage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -86,6 +88,8 @@ const AppRoutes = () => {
       <Route path="/plan-actions" element={<ProtectedRoute adminOnly><PlanActionsCorrectives /></ProtectedRoute>} />
       <Route path="/mes-actions" element={<ProtectedRoute><MesActionsCorrectives /></ProtectedRoute>} />
       <Route path="/suivi-instances" element={<ProtectedRoute adminOnly><SuiviInstancesPage /></ProtectedRoute>} />
+      <Route path="/pacq-strategique" element={<ProtectedRoute adminOrResponsable><PacqStrategiquePage /></ProtectedRoute>} />
+      <Route path="/mes-pacq-strategique" element={<ProtectedRoute><MesPacqStrategiquePage /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

@@ -182,6 +182,99 @@ export type Database = {
         }
         Relationships: []
       }
+      pacq_strategique_objectifs: {
+        Row: {
+          id: string
+          thematique: string
+          titre: string
+          ordre: number
+          created_at: string
+          created_by: string | null
+        }
+        Insert: {
+          id?: string
+          thematique: string
+          titre: string
+          ordre?: number
+          created_at?: string
+          created_by?: string | null
+        }
+        Update: {
+          id?: string
+          thematique?: string
+          titre?: string
+          ordre?: number
+          created_at?: string
+          created_by?: string | null
+        }
+        Relationships: []
+      }
+      pacq_strategique_actions: {
+        Row: {
+          id: string
+          objectif_id: string
+          titre: string
+          description: string | null
+          pilote_id: string | null
+          date_echeance: string | null
+          statut: string
+          ordre: number
+          created_at: string
+          created_by: string | null
+        }
+        Insert: {
+          id?: string
+          objectif_id: string
+          titre: string
+          description?: string | null
+          pilote_id?: string | null
+          date_echeance?: string | null
+          statut?: string
+          ordre?: number
+          created_at?: string
+          created_by?: string | null
+        }
+        Update: {
+          id?: string
+          objectif_id?: string
+          titre?: string
+          description?: string | null
+          pilote_id?: string | null
+          date_echeance?: string | null
+          statut?: string
+          ordre?: number
+          created_at?: string
+          created_by?: string | null
+        }
+        Relationships: []
+      }
+      pacq_strategique_indicateurs: {
+        Row: {
+          id: string
+          action_id: string
+          annee: number
+          commentaire: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          action_id: string
+          annee: number
+          commentaire?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          action_id?: string
+          annee?: number
+          commentaire?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

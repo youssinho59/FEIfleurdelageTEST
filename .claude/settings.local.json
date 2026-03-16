@@ -12,7 +12,8 @@
       "Bash(cd \"C:/Users/ybena/Desktop/Application FEI EHPAD/feifleurdelage-main/feifleurdelage-main\" && npx tsc --noEmit 2>&1)",
       "Bash(cd \"C:/Users/ybena/Desktop/Application FEI EHPAD/feifleurdelage-main/feifleurdelage-main\" && npx tsc --noEmit 2>&1 | head -40)",
       "Bash(find \"C:/Users/ybena/Desktop/Application FEI EHPAD/feifleurdelage-main\" -name \"*.env\" -o -name \"supabase.json\" -o -name \"config.toml\" 2>/dev/null | head -10)",
-      "Bash(npx supabase:*)"
+      "Bash(npx supabase:*)",
+      "Bash(cd \"C:\\\\Users\\\\ybena\\\\Desktop\\\\Application FEI EHPAD\\\\feifleurdelage-main\\\\feifleurdelage-main\" && npx tsc --noEmit 2>&1 | head -60)"
     ]
   }
 }
