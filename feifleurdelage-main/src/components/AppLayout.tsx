@@ -17,6 +17,7 @@ import {
   CalendarRange,
   Target,
   CheckSquare,
+  FolderOpen,
 } from "lucide-react";
 import { useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
@@ -36,12 +37,14 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
     { to: "/plaintes", label: "Plaintes & Réclamations", icon: MessageSquareWarning, section: "agent" },
     { to: "/mes-actions", label: "Mes actions correctives", icon: CheckSquare, section: "agent" },
     { to: "/mes-pacq-strategique", label: "Mes actions PACQ Strat.", icon: Target, section: "agent" },
+    { to: "/classeur", label: "Classeur documentaire", icon: FolderOpen, section: "agent" },
     ...(isAdmin
       ? [
           { to: "/gestion-fei", label: "Gestion FEI", icon: ClipboardList, section: "admin" },
           { to: "/gestion-reclamations", label: "Gestion Réclamations", icon: MessageSquareWarning, section: "admin" },
           { to: "/plan-actions", label: "PACQ opérationnel", icon: CheckSquare, section: "admin" },
           { to: "/pacq-strategique", label: "PACQ Stratégique", icon: Target, section: "admin" },
+          { to: "/classeur-admin", label: "Classeur documentaire", icon: FolderOpen, section: "admin" },
           { to: "/agents", label: "Agents", icon: Users, section: "admin" },
           { to: "/statistiques", label: "Statistiques", icon: BarChart3, section: "admin" },
           { to: "/suivi-instances", label: "Suivi des Instances", icon: CalendarRange, section: "admin" },
@@ -52,6 +55,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
           { to: "/gestion-reclamations", label: "Gestion Réclamations", icon: MessageSquareWarning, section: "admin" },
           { to: "/plan-actions", label: "PACQ opérationnel", icon: CheckSquare, section: "admin" },
           { to: "/pacq-strategique", label: "PACQ Stratégique", icon: Target, section: "admin" },
+          { to: "/classeur-admin", label: "Classeur documentaire", icon: FolderOpen, section: "admin" },
         ]
       : []),
   ];

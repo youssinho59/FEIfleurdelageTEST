@@ -275,6 +275,84 @@ export type Database = {
         }
         Relationships: []
       }
+      classeur_categories: {
+        Row: {
+          id: string
+          nom: string
+          ordre: number
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          nom: string
+          ordre?: number
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          nom?: string
+          ordre?: number
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      classeur_procedures: {
+        Row: {
+          id: string
+          categorie_id: string
+          titre: string
+          description: string | null
+          pdf_filename: string
+          services: string[]
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          categorie_id: string
+          titre: string
+          description?: string | null
+          pdf_filename: string
+          services?: string[]
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          categorie_id?: string
+          titre?: string
+          description?: string | null
+          pdf_filename?: string
+          services?: string[]
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      classeur_emargements: {
+        Row: {
+          id: string
+          procedure_id: string
+          user_id: string
+          emarge_at: string
+        }
+        Insert: {
+          id?: string
+          procedure_id: string
+          user_id: string
+          emarge_at?: string
+        }
+        Update: {
+          id?: string
+          procedure_id?: string
+          user_id?: string
+          emarge_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
