@@ -8,12 +8,27 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
-import { ClipboardList, Calendar, MapPin, User, ChevronRight, Trash2, ClipboardCheck, Building2, AlertTriangle, CheckCircle2, FileDown } from "lucide-react";
+import {
+  ClipboardList, Calendar, MapPin, User, ChevronRight, Trash2, ClipboardCheck,
+  Building2, AlertTriangle, CheckCircle2, FileDown, Sparkles, Loader2,
+} from "lucide-react";
 import { generateFeiPdf } from "@/lib/pdfGenerator";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type SuggestionIA = {
+  titre: string;
+  description: string;
+  priorite: "haute" | "moyenne" | "faible";
+  thematique_pacq: string;
+  objectif_pacq: string;
+};
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUTS = [
   { value: "nouveau", label: "Nouveau", color: "bg-blue-100 text-blue-800" },
@@ -22,6 +37,12 @@ const STATUTS = [
   { value: "cloture", label: "Clôturé", color: "bg-green-100 text-green-800" },
   { value: "archive", label: "Archivé", color: "bg-muted text-muted-foreground" },
 ];
+
+const PRIORITE_IA_COLORS: Record<string, string> = {
+  haute: "bg-red-100 text-red-700",
+  moyenne: "bg-yellow-100 text-yellow-700",
+  faible: "bg-green-100 text-green-700",
+};
 
 const getStatutInfo = (statut: string) => STATUTS.find((s) => s.value === statut) || STATUTS[0];
 
@@ -129,6 +150,16 @@ const FeiManagementPage = () => {
   const [pacqDateEcheance, setPacqDateEcheance] = useState("");
   const [pacqPriorite, setPacqPriorite] = useState("moyenne");
 
+  // Section IA
+  const [iaSuggestions, setIaSuggestions] = useState<SuggestionIA[]>([]);
+  const [loadingIA, setLoadingIA] = useState(false);
+  const [iaPacqTarget, setIaPacqTarget] = useState<SuggestionIA | null>(null);
+  const [iaPacqResponsable, setIaPacqResponsable] = useState("");
+  const [iaPacqDateEcheance, setIaPacqDateEcheance] = useState("");
+  const [iaPacqSaving, setIaPacqSaving] = useState(false);
+
+  // ── Data loading ───────────────────────────────────────────────────────────
+
   const fetchFei = async () => {
     setLoading(true);
     let query = supabase
@@ -140,7 +171,6 @@ const FeiManagementPage = () => {
       query = query.eq("statut", filterStatut);
     }
 
-    // Responsable : filtrer par ses services (potentiellement plusieurs)
     if (isResponsable && !isAdmin && userServices.length > 0) {
       query = query.in("service", userServices);
     }
@@ -174,12 +204,16 @@ const FeiManagementPage = () => {
     setEditCirconstancesArs(fei.circonstances_ars || "");
     setEditConsequencesArs(fei.consequences_resident_ars || "");
     setEditMesuresprisesArs(fei.mesures_prises_ars || "");
-    // Réinitialiser la section PACQ à chaque ouverture
+    // PACQ
     setPacqTitre(fei.plan_action ? fei.plan_action.slice(0, 120) : "");
     setPacqResponsable("");
     setPacqDateEcheance("");
     setPacqPriorite("moyenne");
+    // IA reset
+    setIaSuggestions([]);
   };
+
+  // ── Save ───────────────────────────────────────────────────────────────────
 
   const handleSave = async () => {
     if (!selectedFei || !user) return;
@@ -199,10 +233,8 @@ const FeiManagementPage = () => {
       updates.date_cloture = new Date().toISOString().split("T")[0];
     }
 
-    // Catégorie (admin peut qualifier)
     updates.categorie_fei = editCategorie;
 
-    // Mise à jour ARS pour les FEIGS
     if (editCategorie === "feigs") {
       updates.date_envoi_ars = editDateEnvoiArs || null;
       updates.statut_ars = editDateEnvoiArs ? "declare" : "a_declarer";
@@ -225,7 +257,6 @@ const FeiManagementPage = () => {
       return;
     }
 
-    // Création automatique dans le PACQ si les champs sont renseignés
     if (pacqResponsable && pacqDateEcheance) {
       const selectedAgent = agents.find((a) => a.id === pacqResponsable);
       const { error: pacqError } = await supabase.from("actions_correctives").insert({
@@ -253,6 +284,8 @@ const FeiManagementPage = () => {
     setSaving(false);
   };
 
+  // ── Delete ─────────────────────────────────────────────────────────────────
+
   const handleDelete = async () => {
     if (!selectedFei) return;
     setDeleting(true);
@@ -268,13 +301,15 @@ const FeiManagementPage = () => {
     setDeleting(false);
   };
 
+  // ── PDF ────────────────────────────────────────────────────────────────────
+
   const countByStatut = (statut: string) =>
     statut === "tous"
       ? feiList.length
       : feiList.filter((f) => f.statut === statut).length;
 
   const handleDownloadPdf = (fei: FeiRecord, e: React.MouseEvent) => {
-    e.stopPropagation(); // éviter d'ouvrir le dialog de gestion
+    e.stopPropagation();
     const gestionnaire = agents.find((a) => a.id === fei.managed_by);
     const pdf = generateFeiPdf({
       ...fei,
@@ -283,6 +318,94 @@ const FeiManagementPage = () => {
     const catPrefix = fei.categorie_fei === "feigs" ? "FEIGS" : fei.categorie_fei === "feig" ? "FEIG" : "FEI";
     pdf.save(`${catPrefix}_COMPLET_${fei.id.slice(0, 8)}_${fei.date_evenement}.pdf`);
   };
+
+  // ── IA ─────────────────────────────────────────────────────────────────────
+
+  const callIAFei = async () => {
+    if (!selectedFei) return;
+    setLoadingIA(true);
+    setIaSuggestions([]);
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY ?? "",
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          system: "Tu es un expert qualité dans un EHPAD français. Tu proposes des actions correctives concrètes et des objectifs qualité associés selon le référentiel HAS/AVS ESSMS. Réponds UNIQUEMENT en JSON valide, sans markdown ni backticks.",
+          messages: [{
+            role: "user",
+            content: `Voici une fiche d'événement indésirable :
+
+Type : ${selectedFei.type_fei}
+Description : ${selectedFei.description}
+Gravité : ${selectedFei.gravite}/5
+Lieu : ${selectedFei.lieu}
+Service : ${selectedFei.service ?? "Non précisé"}
+Actions correctives initiales : ${selectedFei.actions_correctives || "Aucune"}
+
+Propose 3 actions correctives adaptées à cet événement.
+Pour chaque action, indique l'objectif PACQ stratégique associé parmi ces thématiques HAS/AVS : "La personne et ses droits", "L'accompagnement à l'autonomie", "L'accompagnement à la santé", "Les interactions avec l'environnement", "Le management et les ressources humaines", "La gestion et la qualité".
+Réponds avec ce JSON exact :
+{
+"actions": [
+{
+"titre": "...",
+"description": "...",
+"priorite": "haute|moyenne|faible",
+"thematique_pacq": "...",
+"objectif_pacq": "..."
+}
+]
+}`,
+          }],
+        }),
+      });
+      if (!response.ok) throw new Error(`Erreur API ${response.status}`);
+      const data = await response.json();
+      const text = data.content[0].text;
+      const parsed = JSON.parse(text);
+      setIaSuggestions(parsed.actions ?? []);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Erreur inconnue";
+      toast.error("Erreur IA : " + message);
+    } finally {
+      setLoadingIA(false);
+    }
+  };
+
+  const openIAPacqDialog = (s: SuggestionIA) => {
+    setIaPacqTarget(s);
+    setIaPacqResponsable("");
+    setIaPacqDateEcheance("");
+  };
+
+  const handleIAPacqSave = async () => {
+    if (!iaPacqTarget || !iaPacqDateEcheance || !user || !selectedFei) return;
+    setIaPacqSaving(true);
+    const agent = agents.find((a) => a.id === iaPacqResponsable);
+    const { error } = await supabase.from("actions_correctives").insert({
+      titre: iaPacqTarget.titre,
+      description: iaPacqTarget.description,
+      responsable: agent?.full_name ?? "",
+      responsable_id: iaPacqResponsable || null,
+      date_echeance: iaPacqDateEcheance,
+      priorite: iaPacqTarget.priorite,
+      statut: "a_faire",
+      fei_id: selectedFei.id,
+      user_id: user.id,
+    });
+    if (error) toast.error("Erreur création PACQ : " + error.message);
+    else { toast.success("Action créée dans le PACQ ✓"); setIaPacqTarget(null); }
+    setIaPacqSaving(false);
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
@@ -484,14 +607,10 @@ const FeiManagementPage = () => {
                 <div className="space-y-2">
                   <Label>Statut</Label>
                   <Select value={editStatut} onValueChange={setEditStatut}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {STATUTS.map((s) => (
-                        <SelectItem key={s.value} value={s.value}>
-                          {s.label}
-                        </SelectItem>
+                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -500,9 +619,7 @@ const FeiManagementPage = () => {
                 <div className="space-y-2">
                   <Label>Catégorie FEI</Label>
                   <Select value={editCategorie} onValueChange={setEditCategorie}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="standard">Standard</SelectItem>
                       <SelectItem value="feig">FEIG — Événement grave</SelectItem>
@@ -520,6 +637,67 @@ const FeiManagementPage = () => {
                     placeholder="Analyse des causes, facteurs contributifs, circonstances..."
                     rows={3}
                   />
+                </div>
+
+                {/* ── Suggestions IA ── */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-primary" />
+                      Suggestions IA
+                    </Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 h-7 text-xs border-primary/30 text-primary hover:bg-primary/5 shrink-0"
+                      disabled={loadingIA}
+                      onClick={callIAFei}
+                    >
+                      {loadingIA ? (
+                        <><Loader2 className="w-3.5 h-3.5 animate-spin" /> L'IA analyse la FEI…</>
+                      ) : (
+                        <><Sparkles className="w-3.5 h-3.5" /> Suggérer des actions via IA</>
+                      )}
+                    </Button>
+                  </div>
+                  {iaSuggestions.length > 0 && (
+                    <div className="space-y-2">
+                      {iaSuggestions.map((s, i) => (
+                        <div key={i} className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-1.5">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-xs font-semibold text-foreground leading-snug">{s.titre}</p>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium shrink-0 ${PRIORITE_IA_COLORS[s.priorite] ?? ""}`}>
+                              {s.priorite}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed">{s.description}</p>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border border-primary/30 text-primary">
+                            {s.thematique_pacq}
+                          </span>
+                          <div className="flex gap-2 pt-0.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="h-6 text-[10px] gap-1 px-2"
+                              onClick={() => openIAPacqDialog(s)}
+                            >
+                              <ClipboardCheck className="w-3 h-3" /> Ajouter au PACQ
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-6 text-[10px] gap-1 px-2"
+                              onClick={() => setEditAnalyse((prev) => prev ? `${prev}\n\n${s.titre} : ${s.description}` : `${s.titre} : ${s.description}`)}
+                            >
+                              Copier dans Analyse
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -555,7 +733,7 @@ const FeiManagementPage = () => {
                   />
                 </div>
 
-                {/* ── Section ARS (FEIGS uniquement) ──────────────────── */}
+                {/* ── Section ARS (FEIGS uniquement) ── */}
                 {editCategorie === "feigs" && (
                   <div className="rounded-xl border-l-4 border-l-red-500 border border-red-200 bg-red-50/50 p-4 space-y-3">
                     <div className="flex items-center gap-2">
@@ -564,57 +742,27 @@ const FeiManagementPage = () => {
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs text-red-700 font-semibold uppercase tracking-wider">Nature de l'événement</Label>
-                      <Textarea
-                        value={editNatureArs}
-                        onChange={(e) => setEditNatureArs(e.target.value)}
-                        placeholder="Nature et type de l'événement grave sériel..."
-                        rows={2}
-                        className="text-sm border-red-200 focus:border-red-400"
-                      />
+                      <Textarea value={editNatureArs} onChange={(e) => setEditNatureArs(e.target.value)} placeholder="Nature et type de l'événement grave sériel..." rows={2} className="text-sm border-red-200 focus:border-red-400" />
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs text-red-700 font-semibold uppercase tracking-wider">Circonstances</Label>
-                      <Textarea
-                        value={editCirconstancesArs}
-                        onChange={(e) => setEditCirconstancesArs(e.target.value)}
-                        placeholder="Circonstances dans lesquelles l'événement s'est produit..."
-                        rows={2}
-                        className="text-sm border-red-200 focus:border-red-400"
-                      />
+                      <Textarea value={editCirconstancesArs} onChange={(e) => setEditCirconstancesArs(e.target.value)} placeholder="Circonstances dans lesquelles l'événement s'est produit..." rows={2} className="text-sm border-red-200 focus:border-red-400" />
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs text-red-700 font-semibold uppercase tracking-wider">Conséquences pour le résident</Label>
-                      <Textarea
-                        value={editConsequencesArs}
-                        onChange={(e) => setEditConsequencesArs(e.target.value)}
-                        placeholder="Conséquences observées pour le(s) résident(s) concerné(s)..."
-                        rows={2}
-                        className="text-sm border-red-200 focus:border-red-400"
-                      />
+                      <Textarea value={editConsequencesArs} onChange={(e) => setEditConsequencesArs(e.target.value)} placeholder="Conséquences observées pour le(s) résident(s) concerné(s)..." rows={2} className="text-sm border-red-200 focus:border-red-400" />
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs text-red-700 font-semibold uppercase tracking-wider">Mesures prises</Label>
-                      <Textarea
-                        value={editMesuresprisesArs}
-                        onChange={(e) => setEditMesuresprisesArs(e.target.value)}
-                        placeholder="Mesures immédiates prises pour protéger les résidents..."
-                        rows={2}
-                        className="text-sm border-red-200 focus:border-red-400"
-                      />
+                      <Textarea value={editMesuresprisesArs} onChange={(e) => setEditMesuresprisesArs(e.target.value)} placeholder="Mesures immédiates prises pour protéger les résidents..." rows={2} className="text-sm border-red-200 focus:border-red-400" />
                     </div>
-                    {/* Champ date d'envoi à l'ARS */}
                     <div className="border-t border-red-200 pt-3 space-y-1.5">
                       <Label className="text-xs text-red-700 font-semibold flex items-center gap-1">
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         Date d'envoi à l'ARS
                         <span className="text-red-400 font-normal">(laisser vide si pas encore envoyé)</span>
                       </Label>
-                      <Input
-                        type="date"
-                        value={editDateEnvoiArs}
-                        onChange={(e) => setEditDateEnvoiArs(e.target.value)}
-                        className="h-8 text-sm border-red-200 focus:border-red-400"
-                      />
+                      <Input type="date" value={editDateEnvoiArs} onChange={(e) => setEditDateEnvoiArs(e.target.value)} className="h-8 text-sm border-red-200 focus:border-red-400" />
                       <p className="text-[11px] text-red-400">
                         {editDateEnvoiArs
                           ? `Statut : Déclaré à l'ARS le ${new Date(editDateEnvoiArs).toLocaleDateString("fr-FR")}`
@@ -624,7 +772,7 @@ const FeiManagementPage = () => {
                   </div>
                 )}
 
-                {/* ── Section PACQ ───────────────────────────────────── */}
+                {/* ── Section PACQ ── */}
                 <div className="rounded-xl border-l-4 border-l-emerald-400 border border-emerald-100 bg-emerald-50/50 p-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <ClipboardCheck className="w-4 h-4 text-emerald-600" />
@@ -633,43 +781,27 @@ const FeiManagementPage = () => {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-emerald-700">Titre de l'action</Label>
-                    <Input
-                      value={pacqTitre}
-                      onChange={(e) => setPacqTitre(e.target.value)}
-                      placeholder="Intitulé de l'action corrective…"
-                      className="h-8 text-sm"
-                    />
+                    <Input value={pacqTitre} onChange={(e) => setPacqTitre(e.target.value)} placeholder="Intitulé de l'action corrective…" className="h-8 text-sm" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label className="text-xs text-emerald-700">Responsable <span className="text-destructive">*</span></Label>
                       <Select value={pacqResponsable} onValueChange={setPacqResponsable}>
-                        <SelectTrigger className="h-8 text-sm">
-                          <SelectValue placeholder="Sélectionner un agent" />
-                        </SelectTrigger>
+                        <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Sélectionner un agent" /></SelectTrigger>
                         <SelectContent>
-                          {agents.map((a) => (
-                            <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>
-                          ))}
+                          {agents.map((a) => <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs text-emerald-700">Date d'échéance <span className="text-destructive">*</span></Label>
-                      <Input
-                        type="date"
-                        value={pacqDateEcheance}
-                        onChange={(e) => setPacqDateEcheance(e.target.value)}
-                        className="h-8 text-sm"
-                      />
+                      <Input type="date" value={pacqDateEcheance} onChange={(e) => setPacqDateEcheance(e.target.value)} className="h-8 text-sm" />
                     </div>
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs text-emerald-700">Priorité</Label>
                     <Select value={pacqPriorite} onValueChange={setPacqPriorite}>
-                      <SelectTrigger className="h-8 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
+                      <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="haute">🔴 Haute</SelectItem>
                         <SelectItem value="moyenne">🟡 Moyenne</SelectItem>
@@ -683,24 +815,12 @@ const FeiManagementPage = () => {
                   <Button onClick={handleSave} disabled={saving} className="flex-1">
                     {saving ? "Enregistrement..." : "Enregistrer les modifications"}
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    title="Télécharger le PDF complet"
-                    onClick={(e) => handleDownloadPdf(selectedFei, e)}
-                  >
+                  <Button variant="outline" size="icon" title="Télécharger le PDF complet" onClick={(e) => handleDownloadPdf(selectedFei, e)}>
                     <FileDown className="w-4 h-4" />
                   </Button>
-                  <Button variant="outline" onClick={() => setSelectedFei(null)}>
-                    Annuler
-                  </Button>
+                  <Button variant="outline" onClick={() => setSelectedFei(null)}>Annuler</Button>
                   {isAdmin && (
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      onClick={() => setDeleteDialogOpen(true)}
-                      title="Supprimer définitivement cette FEI"
-                    >
+                    <Button variant="destructive" size="icon" onClick={() => setDeleteDialogOpen(true)} title="Supprimer définitivement cette FEI">
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   )}
@@ -715,6 +835,50 @@ const FeiManagementPage = () => {
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog IA → PACQ ── */}
+      <Dialog open={!!iaPacqTarget} onOpenChange={(o) => !o && setIaPacqTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 font-display text-base">
+              <Sparkles className="w-4 h-4 text-primary" />
+              Ajouter au PACQ opérationnel
+            </DialogTitle>
+          </DialogHeader>
+          {iaPacqTarget && (
+            <div className="space-y-4 py-2">
+              <div className="rounded-lg bg-muted/60 px-3 py-2.5 space-y-1">
+                <p className="text-xs font-semibold text-foreground">{iaPacqTarget.titre}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">{iaPacqTarget.description}</p>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${PRIORITE_IA_COLORS[iaPacqTarget.priorite] ?? ""}`}>
+                  Priorité : {iaPacqTarget.priorite}
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Responsable</Label>
+                <Select value={iaPacqResponsable || "none"} onValueChange={(v) => setIaPacqResponsable(v === "none" ? "" : v)}>
+                  <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Sélectionner un agent" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Non assigné</SelectItem>
+                    {agents.map((a) => <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Date d'échéance <span className="text-destructive">*</span></Label>
+                <Input type="date" value={iaPacqDateEcheance} onChange={(e) => setIaPacqDateEcheance(e.target.value)} className="h-8 text-sm" />
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setIaPacqTarget(null)} disabled={iaPacqSaving}>Annuler</Button>
+            <Button size="sm" onClick={handleIAPacqSave} disabled={iaPacqSaving || !iaPacqDateEcheance} className="gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              {iaPacqSaving ? "Création…" : "Créer l'action"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
