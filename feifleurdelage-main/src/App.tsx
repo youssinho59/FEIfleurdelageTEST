@@ -79,8 +79,6 @@ const AppRoutes = () => {
 
   return (
     <Routes>
-      {/* Route publique — accessible sans authentification */}
-      <Route path="/plainte-externe" element={<PlainteExternePage />} />
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/fei" element={<ProtectedRoute><FeiFormPage /></ProtectedRoute>} />
@@ -108,9 +106,23 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <AuthProvider>
-          <AppRoutes />
-        </AuthProvider>
+        <Routes>
+          {/*
+           * Route TOTALEMENT publique — hors AuthProvider et hors AppRoutes.
+           * Aucune vérification de session, aucun loading, aucune redirection possible.
+           */}
+          <Route path="/plainte-externe" element={<PlainteExternePage />} />
+
+          {/* Toutes les autres routes passent par AuthProvider */}
+          <Route
+            path="*"
+            element={
+              <AuthProvider>
+                <AppRoutes />
+              </AuthProvider>
+            }
+          />
+        </Routes>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
