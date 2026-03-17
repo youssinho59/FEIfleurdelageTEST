@@ -43,19 +43,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const fetchUserData = async (userId: string) => {
     setUserDataLoading(true);
     try {
-      const [profileResult, rolesResult, servicesResult] = await Promise.all([
+      // Promise.allSettled : une requête qui échoue ne réinitialise pas les autres
+      const [profileSettled, rolesSettled, servicesSettled] = await Promise.allSettled([
         supabase.from("profiles").select("full_name").eq("user_id", userId).maybeSingle(),
         supabase.from("user_roles").select("role").eq("user_id", userId),
         supabase.from("user_services").select("service").eq("user_id", userId),
       ]);
-      setProfile(profileResult.data);
-      if (rolesResult.error) {
-        console.error("Erreur lecture user_roles:", rolesResult.error);
+
+      // Profil
+      if (profileSettled.status === "fulfilled") {
+        setProfile(profileSettled.value.data);
       }
-      const roles = rolesResult.data || [];
-      setIsAdmin(roles.some((r) => r.role === "admin"));
-      setIsResponsable(roles.some((r) => r.role === "responsable"));
-      setUserServices(servicesResult.data?.map((s) => s.service) ?? []);
+
+      // Rôles (critique — log explicite si échec)
+      if (rolesSettled.status === "rejected") {
+        console.error("Erreur lecture user_roles (exception):", rolesSettled.reason);
+        setIsAdmin(false);
+        setIsResponsable(false);
+      } else {
+        if (rolesSettled.value.error) {
+          console.error("Erreur lecture user_roles:", rolesSettled.value.error);
+        }
+        const roles = rolesSettled.value.data || [];
+        setIsAdmin(roles.some((r) => r.role === "admin"));
+        setIsResponsable(roles.some((r) => r.role === "responsable"));
+      }
+
+      // Services (non critique — échec silencieux)
+      if (servicesSettled.status === "fulfilled") {
+        setUserServices(servicesSettled.value.data?.map((s) => s.service) ?? []);
+      } else {
+        console.warn("Erreur lecture user_services:", servicesSettled.reason);
+        setUserServices([]);
+      }
     } catch (e) {
       console.error("Error fetching user data:", e);
       setProfile(null);
