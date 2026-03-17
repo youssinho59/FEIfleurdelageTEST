@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgents } from "@/hooks/useAgents";
-import { THEMATIQUES_ESSMS, ANNEES_INDICATEURS } from "@/lib/pacqStrategique";
+import { THEMATIQUES_ESSMS, ANNEES_INDICATEURS, OBJECTIFS_PAR_THEMATIQUE, ThematiqueId } from "@/lib/pacqStrategique";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,7 +15,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { toast } from "sonner";
 import {
   Target, Plus, Pencil, Trash2, ChevronDown, ChevronUp,
-  Calendar, User, CheckCircle2, BarChart3,
+  Calendar, User, CheckCircle2, BarChart3, Sparkles,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -108,6 +108,7 @@ export default function PacqStrategiquePage() {
   const [savingAct, setSavingAct]             = useState(false);
   const [deleteAct, setDeleteAct]             = useState<Action | null>(null);
   const [deletingAct, setDeletingAct]         = useState(false);
+  const [initializingPredef, setInitializingPredef] = useState(false);
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -277,6 +278,25 @@ export default function PacqStrategiquePage() {
     setDeletingAct(false);
   };
 
+  // ── Initialisation prédéfinie ────────────────────────────────────────────────
+
+  const handleInitializePredef = async () => {
+    if (!user) return;
+    const titres = OBJECTIFS_PAR_THEMATIQUE[selectedThematique as ThematiqueId];
+    if (!titres?.length) return;
+    setInitializingPredef(true);
+    const rows = titres.map((titre, i) => ({
+      thematique: selectedThematique,
+      titre,
+      ordre: i,
+      created_by: user.id,
+    }));
+    const { error } = await supabase.from("pacq_strategique_objectifs").insert(rows);
+    if (error) toast.error("Erreur : " + error.message);
+    else { toast.success("Objectifs initialisés avec le référentiel HAS/AVS."); await refresh(); }
+    setInitializingPredef(false);
+  };
+
   // ── Indicateurs ─────────────────────────────────────────────────────────────
 
   const handleIndicateurBlur = async (actionId: string, annee: number) => {
@@ -374,10 +394,22 @@ export default function PacqStrategiquePage() {
         <motion.div variants={container} initial="hidden" animate="show" className="space-y-4">
 
           {objectifsCurrent.length === 0 ? (
-            <motion.div variants={item} className="text-center py-16 text-muted-foreground space-y-3">
+            <motion.div variants={item} className="text-center py-16 text-muted-foreground space-y-4">
               <Target className="w-12 h-12 mx-auto opacity-20" />
               <p className="font-medium">Aucun objectif pour cette thématique</p>
-              <p className="text-sm">Cliquez sur "Ajouter un objectif" pour commencer.</p>
+              <p className="text-sm">Cliquez sur "Ajouter un objectif" pour commencer,</p>
+              <p className="text-sm -mt-2">ou initialisez avec les objectifs du référentiel HAS/AVS.</p>
+              {OBJECTIFS_PAR_THEMATIQUE[selectedThematique as ThematiqueId]?.length > 0 && (
+                <Button
+                  variant="outline"
+                  className="gap-2 border-dashed"
+                  onClick={handleInitializePredef}
+                  disabled={initializingPredef}
+                >
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  {initializingPredef ? "Initialisation…" : "Initialiser avec les objectifs HAS/AVS"}
+                </Button>
+              )}
             </motion.div>
           ) : (
             objectifsCurrent.map(obj => {

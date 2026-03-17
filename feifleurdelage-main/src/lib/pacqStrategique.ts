@@ -11,3 +11,56 @@ export const ANNEES_INDICATEURS = [2024, 2025, 2026, 2027, 2028] as const;
 
 export type ThematiqueId = (typeof THEMATIQUES_ESSMS)[number]["id"];
 export type AnneeIndicateur = (typeof ANNEES_INDICATEURS)[number];
+
+// ─── Objectifs prédéfinis HAS/AVS ESSMS ───────────────────────────────────────
+
+export const OBJECTIFS_PAR_THEMATIQUE: Record<ThematiqueId, string[]> = {
+  droits: [
+    "Renforcer l'expression des droits et libertés des personnes accompagnées",
+    "Garantir le respect de la dignité et de l'intimité des résidents",
+    "Assurer la participation active des personnes accompagnées aux décisions les concernant",
+    "Développer la bientraitance et prévenir toute forme de maltraitance",
+    "Améliorer l'information délivrée aux personnes et à leur entourage",
+    "Renforcer le dispositif de recueil et de traitement des réclamations",
+  ],
+  autonomie: [
+    "Favoriser le maintien et le développement des capacités fonctionnelles",
+    "Soutenir l'autonomie dans les actes de la vie quotidienne",
+    "Proposer des activités favorisant le bien-être et la socialisation",
+    "Adapter l'accompagnement aux besoins évolutifs de chaque résident",
+    "Développer les projets personnalisés en co-construction avec les résidents",
+    "Prévenir les situations de dépendance évitable",
+  ],
+  sante: [
+    "Assurer une prise en charge médicale et paramédicale de qualité",
+    "Renforcer la prévention et la gestion des risques sanitaires",
+    "Améliorer la coordination avec les partenaires de santé extérieurs",
+    "Optimiser la gestion et la sécurisation du circuit du médicament",
+    "Développer les soins palliatifs et l'accompagnement en fin de vie",
+    "Lutter contre la douleur et promouvoir le confort des résidents",
+  ],
+  environnement: [
+    "Renforcer les partenariats avec les acteurs du territoire",
+    "Développer les liens intergénérationnels et avec la communauté locale",
+    "Améliorer l'accueil et l'accompagnement des familles et des proches",
+    "Favoriser l'ouverture de l'établissement sur l'extérieur",
+    "Développer les collaborations avec les structures médico-sociales du territoire",
+    "Valoriser et partager les bonnes pratiques avec les partenaires",
+  ],
+  rh: [
+    "Renforcer les compétences des professionnels par la formation continue",
+    "Améliorer les conditions de travail et la qualité de vie au travail",
+    "Développer le management participatif et la communication interne",
+    "Fidéliser et attirer les talents au sein de l'établissement",
+    "Renforcer la prévention des risques professionnels",
+    "Développer la culture qualité et l'engagement des équipes",
+  ],
+  qualite: [
+    "Renforcer le système de management de la qualité",
+    "Améliorer la gestion documentaire et la mise à jour des procédures",
+    "Développer la démarche de gestion et d'analyse des risques",
+    "Optimiser les processus transversaux de l'établissement",
+    "Renforcer le pilotage des indicateurs qualité",
+    "Préparer et accompagner les démarches d'évaluation externe",
+  ],
+};
