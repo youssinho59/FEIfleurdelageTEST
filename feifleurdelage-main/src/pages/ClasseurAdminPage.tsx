@@ -47,6 +47,24 @@ const EMPTY_PROC_FORM = {
   services: [] as string[],
 };
 
+// Normalise un nom de fichier PDF pour l'URL :
+// accents supprimés, espaces → underscores, caractères spéciaux supprimés sauf - et _
+function sanitizeFilename(raw: string): string {
+  const ext = raw.toLowerCase().endsWith(".pdf") ? ".pdf" : "";
+  const base = ext ? raw.slice(0, -4) : raw;
+  return (
+    base
+      .normalize("NFD")                        // décompose les caractères accentués
+      .replace(/[\u0300-\u036f]/g, "")         // supprime les diacritiques
+      .replace(/[''`]/g, "")                   // supprime apostrophes
+      .replace(/\s+/g, "_")                    // espaces → underscores
+      .replace(/[^a-zA-Z0-9_\-]/g, "")        // supprime tout sauf lettres, chiffres, - et _
+      .replace(/_+/g, "_")                     // underscores multiples → un seul
+      .replace(/^_|_$/g, "")                   // supprime underscores en début/fin
+    + ext
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ClasseurAdminPage() {
@@ -153,7 +171,7 @@ export default function ClasseurAdminPage() {
       categorie_id: procDialogCatId,
       titre: procForm.titre.trim(),
       description: procForm.description.trim() || null,
-      pdf_filename: procForm.pdf_filename.trim(),
+      pdf_filename: sanitizeFilename(procForm.pdf_filename.trim()),
       services: procForm.services,
     });
     if (error) toast.error("Erreur lors de l'ajout de la procédure");
@@ -525,6 +543,26 @@ export default function ClasseurAdminPage() {
                 </code>{" "}
                 puis saisissez son nom exact ici.
               </p>
+              {procForm.pdf_filename.trim() && (() => {
+                const cleaned = sanitizeFilename(procForm.pdf_filename.trim());
+                const changed = cleaned !== procForm.pdf_filename.trim();
+                return (
+                  <div className={cn(
+                    "flex items-start gap-1.5 rounded-md px-2.5 py-1.5 text-xs",
+                    changed
+                      ? "bg-amber-50 border border-amber-200 text-amber-800"
+                      : "bg-green-50 border border-green-200 text-green-800"
+                  )}>
+                    <span className="shrink-0 mt-px">{changed ? "⚠" : "✓"}</span>
+                    <span>
+                      {changed
+                        ? <>Nom enregistré :{" "}<code className="font-mono font-semibold">{cleaned}</code></>
+                        : <>Nom valide — sera enregistré tel quel.</>
+                      }
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
             <div className="space-y-2">
               <Label>
