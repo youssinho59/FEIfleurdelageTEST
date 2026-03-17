@@ -10,10 +10,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import {
   Star as StarIcon, QrCode, Printer, Target, Plus, ChevronDown, ChevronUp,
-  AlertTriangle, CheckCircle2, TrendingUp, Users, Calendar,
+  AlertTriangle, CheckCircle2, TrendingUp, Users, Calendar, Trash2,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -110,6 +111,10 @@ export default function QuestionnairesAdminPage() {
 
   // QR dialog
   const [qrOpen, setQrOpen] = useState(false);
+
+  // Delete dialog
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // PACQ create dialog
   const [pacqDialogOpen, setPacqDialogOpen] = useState(false);
@@ -211,6 +216,17 @@ export default function QuestionnairesAdminPage() {
       return true;
     });
   }, [questionnaires, filterMonth, filterNote, filterRepondant]);
+
+  // ── Delete ────────────────────────────────────────────────────────────────────
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    setDeleting(true);
+    const { error } = await supabase.from("questionnaire_satisfaction").delete().eq("id", deleteId);
+    if (error) toast.error("Erreur : " + error.message);
+    else { toast.success("Questionnaire supprimé."); setDeleteId(null); await fetchAll(); }
+    setDeleting(false);
+  };
 
   // ── PACQ action ───────────────────────────────────────────────────────────────
 
@@ -528,6 +544,13 @@ export default function QuestionnairesAdminPage() {
                             >
                               {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                             </button>
+                            <button
+                              onClick={() => setDeleteId(q.id)}
+                              className="p-1 text-muted-foreground hover:text-destructive transition-colors"
+                              aria-label="Supprimer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
 
@@ -662,6 +685,30 @@ export default function QuestionnairesAdminPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── AlertDialog suppr questionnaire ──────────────────────────────────── */}
+      <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="w-4 h-4" /> Supprimer ce questionnaire ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irréversible. Le questionnaire sera définitivement supprimé.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Suppression…" : "Supprimer définitivement"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
