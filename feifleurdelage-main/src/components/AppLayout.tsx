@@ -2,12 +2,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Link, useLocation } from "react-router-dom";
 import {
   Flower2,
+  FilePlus,
   FileText,
   MessageSquareWarning,
   BarChart3,
   ClipboardList,
   LogOut,
-  History,
   Users,
   LayoutDashboard,
   ChevronRight,
@@ -19,11 +19,93 @@ import {
   CheckSquare,
   FolderOpen,
   Star,
+  Building2,
 } from "lucide-react";
 import { useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type NavItemDef = {
+  to: string;
+  label: string;
+  icon: React.ElementType;
+};
+
+type NavSection = {
+  label?: string; // undefined = no label (first section)
+  items: NavItemDef[];
+};
+
+// ─── NavItem component ────────────────────────────────────────────────────────
+
+type NavItemProps = {
+  item: NavItemDef;
+  collapsed: boolean;
+  active: boolean;
+};
+
+const NavItem = ({ item, collapsed, active }: NavItemProps) => (
+  <Link to={item.to}>
+    <div
+      className={cn(
+        "relative flex items-center gap-2.5 px-2 py-2 rounded-md transition-all duration-150 group",
+        active
+          ? "bg-primary/10 text-primary"
+          : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
+        collapsed && "justify-center"
+      )}
+    >
+      {active && (
+        <motion.div
+          layoutId="nav-active"
+          className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-full"
+          transition={{ type: "spring", stiffness: 500, damping: 40 }}
+        />
+      )}
+
+      <item.icon
+        className={cn(
+          "w-4 h-4 shrink-0 transition-transform group-hover:scale-110",
+          active && "stroke-[2.5]"
+        )}
+      />
+
+      <AnimatePresence>
+        {!collapsed && (
+          <motion.span
+            initial={{ opacity: 0, x: -6 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -6 }}
+            transition={{ duration: 0.15 }}
+            className="text-xs font-body font-semibold whitespace-nowrap"
+          >
+            {item.label}
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </div>
+  </Link>
+);
+
+// ─── Section separator + label ────────────────────────────────────────────────
+
+const SectionHeader = ({ label, collapsed }: { label: string; collapsed: boolean }) => (
+  <>
+    <div className="mx-3 my-1 border-t border-border/50" />
+    {!collapsed && (
+      <div className="px-3 pt-2 pb-1">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 font-body">
+          {label}
+        </p>
+      </div>
+    )}
+  </>
+);
+
+// ─── AppLayout ────────────────────────────────────────────────────────────────
 
 const AppLayout = ({ children }: { children: React.ReactNode }) => {
   const { user, profile, isAdmin, isResponsable, userServices, signOut } = useAuth();
@@ -31,45 +113,66 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
   const [collapsed, setCollapsed] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
 
-  const navItems = [
-    { to: "/", label: "Tableau de bord", icon: LayoutDashboard, section: "agent" },
-    { to: "/fei", label: "Saisir une FEI", icon: FileText, section: "agent" },
-    { to: "/mes-fei", label: "Mes FEI", icon: History, section: "agent" },
-    { to: "/plaintes", label: "Plaintes & Réclamations", icon: MessageSquareWarning, section: "agent" },
-    { to: "/mes-actions", label: "Mes actions correctives", icon: CheckSquare, section: "agent" },
-    { to: "/mes-pacq-strategique", label: "Mes actions PACQ Strat.", icon: Target, section: "agent" },
-    { to: "/classeur", label: "Classeur documentaire", icon: FolderOpen, section: "agent" },
-    ...(isAdmin
-      ? [
-          { to: "/gestion-fei", label: "Gestion FEI", icon: ClipboardList, section: "admin" },
-          { to: "/gestion-reclamations", label: "Gestion Réclamations", icon: MessageSquareWarning, section: "admin" },
-          { to: "/plan-actions", label: "PACQ opérationnel", icon: CheckSquare, section: "admin" },
-          { to: "/pacq-strategique", label: "PACQ Stratégique", icon: Target, section: "admin" },
-          { to: "/audits", label: "Audits & NC", icon: ClipboardCheck, section: "admin" },
-          { to: "/questionnaires-admin", label: "Questionnaires", icon: Star, section: "admin" },
-          { to: "/classeur-admin", label: "Classeur documentaire", icon: FolderOpen, section: "admin" },
-          { to: "/agents", label: "Agents", icon: Users, section: "admin" },
-          { to: "/statistiques", label: "Statistiques", icon: BarChart3, section: "admin" },
-          { to: "/suivi-instances", label: "Suivi des Instances", icon: CalendarRange, section: "admin" },
-        ]
-      : isResponsable
-      ? [
-          { to: "/gestion-fei", label: "Gestion FEI", icon: ClipboardList, section: "admin" },
-          { to: "/gestion-reclamations", label: "Gestion Réclamations", icon: MessageSquareWarning, section: "admin" },
-          { to: "/plan-actions", label: "PACQ opérationnel", icon: CheckSquare, section: "admin" },
-          { to: "/pacq-strategique", label: "PACQ Stratégique", icon: Target, section: "admin" },
-          { to: "/audits", label: "Audits & NC", icon: ClipboardCheck, section: "admin" },
-          { to: "/questionnaires-admin", label: "Questionnaires", icon: Star, section: "admin" },
-          { to: "/classeur-admin", label: "Classeur documentaire", icon: FolderOpen, section: "admin" },
-        ]
-      : []),
-  ];
-
-  const agentItems = navItems.filter((i) => i.section === "agent");
-  const adminItems = navItems.filter((i) => i.section === "admin");
-
   const isActive = (path: string) =>
     path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
+
+  // ── Navigation sections ───────────────────────────────────────────────────
+
+  const agentSections: NavSection[] = [
+    {
+      items: [
+        { to: "/", label: "Tableau de bord", icon: LayoutDashboard },
+        { to: "/fei", label: "Saisir une FEI", icon: FilePlus },
+        { to: "/mes-fei", label: "Mes FEI", icon: FileText },
+        { to: "/plaintes", label: "Plaintes & Réclamations", icon: MessageSquareWarning },
+        { to: "/mes-actions", label: "Mes actions correctives", icon: CheckSquare },
+        { to: "/mes-pacq-strategique", label: "PACQ Stratégique", icon: Target },
+        { to: "/classeur", label: "Classeur documentaire", icon: FolderOpen },
+      ],
+    },
+  ];
+
+  const adminSections: NavSection[] = [
+    {
+      items: [
+        { to: "/", label: "Tableau de bord", icon: LayoutDashboard },
+        { to: "/fei", label: "Saisir une FEI", icon: FilePlus },
+        { to: "/mes-fei", label: "Mes FEI", icon: FileText },
+      ],
+    },
+    {
+      label: "QUALITÉ & RISQUES",
+      items: [
+        { to: "/gestion-fei", label: "Gestion des FEI", icon: ClipboardList },
+        { to: "/gestion-reclamations", label: "Gestion Réclamations", icon: MessageSquareWarning },
+        { to: "/audits", label: "Audits & NC", icon: ClipboardCheck },
+        { to: "/questionnaires-admin", label: "Questionnaires", icon: Star },
+      ],
+    },
+    {
+      label: "PLANS D'ACTION",
+      items: [
+        { to: "/plan-actions", label: "PACQ Opérationnel", icon: CheckSquare },
+        { to: "/pacq-strategique", label: "PACQ Stratégique", icon: Target },
+      ],
+    },
+    {
+      label: "DOCUMENTS & RH",
+      items: [
+        { to: "/classeur-admin", label: "Classeur documentaire", icon: FolderOpen },
+        ...(isAdmin ? [{ to: "/agents", label: "Agents", icon: Users }] : []),
+      ],
+    },
+    {
+      label: "PILOTAGE",
+      items: [
+        ...(isAdmin ? [{ to: "/statistiques", label: "Statistiques", icon: BarChart3 }] : []),
+        { to: "/suivi-instances", label: "Suivi des Instances", icon: Building2 },
+      ],
+    },
+  ];
+
+  const sections = isAdmin || isResponsable ? adminSections : agentSections;
 
   return (
     <div className="min-h-screen flex bg-background">
@@ -106,27 +209,19 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-2 py-4 space-y-0.5 overflow-y-auto">
-          {agentItems.map((item) => (
-            <NavItem key={item.to} item={item} collapsed={collapsed} active={isActive(item.to)} />
-          ))}
-
-          {adminItems.length > 0 && (
-            <>
-              <div className={cn("pt-4 pb-1 px-2", collapsed && "px-0")}>
-                {!collapsed ? (
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 font-body">
-                    {isAdmin ? "Administration" : "Mon Service"}
-                  </p>
-                ) : (
-                  <div className="h-px bg-border mx-1" />
-                )}
+        <nav className="flex-1 px-2 py-3 overflow-y-auto">
+          {sections.map((section, si) => (
+            <div key={si}>
+              {section.label && (
+                <SectionHeader label={section.label} collapsed={collapsed} />
+              )}
+              <div className="space-y-0.5">
+                {section.items.map((item) => (
+                  <NavItem key={item.to} item={item} collapsed={collapsed} active={isActive(item.to)} />
+                ))}
               </div>
-              {adminItems.map((item) => (
-                <NavItem key={item.to} item={item} collapsed={collapsed} active={isActive(item.to)} />
-              ))}
-            </>
-          )}
+            </div>
+          ))}
         </nav>
 
         {/* Footer */}
@@ -147,7 +242,11 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
                     {profile?.full_name || user?.email}
                   </p>
                   <p className="text-[10px] text-muted-foreground font-body">
-                    {isAdmin ? "Administrateur" : isResponsable ? `Responsable${userServices.length > 0 ? ` — ${userServices.join(", ")}` : ""}` : "Agent"}
+                    {isAdmin
+                      ? "Administrateur"
+                      : isResponsable
+                      ? `Responsable${userServices.length > 0 ? ` — ${userServices.join(", ")}` : ""}`
+                      : "Agent"}
                   </p>
                 </motion.div>
               )}
@@ -225,7 +324,13 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
 
         {/* Bottom nav mobile */}
         <nav className="md:hidden sticky bottom-0 z-50 border-t border-border bg-card/95 backdrop-blur-sm flex items-center justify-around px-2 h-16">
-          {navItems.slice(0, 5).map((item) => {
+          {[
+            { to: "/", label: "Accueil", icon: LayoutDashboard },
+            { to: "/fei", label: "FEI", icon: FilePlus },
+            { to: "/mes-fei", label: "Mes FEI", icon: FileText },
+            { to: "/plaintes", label: "Plaintes", icon: MessageSquareWarning },
+            { to: "/mes-actions", label: "Actions", icon: CheckSquare },
+          ].map((item) => {
             const active = isActive(item.to);
             return (
               <Link
@@ -237,9 +342,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
                 )}
               >
                 <item.icon className={cn("w-5 h-5", active && "stroke-[2.5]")} />
-                <span className="text-[9px] font-body font-semibold leading-tight">
-                  {item.label.split(" ")[0]}
-                </span>
+                <span className="text-[9px] font-body font-semibold leading-tight">{item.label}</span>
               </Link>
             );
           })}
@@ -248,54 +351,5 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
     </div>
   );
 };
-
-type NavItemProps = {
-  item: { to: string; label: string; icon: React.ElementType };
-  collapsed: boolean;
-  active: boolean;
-};
-
-const NavItem = ({ item, collapsed, active }: NavItemProps) => (
-  <Link to={item.to}>
-    <div
-      className={cn(
-        "relative flex items-center gap-2.5 px-2 py-2.5 rounded-md transition-all duration-150 group",
-        active
-          ? "bg-primary/10 text-primary"
-          : "text-muted-foreground hover:text-foreground hover:bg-muted/60",
-        collapsed && "justify-center"
-      )}
-    >
-      {active && (
-        <motion.div
-          layoutId="nav-active"
-          className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-full"
-          transition={{ type: "spring", stiffness: 500, damping: 40 }}
-        />
-      )}
-
-      <item.icon
-        className={cn(
-          "w-4 h-4 shrink-0 transition-transform group-hover:scale-110",
-          active && "stroke-[2.5]"
-        )}
-      />
-
-      <AnimatePresence>
-        {!collapsed && (
-          <motion.span
-            initial={{ opacity: 0, x: -6 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -6 }}
-            transition={{ duration: 0.15 }}
-            className="text-xs font-body font-semibold whitespace-nowrap"
-          >
-            {item.label}
-          </motion.span>
-        )}
-      </AnimatePresence>
-    </div>
-  </Link>
-);
 
 export default AppLayout;
