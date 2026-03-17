@@ -21,7 +21,13 @@ import {
   Loader2,
   XCircle,
   Clock,
+  BookOpen,
+  Target,
+  Star,
+  Activity,
+  Bell,
 } from "lucide-react";
+import { THEMATIQUES_ESSMS } from "@/lib/pacqStrategique";
 import { Link } from "react-router-dom";
 import {
   BarChart,
@@ -149,17 +155,29 @@ const StatsPage = () => {
   const [dateTo, setDateTo] = useState(`${currentYear}-12-31`);
   const [feiData, setFeiData] = useState<any[]>([]);
   const [plaintesData, setPlaintesData] = useState<any[]>([]);
+  const [pacqActions, setPacqActions] = useState<any[]>([]);
+  const [pacqStrategique, setPacqStrategique] = useState<any[]>([]);
+  const [classeurProcedures, setClasseurProcedures] = useState<any[]>([]);
+  const [classeurEmargements, setClasseurEmargements] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
-    const [feiResult, plaintesResult] = await Promise.all([
+    const [feiResult, plaintesResult, pacqResult, pacqSResult, classeurPResult, classeurEResult] = await Promise.allSettled([
       supabase.from("fei").select("*").gte("date_evenement", dateFrom).lte("date_evenement", dateTo).order("date_evenement", { ascending: true }),
       supabase.from("plaintes").select("*").gte("date_plainte", dateFrom).lte("date_plainte", dateTo).order("date_plainte", { ascending: true }),
+      supabase.from("actions_correctives").select("*").order("date_echeance", { ascending: true }),
+      supabase.from("pacq_strategique_actions").select("*, pacq_strategique_objectifs(thematique, titre)"),
+      supabase.from("classeur_procedures").select("*, classeur_categories(nom)"),
+      supabase.from("classeur_emargements").select("*"),
     ]);
-    setFeiData(feiResult.data || []);
-    setPlaintesData(plaintesResult.data || []);
+    setFeiData(feiResult.status === "fulfilled" ? (feiResult.value.data || []) : []);
+    setPlaintesData(plaintesResult.status === "fulfilled" ? (plaintesResult.value.data || []) : []);
+    setPacqActions(pacqResult.status === "fulfilled" ? (pacqResult.value.data || []) : []);
+    setPacqStrategique(pacqSResult.status === "fulfilled" ? (pacqSResult.value.data || []) : []);
+    setClasseurProcedures(classeurPResult.status === "fulfilled" ? (classeurPResult.value.data || []) : []);
+    setClasseurEmargements(classeurEResult.status === "fulfilled" ? (classeurEResult.value.data || []) : []);
     setLoading(false);
   };
 
@@ -245,6 +263,108 @@ const StatsPage = () => {
       totalDeclarants: declarants.size,
     };
   }, [feiData, plaintesData]);
+
+  // ─── Extra stats (PACQ + Classeur + Score + Alertes) ──────────────────────
+  const THEMATIQUE_HEX: Record<string, string> = {
+    blue: "#3b82f6", green: "#22c55e", red: "#ef4444",
+    purple: "#a855f7", orange: "#f97316", teal: "#14b8a6",
+  };
+
+  const extraStats = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // — PACQ opérationnel —
+    const totalPacq = pacqActions.length;
+    const pacqRealisees = pacqActions.filter((a) => a.statut === "realisee" || a.statut === "evaluee").length;
+    const tauxPacqOp = totalPacq > 0 ? Math.round((pacqRealisees / totalPacq) * 100) : 0;
+    const pacqEnRetard = pacqActions.filter((a) => {
+      if (a.statut === "realisee" || a.statut === "evaluee") return false;
+      return new Date(a.date_echeance) < today;
+    });
+    const pacqByStatut = [
+      { name: "À faire", value: pacqActions.filter((a) => a.statut === "a_faire").length, fill: "#94a3b8" },
+      { name: "En cours", value: pacqActions.filter((a) => a.statut === "en_cours").length, fill: "#f59e0b" },
+      { name: "Réalisée", value: pacqActions.filter((a) => a.statut === "realisee").length, fill: "#22c55e" },
+      { name: "Évaluée", value: pacqActions.filter((a) => a.statut === "evaluee").length, fill: "#3b82f6" },
+    ].filter((d) => d.value > 0);
+    const pacqByPriorite = [
+      { name: "Haute", value: pacqActions.filter((a) => a.priorite === "haute").length, fill: "#ef4444" },
+      { name: "Moyenne", value: pacqActions.filter((a) => a.priorite === "moyenne").length, fill: "#f59e0b" },
+      { name: "Faible", value: pacqActions.filter((a) => a.priorite === "faible").length, fill: "#22c55e" },
+    ].filter((d) => d.value > 0);
+
+    // — PACQ stratégique —
+    const totalPacqS = pacqStrategique.length;
+    const pacqSRealises = pacqStrategique.filter((a) => a.statut === "realise").length;
+    const tauxPacqS = totalPacqS > 0 ? Math.round((pacqSRealises / totalPacqS) * 100) : 0;
+    const pacqSByThematique = THEMATIQUES_ESSMS.map((t) => {
+      const actions = pacqStrategique.filter((a) => a.pacq_strategique_objectifs?.thematique === t.id);
+      const total = actions.length;
+      const realises = actions.filter((a) => a.statut === "realise").length;
+      const enCours = actions.filter((a) => a.statut === "en_cours").length;
+      return {
+        name: t.label.length > 28 ? t.label.slice(0, 28) + "…" : t.label,
+        fullName: t.label,
+        total,
+        realises,
+        enCours,
+        taux: total > 0 ? Math.round((realises / total) * 100) : 0,
+        hex: THEMATIQUE_HEX[t.color] ?? "#94a3b8",
+      };
+    }).filter((t) => t.total > 0);
+
+    // — Classeur documentaire —
+    const emargByProc: Record<string, number> = {};
+    classeurEmargements.forEach((e) => {
+      emargByProc[e.procedure_id] = (emargByProc[e.procedure_id] || 0) + 1;
+    });
+    const totalProcs = classeurProcedures.length;
+    const procsWithEmarg = classeurProcedures.filter((p) => (emargByProc[p.id] || 0) > 0).length;
+    const tauxEmargement = totalProcs > 0 ? Math.round((procsWithEmarg / totalProcs) * 100) : 0;
+    const procsZero = classeurProcedures.filter((p) => (emargByProc[p.id] || 0) === 0);
+    const top10Procs = classeurProcedures
+      .map((p) => ({
+        name: p.titre.length > 32 ? p.titre.slice(0, 32) + "…" : p.titre,
+        fullName: p.titre,
+        value: emargByProc[p.id] || 0,
+        categorie: p.classeur_categories?.nom || "",
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+
+    // — Score global —
+    const tauxClotureFei = feiData.length > 0
+      ? Math.round((feiData.filter((f) => f.statut === "cloture" || f.statut === "archive").length / feiData.length) * 100)
+      : 0;
+    const tauxResolutionPlaintes = plaintesData.length > 0
+      ? Math.round((plaintesData.filter((p) => p.statut === "traite").length / plaintesData.length) * 100)
+      : 0;
+    const scoreGlobal = Math.round((tauxClotureFei + tauxResolutionPlaintes + tauxPacqOp + tauxEmargement) / 4);
+
+    // — Alertes —
+    const feiNouveaux7j = feiData.filter((f) => {
+      if (f.statut !== "nouveau") return false;
+      return (today.getTime() - new Date(f.date_evenement).getTime()) / 86400000 > 7;
+    });
+    const feigs = feiData.filter((f) => f.categorie_fei === "FEIGS" && f.statut !== "cloture" && f.statut !== "archive");
+    const alertes: { label: string; severity: "high" | "medium" }[] = [
+      feiNouveaux7j.length > 0 ? { label: `${feiNouveaux7j.length} FEI nouvelle(s) sans traitement depuis + 7 jours`, severity: "high" as const } : null,
+      feigs.length > 0 ? { label: `${feigs.length} FEIGS non clôturée(s) à déclarer à l'ARS`, severity: "high" as const } : null,
+      pacqEnRetard.length > 0 ? { label: `${pacqEnRetard.length} action(s) PACQ opérationnel en retard`, severity: "medium" as const } : null,
+      procsZero.length > 0 ? { label: `${procsZero.length} procédure(s) du classeur sans aucun émargement`, severity: "medium" as const } : null,
+    ].filter(Boolean) as { label: string; severity: "high" | "medium" }[];
+
+    return {
+      totalPacq, pacqRealisees, tauxPacqOp, pacqEnRetard, pacqByStatut, pacqByPriorite,
+      pacqAFaire: pacqActions.filter((a) => a.statut === "a_faire").length,
+      pacqEnCours: pacqActions.filter((a) => a.statut === "en_cours").length,
+      totalPacqS, pacqSRealises, pacqSEnCours: pacqStrategique.filter((a) => a.statut === "en_cours").length, tauxPacqS, pacqSByThematique,
+      totalProcs, procsWithEmarg, tauxEmargement, procsZero, top10Procs, emargByProc,
+      scoreGlobal, tauxClotureFei, tauxResolutionPlaintes,
+      alertes,
+    };
+  }, [feiData, plaintesData, pacqActions, pacqStrategique, classeurProcedures, classeurEmargements]);
 
   // Chart data
   const typeChartData = Object.entries(stats.byType).map(([name, value]) => ({ name, value }));
@@ -850,6 +970,323 @@ const StatsPage = () => {
 
             </div>
           )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              Alertes qualité
+          ════════════════════════════════════════════════════════════════════ */}
+          <div>
+            <SectionTitle icon={Bell} title="Alertes qualité" color="text-destructive" />
+            {extraStats.alertes.length === 0 ? (
+              <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />
+                <p className="text-sm font-medium text-emerald-700">Aucune alerte qualité — situation sous contrôle</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {extraStats.alertes.map((a, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-center gap-3 p-3.5 rounded-xl border ${
+                      a.severity === "high"
+                        ? "bg-destructive/10 border-destructive/20 text-destructive"
+                        : "bg-orange-500/10 border-orange-500/20 text-orange-700"
+                    }`}
+                  >
+                    <AlertTriangle className={`w-4 h-4 shrink-0 ${a.severity === "high" ? "text-destructive" : "text-orange-500"}`} />
+                    <p className="text-sm font-medium">{a.label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ══════════════════════════════════════════════════════════════════
+              Score qualité global
+          ════════════════════════════════════════════════════════════════════ */}
+          <div>
+            <SectionTitle icon={Star} title="Score qualité global" color="text-yellow-600" />
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+              <KpiCard
+                label="Taux clôture FEI"
+                value={`${extraStats.tauxClotureFei}%`}
+                icon={FileText}
+                color="text-primary"
+                bg="bg-primary/10"
+              />
+              <KpiCard
+                label="Taux résolution plaintes"
+                value={`${extraStats.tauxResolutionPlaintes}%`}
+                icon={MessageSquareWarning}
+                color="text-accent-foreground"
+                bg="bg-accent/30"
+              />
+              <KpiCard
+                label="Avancement PACQ opérationnel"
+                value={`${extraStats.tauxPacqOp}%`}
+                sub={extraStats.totalPacq > 0 ? `${extraStats.pacqRealisees} / ${extraStats.totalPacq} actions` : "Aucune action"}
+                icon={Target}
+                color="text-emerald-600"
+                bg="bg-emerald-500/10"
+              />
+              <KpiCard
+                label="Taux émargement classeur"
+                value={`${extraStats.tauxEmargement}%`}
+                sub={extraStats.totalProcs > 0 ? `${extraStats.procsWithEmarg} / ${extraStats.totalProcs} procédures` : "Aucune procédure"}
+                icon={BookOpen}
+                color="text-blue-500"
+                bg="bg-blue-500/10"
+              />
+            </div>
+            <Card>
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-medium text-muted-foreground">Score moyen pondéré</p>
+                  <p
+                    className="text-3xl font-display font-bold"
+                    style={{
+                      color: extraStats.scoreGlobal >= 75 ? "#22c55e" : extraStats.scoreGlobal >= 50 ? "#f59e0b" : "#ef4444",
+                    }}
+                  >
+                    {extraStats.scoreGlobal}%
+                  </p>
+                </div>
+                <div className="h-3 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${extraStats.scoreGlobal}%`,
+                      background: extraStats.scoreGlobal >= 75 ? "#22c55e" : extraStats.scoreGlobal >= 50 ? "#f59e0b" : "#ef4444",
+                    }}
+                  />
+                </div>
+                <div className="flex justify-between text-[10px] text-muted-foreground mt-1.5">
+                  <span>0%</span>
+                  <span className={extraStats.scoreGlobal >= 75 ? "text-emerald-600 font-semibold" : extraStats.scoreGlobal >= 50 ? "text-yellow-600 font-semibold" : "text-destructive font-semibold"}>
+                    {extraStats.scoreGlobal >= 75 ? "Bon niveau" : extraStats.scoreGlobal >= 50 ? "À améliorer" : "Insuffisant"}
+                  </span>
+                  <span>100%</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* ══════════════════════════════════════════════════════════════════
+              PACQ Opérationnel
+          ════════════════════════════════════════════════════════════════════ */}
+          <div>
+            <SectionTitle icon={Target} title="PACQ Opérationnel — Plan d'actions correctives" color="text-emerald-600" />
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+              <KpiCard label="Total actions" value={extraStats.totalPacq} icon={ClipboardList} color="text-primary" bg="bg-primary/10" />
+              <KpiCard label="À faire" value={extraStats.pacqAFaire} icon={Clock} color="text-slate-500" bg="bg-slate-500/10" />
+              <KpiCard label="En cours" value={extraStats.pacqEnCours} icon={Activity} color="text-yellow-600" bg="bg-yellow-500/10" />
+              <KpiCard label="Réalisées / Évaluées" value={extraStats.pacqRealisees} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
+            </div>
+            {extraStats.totalPacq > 0 && (
+              <div className="grid gap-5 lg:grid-cols-2">
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <CardTitle className="font-display text-base">Répartition par statut</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-2 pb-4">
+                    <ResponsiveContainer width="100%" height={180}>
+                      <BarChart data={extraStats.pacqByStatut} layout="vertical" margin={{ top: 4, right: 30, left: 10, bottom: 4 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                        <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11 }} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Bar dataKey="value" name="Actions" radius={[0, 4, 4, 0]}>
+                          {extraStats.pacqByStatut.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <CardTitle className="font-display text-base">Répartition par priorité</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-2 pb-4">
+                    <ResponsiveContainer width="100%" height={180}>
+                      <BarChart data={extraStats.pacqByPriorite} layout="vertical" margin={{ top: 4, right: 30, left: 10, bottom: 4 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                        <YAxis dataKey="name" type="category" width={70} tick={{ fontSize: 11 }} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Bar dataKey="value" name="Actions" radius={[0, 4, 4, 0]}>
+                          {extraStats.pacqByPriorite.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+            {extraStats.pacqEnRetard.length > 0 && (
+              <Card className="mt-5 border-destructive/30">
+                <CardHeader className="pb-3 pt-4 px-5">
+                  <CardTitle className="font-display text-base flex items-center gap-2 text-destructive">
+                    <AlertTriangle className="w-4 h-4" />
+                    Actions en retard
+                    <Badge variant="destructive" className="ml-auto text-xs font-normal">
+                      {extraStats.pacqEnRetard.length}
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-5 pb-5 space-y-2">
+                  {extraStats.pacqEnRetard.slice(0, 5).map((a: any) => (
+                    <div key={a.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-destructive/5 border border-destructive/15">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{a.titre}</p>
+                        <p className="text-[11px] text-muted-foreground">{a.responsable}</p>
+                      </div>
+                      <Badge variant="outline" className="shrink-0 text-destructive border-destructive/40 text-xs">
+                        {new Date(a.date_echeance).toLocaleDateString("fr-FR")}
+                      </Badge>
+                    </div>
+                  ))}
+                  {extraStats.pacqEnRetard.length > 5 && (
+                    <p className="text-xs text-muted-foreground text-center pt-1">+ {extraStats.pacqEnRetard.length - 5} autre(s)</p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* ══════════════════════════════════════════════════════════════════
+              PACQ Stratégique
+          ════════════════════════════════════════════════════════════════════ */}
+          <div>
+            <SectionTitle icon={TrendingUp} title="PACQ Stratégique — Thématiques ESSMS" color="text-purple-600" />
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
+              <KpiCard label="Total actions stratégiques" value={extraStats.totalPacqS} icon={Target} color="text-purple-600" bg="bg-purple-500/10" />
+              <KpiCard label="En cours" value={extraStats.pacqSEnCours} icon={Activity} color="text-yellow-600" bg="bg-yellow-500/10" />
+              <KpiCard label="Réalisées" value={extraStats.pacqSRealises} sub={`Taux ${extraStats.tauxPacqS}%`} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
+            </div>
+            {extraStats.pacqSByThematique.length > 0 ? (
+              <>
+                <Card className="mb-4">
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <CardTitle className="font-display text-base">Actions par thématique</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-2 pb-4">
+                    <ResponsiveContainer width="100%" height={Math.max(200, extraStats.pacqSByThematique.length * 48)}>
+                      <BarChart data={extraStats.pacqSByThematique} layout="vertical" margin={{ top: 4, right: 30, left: 12, bottom: 4 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                        <YAxis dataKey="name" type="category" width={170} tick={{ fontSize: 10 }} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                        <Bar dataKey="enCours" name="En cours" fill="#f59e0b" radius={[0, 0, 0, 0]} stackId="a" />
+                        <Bar dataKey="realises" name="Réalisées" fill="#22c55e" radius={[0, 4, 4, 0]} stackId="a" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+                <div className="space-y-3">
+                  {extraStats.pacqSByThematique.map((t) => (
+                    <Card key={t.fullName}>
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between gap-3 mb-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-3 h-3 rounded-full shrink-0" style={{ background: t.hex }} />
+                            <p className="text-sm font-medium truncate">{t.fullName}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-xs text-muted-foreground">{t.realises}/{t.total}</span>
+                            <span className="text-xs font-bold" style={{ color: t.taux >= 75 ? "#22c55e" : t.taux >= 40 ? "#f59e0b" : "#ef4444" }}>
+                              {t.taux}%
+                            </span>
+                          </div>
+                        </div>
+                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${t.taux}%`, background: t.hex }} />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <Card>
+                <CardContent className="py-10 text-center text-muted-foreground text-sm">
+                  Aucune action PACQ stratégique enregistrée
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* ══════════════════════════════════════════════════════════════════
+              Classeur documentaire
+          ════════════════════════════════════════════════════════════════════ */}
+          <div>
+            <SectionTitle icon={BookOpen} title="Classeur documentaire — Émargements" color="text-blue-600" />
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
+              <KpiCard label="Procédures au total" value={extraStats.totalProcs} icon={BookOpen} color="text-blue-500" bg="bg-blue-500/10" />
+              <KpiCard label="Procédures émargées" value={extraStats.procsWithEmarg} sub={`Taux ${extraStats.tauxEmargement}%`} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
+              <KpiCard label="Procédures non lues" value={extraStats.procsZero.length} icon={XCircle} color="text-destructive" bg="bg-destructive/10" />
+            </div>
+            {extraStats.top10Procs.length > 0 && (
+              <Card className="mb-4">
+                <CardHeader className="pb-2 pt-4 px-5">
+                  <CardTitle className="font-display text-base">Top 10 procédures les plus émargées</CardTitle>
+                </CardHeader>
+                <CardContent className="px-2 pb-4">
+                  <ResponsiveContainer width="100%" height={Math.max(180, extraStats.top10Procs.length * 36)}>
+                    <BarChart data={extraStats.top10Procs} layout="vertical" margin={{ top: 4, right: 30, left: 12, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                      <YAxis dataKey="name" type="category" width={180} tick={{ fontSize: 10 }} />
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.length) return null;
+                          const d = payload[0].payload;
+                          return (
+                            <div className="bg-background border border-border rounded-lg px-3 py-2 shadow-lg text-xs space-y-0.5">
+                              <p className="font-semibold">{d.fullName}</p>
+                              {d.categorie && <p className="text-muted-foreground">{d.categorie}</p>}
+                              <p className="font-bold text-blue-500">{d.value} émargement(s)</p>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Bar dataKey="value" name="Émargements" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
+            {extraStats.procsZero.length > 0 && (
+              <Card className="border-orange-500/30">
+                <CardHeader className="pb-3 pt-4 px-5">
+                  <CardTitle className="font-display text-base flex items-center gap-2 text-orange-600">
+                    <AlertTriangle className="w-4 h-4" />
+                    Procédures sans émargement
+                    <Badge className="ml-auto bg-orange-500/15 text-orange-700 border-orange-500/30 text-xs font-normal">
+                      {extraStats.procsZero.length}
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-5 pb-5">
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    {extraStats.procsZero.slice(0, 10).map((p: any) => (
+                      <div key={p.id} className="flex items-center gap-2 p-2 rounded-lg bg-orange-500/5 border border-orange-500/15">
+                        <XCircle className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium truncate">{p.titre}</p>
+                          {p.classeur_categories?.nom && (
+                            <p className="text-[10px] text-muted-foreground">{p.classeur_categories.nom}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {extraStats.procsZero.length > 10 && (
+                    <p className="text-xs text-muted-foreground text-center pt-2">+ {extraStats.procsZero.length - 10} autre(s)</p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
 
           {/* ══════════════════════════════════════════════════════════════════
               Actions correctives
