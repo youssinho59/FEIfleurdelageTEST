@@ -175,7 +175,7 @@ export default function ClasseurAgentPage() {
                       {/* Actions */}
                       <div className="flex flex-col items-end gap-2 shrink-0">
                         <a
-                          href={`/classeur-documentaire/${proc.pdf_filename}`}
+                          href={`/classeur-documentaire/${encodeURIComponent(proc.pdf_filename)}`}
                           target="_blank"
                           rel="noopener noreferrer"
                         >

@@ -325,7 +325,7 @@ export default function ClasseurAdminPage() {
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <a
-                                  href={`/classeur-documentaire/${proc.pdf_filename}`}
+                                  href={`/classeur-documentaire/${encodeURIComponent(proc.pdf_filename)}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                 >
