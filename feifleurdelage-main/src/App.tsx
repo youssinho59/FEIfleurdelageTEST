@@ -23,6 +23,8 @@ import ClasseurAdminPage from "@/pages/ClasseurAdminPage";
 import ClasseurAgentPage from "@/pages/ClasseurAgentPage";
 import PlainteExternePage from "@/pages/PlainteExternePage";
 import AuditsPage from "@/pages/AuditsPage";
+import QuestionnaireSatisfactionPage from "@/pages/QuestionnaireSatisfactionPage";
+import QuestionnairesAdminPage from "@/pages/QuestionnairesAdminPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -96,6 +98,7 @@ const AppRoutes = () => {
       <Route path="/mes-pacq-strategique" element={<ProtectedRoute><MesPacqStrategiquePage /></ProtectedRoute>} />
       <Route path="/classeur-admin" element={<ProtectedRoute adminOrResponsable><ClasseurAdminPage /></ProtectedRoute>} />
       <Route path="/audits" element={<ProtectedRoute adminOrResponsable><AuditsPage /></ProtectedRoute>} />
+      <Route path="/questionnaires-admin" element={<ProtectedRoute adminOrResponsable><QuestionnairesAdminPage /></ProtectedRoute>} />
       <Route path="/classeur" element={<ProtectedRoute><ClasseurAgentPage /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
@@ -114,6 +117,7 @@ const App = () => (
            * Aucune vérification de session, aucun loading, aucune redirection possible.
            */}
           <Route path="/plainte-externe" element={<PlainteExternePage />} />
+          <Route path="/questionnaire-satisfaction" element={<QuestionnaireSatisfactionPage />} />
 
           {/* Toutes les autres routes passent par AuthProvider */}
           <Route

@@ -18,6 +18,7 @@ import {
   Target,
   CheckSquare,
   FolderOpen,
+  Star,
 } from "lucide-react";
 import { useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
@@ -45,6 +46,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
           { to: "/plan-actions", label: "PACQ opérationnel", icon: CheckSquare, section: "admin" },
           { to: "/pacq-strategique", label: "PACQ Stratégique", icon: Target, section: "admin" },
           { to: "/audits", label: "Audits & NC", icon: ClipboardCheck, section: "admin" },
+          { to: "/questionnaires-admin", label: "Questionnaires", icon: Star, section: "admin" },
           { to: "/classeur-admin", label: "Classeur documentaire", icon: FolderOpen, section: "admin" },
           { to: "/agents", label: "Agents", icon: Users, section: "admin" },
           { to: "/statistiques", label: "Statistiques", icon: BarChart3, section: "admin" },
@@ -57,6 +59,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
           { to: "/plan-actions", label: "PACQ opérationnel", icon: CheckSquare, section: "admin" },
           { to: "/pacq-strategique", label: "PACQ Stratégique", icon: Target, section: "admin" },
           { to: "/audits", label: "Audits & NC", icon: ClipboardCheck, section: "admin" },
+          { to: "/questionnaires-admin", label: "Questionnaires", icon: Star, section: "admin" },
           { to: "/classeur-admin", label: "Classeur documentaire", icon: FolderOpen, section: "admin" },
         ]
       : []),

@@ -434,6 +434,66 @@ export type Database = {
         }
         Relationships: []
       }
+      questionnaire_satisfaction: {
+        Row: {
+          id: string
+          source: string | null
+          repondant: string | null
+          nom_prenom: string | null
+          date_sejour: string | null
+          service: string | null
+          note_accueil: number | null
+          note_soins: number | null
+          note_restauration: number | null
+          note_proprete: number | null
+          note_communication: number | null
+          note_globale: number | null
+          points_positifs: string | null
+          points_ameliorer: string | null
+          suggestions: string | null
+          action_corrective_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          source?: string | null
+          repondant?: string | null
+          nom_prenom?: string | null
+          date_sejour?: string | null
+          service?: string | null
+          note_accueil?: number | null
+          note_soins?: number | null
+          note_restauration?: number | null
+          note_proprete?: number | null
+          note_communication?: number | null
+          note_globale?: number | null
+          points_positifs?: string | null
+          points_ameliorer?: string | null
+          suggestions?: string | null
+          action_corrective_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          source?: string | null
+          repondant?: string | null
+          nom_prenom?: string | null
+          date_sejour?: string | null
+          service?: string | null
+          note_accueil?: number | null
+          note_soins?: number | null
+          note_restauration?: number | null
+          note_proprete?: number | null
+          note_communication?: number | null
+          note_globale?: number | null
+          points_positifs?: string | null
+          points_ameliorer?: string | null
+          suggestions?: string | null
+          action_corrective_id?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
