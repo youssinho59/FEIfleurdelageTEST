@@ -44,6 +44,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
           { to: "/gestion-reclamations", label: "Gestion Réclamations", icon: MessageSquareWarning, section: "admin" },
           { to: "/plan-actions", label: "PACQ opérationnel", icon: CheckSquare, section: "admin" },
           { to: "/pacq-strategique", label: "PACQ Stratégique", icon: Target, section: "admin" },
+          { to: "/audits", label: "Audits & NC", icon: ClipboardCheck, section: "admin" },
           { to: "/classeur-admin", label: "Classeur documentaire", icon: FolderOpen, section: "admin" },
           { to: "/agents", label: "Agents", icon: Users, section: "admin" },
           { to: "/statistiques", label: "Statistiques", icon: BarChart3, section: "admin" },
@@ -55,6 +56,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
           { to: "/gestion-reclamations", label: "Gestion Réclamations", icon: MessageSquareWarning, section: "admin" },
           { to: "/plan-actions", label: "PACQ opérationnel", icon: CheckSquare, section: "admin" },
           { to: "/pacq-strategique", label: "PACQ Stratégique", icon: Target, section: "admin" },
+          { to: "/audits", label: "Audits & NC", icon: ClipboardCheck, section: "admin" },
           { to: "/classeur-admin", label: "Classeur documentaire", icon: FolderOpen, section: "admin" },
         ]
       : []),

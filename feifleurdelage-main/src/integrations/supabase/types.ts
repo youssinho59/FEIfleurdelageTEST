@@ -356,6 +356,84 @@ export type Database = {
         }
         Relationships: []
       }
+      audits: {
+        Row: {
+          id: string
+          titre: string
+          date_audit: string
+          type_audit: string
+          auditeur: string | null
+          service: string | null
+          statut: string
+          observations: string | null
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          titre: string
+          date_audit: string
+          type_audit: string
+          auditeur?: string | null
+          service?: string | null
+          statut?: string
+          observations?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          titre?: string
+          date_audit?: string
+          type_audit?: string
+          auditeur?: string | null
+          service?: string | null
+          statut?: string
+          observations?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      non_conformites: {
+        Row: {
+          id: string
+          audit_id: string | null
+          titre: string
+          description: string | null
+          criticite: string
+          statut: string
+          service: string | null
+          action_corrective_id: string | null
+          created_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          audit_id?: string | null
+          titre: string
+          description?: string | null
+          criticite?: string
+          statut?: string
+          service?: string | null
+          action_corrective_id?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          audit_id?: string | null
+          titre?: string
+          description?: string | null
+          criticite?: string
+          statut?: string
+          service?: string | null
+          action_corrective_id?: string | null
+          created_by?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

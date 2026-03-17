@@ -22,6 +22,7 @@ import MesPacqStrategiquePage from "@/pages/MesPacqStrategiquePage";
 import ClasseurAdminPage from "@/pages/ClasseurAdminPage";
 import ClasseurAgentPage from "@/pages/ClasseurAgentPage";
 import PlainteExternePage from "@/pages/PlainteExternePage";
+import AuditsPage from "@/pages/AuditsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -94,6 +95,7 @@ const AppRoutes = () => {
       <Route path="/pacq-strategique" element={<ProtectedRoute adminOrResponsable><PacqStrategiquePage /></ProtectedRoute>} />
       <Route path="/mes-pacq-strategique" element={<ProtectedRoute><MesPacqStrategiquePage /></ProtectedRoute>} />
       <Route path="/classeur-admin" element={<ProtectedRoute adminOrResponsable><ClasseurAdminPage /></ProtectedRoute>} />
+      <Route path="/audits" element={<ProtectedRoute adminOrResponsable><AuditsPage /></ProtectedRoute>} />
       <Route path="/classeur" element={<ProtectedRoute><ClasseurAgentPage /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>

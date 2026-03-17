@@ -17,7 +17,8 @@
       "Bash(cd:*)",
       "Bash(find:*)",
       "Bash(grep:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(cat:*)"
     ]
   }
 }
