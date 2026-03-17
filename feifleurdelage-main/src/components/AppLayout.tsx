@@ -18,6 +18,7 @@ import {
   Target,
   CheckSquare,
   FolderOpen,
+  FolderCog,
   Star,
   Building2,
 } from "lucide-react";
@@ -159,7 +160,8 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
     {
       label: "DOCUMENTS & RH",
       items: [
-        { to: "/classeur-admin", label: "Classeur documentaire", icon: FolderOpen },
+        { to: "/classeur", label: "Classeur — Émargement", icon: FolderOpen },
+        { to: "/classeur-admin", label: "Classeur — Gestion", icon: FolderCog },
         ...(isAdmin ? [{ to: "/agents", label: "Agents", icon: Users }] : []),
       ],
     },
