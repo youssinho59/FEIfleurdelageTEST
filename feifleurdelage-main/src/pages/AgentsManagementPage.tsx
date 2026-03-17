@@ -87,7 +87,8 @@ const RoleBadge = ({ role, services }: { role: string; services?: string[] }) =>
   );
   return (
     <Badge variant="secondary" className="gap-1">
-      <User className="w-3 h-3" /> Agent
+      <User className="w-3 h-3" />
+      {services && services.length > 0 ? `Agent — ${services[0]}` : "Agent"}
     </Badge>
   );
 };
@@ -128,6 +129,7 @@ const CreateForm = ({ onCreated }: { onCreated: () => void }) => {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"user" | "admin" | "responsable">("user");
   const [services, setServices] = useState<string[]>([]);
+  const [agentService, setAgentService] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [lastCreated, setLastCreated] = useState<string | null>(null);
 
@@ -146,13 +148,14 @@ const CreateForm = ({ onCreated }: { onCreated: () => void }) => {
         password,
         role,
         ...(role === "responsable" ? { services } : {}),
+        ...(role === "user" && agentService ? { agentService } : {}),
       });
       if (error) {
         toast.error(error);
       } else {
         toast.success(`Agent ${prenom} ${nom} créé avec succès !`);
         setLastCreated(data.identifiant);
-        setNom(""); setPrenom(""); setPassword(""); setRole("user"); setServices([]);
+        setNom(""); setPrenom(""); setPassword(""); setRole("user"); setServices([]); setAgentService("");
         onCreated();
       }
     } catch (err: any) {
@@ -184,7 +187,7 @@ const CreateForm = ({ onCreated }: { onCreated: () => void }) => {
           </div>
           <div className="space-y-2">
             <Label>Type d'accès</Label>
-            <Select value={role} onValueChange={(v) => { setRole(v as "user" | "admin" | "responsable"); setServices([]); }}>
+            <Select value={role} onValueChange={(v) => { setRole(v as "user" | "admin" | "responsable"); setServices([]); setAgentService(""); }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -195,6 +198,18 @@ const CreateForm = ({ onCreated }: { onCreated: () => void }) => {
               </SelectContent>
             </Select>
           </div>
+          {role === "user" && (
+            <div className="space-y-2">
+              <Label>Service affecté <span className="text-muted-foreground font-normal text-xs">(optionnel)</span></Label>
+              <Select value={agentService || "__none__"} onValueChange={(v) => setAgentService(v === "__none__" ? "" : v)}>
+                <SelectTrigger><SelectValue placeholder="Aucun service" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Aucun</SelectItem>
+                  {SERVICES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {role === "responsable" && (
             <div className="space-y-2">
               <Label>Services <span className="text-destructive">*</span></Label>
@@ -251,6 +266,9 @@ const EditDialog = ({
   const [nom, setNom] = useState(agent.full_name.split(" ").slice(1).join(" ") || "");
   const [role, setRole] = useState<"user" | "admin" | "responsable">(agent.role);
   const [services, setServices] = useState<string[]>(agent.services || []);
+  const [agentService, setAgentService] = useState<string>(
+    agent.role === "user" ? (agent.services?.[0] || "") : ""
+  );
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -268,6 +286,7 @@ const EditDialog = ({
       prenom: prenom.trim(),
       role,
       ...(role === "responsable" ? { services } : {}),
+      ...(role === "user" ? { agentService } : {}),
       ...(password ? { password } : {}),
     });
 
@@ -305,7 +324,11 @@ const EditDialog = ({
 
           <div className="space-y-2">
             <Label>Type d'accès</Label>
-            <Select value={role} onValueChange={(v) => { setRole(v as "user" | "admin" | "responsable"); if (v !== "responsable") setServices([]); }}>
+            <Select value={role} onValueChange={(v) => {
+              setRole(v as "user" | "admin" | "responsable");
+              if (v !== "responsable") setServices([]);
+              if (v !== "user") setAgentService("");
+            }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="user">Agent</SelectItem>
@@ -314,6 +337,19 @@ const EditDialog = ({
               </SelectContent>
             </Select>
           </div>
+
+          {role === "user" && (
+            <div className="space-y-2">
+              <Label>Service affecté <span className="text-muted-foreground font-normal text-xs">(optionnel)</span></Label>
+              <Select value={agentService || "__none__"} onValueChange={(v) => setAgentService(v === "__none__" ? "" : v)}>
+                <SelectTrigger><SelectValue placeholder="Aucun service" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Aucun</SelectItem>
+                  {SERVICES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {role === "responsable" && (
             <div className="space-y-2">

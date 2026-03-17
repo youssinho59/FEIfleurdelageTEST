@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
       return json({ error: "Accès refusé : vous n'êtes pas administrateur" });
     }
 
-    const { nom, prenom, password, role, services } = await req.json();
+    const { nom, prenom, password, role, services, agentService } = await req.json();
     if (!nom || !prenom || !password) {
       return json({ error: "Nom, prénom et mot de passe sont requis" });
     }
@@ -91,12 +91,19 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Insérer les services dans user_services (si responsable)
+    // Insérer les services dans user_services (responsable = multi, agent = mono)
     if (role === "responsable" && Array.isArray(services) && services.length > 0) {
       await fetch(`${supabaseUrl}/rest/v1/user_services`, {
         method: "POST",
         headers: adminHeaders,
         body: JSON.stringify(services.map((s: string) => ({ user_id: newUser.id, service: s }))),
+      });
+    }
+    if (role === "user" && agentService) {
+      await fetch(`${supabaseUrl}/rest/v1/user_services`, {
+        method: "POST",
+        headers: adminHeaders,
+        body: JSON.stringify([{ user_id: newUser.id, service: agentService }]),
       });
     }
 

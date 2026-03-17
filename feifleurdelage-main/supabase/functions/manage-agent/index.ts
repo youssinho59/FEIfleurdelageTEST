@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
 
     // --- MODIFIER un agent ---
     if (action === "update") {
-      const { userId, fullName, role, services, password, nom, prenom } = body;
+      const { userId, fullName, role, services, agentService, password, nom, prenom } = body;
       if (!userId) return json({ error: "userId requis" });
 
       if (fullName !== undefined) {
@@ -138,16 +138,27 @@ Deno.serve(async (req) => {
         });
 
         // Remplacer les services
-        await fetch(`${supabaseUrl}/rest/v1/user_services?user_id=eq.${userId}`, {
-          method: "DELETE",
-          headers: adminHeaders,
-        });
-        if (role === "responsable" && Array.isArray(services) && services.length > 0) {
-          await fetch(`${supabaseUrl}/rest/v1/user_services`, {
-            method: "POST",
+        // Admin : on ne touche jamais aux user_services
+        if (role !== "admin") {
+          await fetch(`${supabaseUrl}/rest/v1/user_services?user_id=eq.${userId}`, {
+            method: "DELETE",
             headers: adminHeaders,
-            body: JSON.stringify(services.map((s: string) => ({ user_id: userId, service: s }))),
           });
+          if (role === "responsable" && Array.isArray(services) && services.length > 0) {
+            await fetch(`${supabaseUrl}/rest/v1/user_services`, {
+              method: "POST",
+              headers: adminHeaders,
+              body: JSON.stringify(services.map((s: string) => ({ user_id: userId, service: s }))),
+            });
+          }
+          if (role === "user" && agentService) {
+            await fetch(`${supabaseUrl}/rest/v1/user_services`, {
+              method: "POST",
+              headers: adminHeaders,
+              body: JSON.stringify([{ user_id: userId, service: agentService }]),
+            });
+          }
+          // role === "user" && !agentService → user_services déjà vidé ci-dessus (aucun service)
         }
       }
 
