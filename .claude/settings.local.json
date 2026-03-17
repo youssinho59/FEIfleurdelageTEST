@@ -16,7 +16,8 @@
       "Bash(cd \"C:\\\\Users\\\\ybena\\\\Desktop\\\\Application FEI EHPAD\\\\feifleurdelage-main\\\\feifleurdelage-main\" && npx tsc --noEmit 2>&1 | head -60)",
       "Bash(cd:*)",
       "Bash(find:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(curl:*)"
     ]
   }
 }
