@@ -326,51 +326,21 @@ const FeiManagementPage = () => {
     setLoadingIA(true);
     setIaSuggestions([]);
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY ?? "",
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
+      const { data, error } = await supabase.functions.invoke("suggest-actions", {
+        body: {
+          context_type: "fei",
+          data: {
+            type_fei: selectedFei.type_fei,
+            description: selectedFei.description,
+            gravite: selectedFei.gravite,
+            lieu: selectedFei.lieu,
+            service: selectedFei.service,
+            actions_correctives: selectedFei.actions_correctives,
+          },
         },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          system: "Tu es un expert qualité dans un EHPAD français. Tu proposes des actions correctives concrètes et des objectifs qualité associés selon le référentiel HAS/AVS ESSMS. Réponds UNIQUEMENT en JSON valide, sans markdown ni backticks.",
-          messages: [{
-            role: "user",
-            content: `Voici une fiche d'événement indésirable :
-
-Type : ${selectedFei.type_fei}
-Description : ${selectedFei.description}
-Gravité : ${selectedFei.gravite}/5
-Lieu : ${selectedFei.lieu}
-Service : ${selectedFei.service ?? "Non précisé"}
-Actions correctives initiales : ${selectedFei.actions_correctives || "Aucune"}
-
-Propose 3 actions correctives adaptées à cet événement.
-Pour chaque action, indique l'objectif PACQ stratégique associé parmi ces thématiques HAS/AVS : "La personne et ses droits", "L'accompagnement à l'autonomie", "L'accompagnement à la santé", "Les interactions avec l'environnement", "Le management et les ressources humaines", "La gestion et la qualité".
-Réponds avec ce JSON exact :
-{
-"actions": [
-{
-"titre": "...",
-"description": "...",
-"priorite": "haute|moyenne|faible",
-"thematique_pacq": "...",
-"objectif_pacq": "..."
-}
-]
-}`,
-          }],
-        }),
       });
-      if (!response.ok) throw new Error(`Erreur API ${response.status}`);
-      const data = await response.json();
-      const text = data.content[0].text;
-      const parsed = JSON.parse(text);
-      setIaSuggestions(parsed.actions ?? []);
+      if (error) throw new Error(error.message);
+      setIaSuggestions(data?.actions ?? []);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Erreur inconnue";
       toast.error("Erreur IA : " + message);

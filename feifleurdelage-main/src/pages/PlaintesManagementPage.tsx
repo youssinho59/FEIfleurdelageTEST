@@ -237,49 +237,19 @@ const PlaintesManagementPage = () => {
     setLoadingIA(true);
     setIaSuggestions([]);
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": import.meta.env.VITE_ANTHROPIC_API_KEY ?? "",
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
+      const { data, error } = await supabase.functions.invoke("suggest-actions", {
+        body: {
+          context_type: "plainte",
+          data: {
+            objet: selectedPlainte.objet,
+            description: selectedPlainte.description,
+            demandeur: selectedPlainte.demandeur,
+            service: selectedPlainte.service,
+          },
         },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          system: "Tu es un expert qualité dans un EHPAD français. Tu proposes des actions correctives concrètes et des objectifs qualité associés selon le référentiel HAS/AVS ESSMS. Réponds UNIQUEMENT en JSON valide, sans markdown ni backticks.",
-          messages: [{
-            role: "user",
-            content: `Voici une plainte ou réclamation dans un EHPAD :
-
-Motif : ${selectedPlainte.objet}
-Description : ${selectedPlainte.description}
-Demandeur : ${selectedPlainte.demandeur}
-Service : ${selectedPlainte.service || "Non précisé"}
-
-Propose 3 actions correctives adaptées à cette plainte.
-Pour chaque action, indique l'objectif PACQ stratégique associé parmi ces thématiques HAS/AVS : "La personne et ses droits", "L'accompagnement à l'autonomie", "L'accompagnement à la santé", "Les interactions avec l'environnement", "Le management et les ressources humaines", "La gestion et la qualité".
-Réponds avec ce JSON exact :
-{
-"actions": [
-{
-"titre": "...",
-"description": "...",
-"priorite": "haute|moyenne|faible",
-"thematique_pacq": "...",
-"objectif_pacq": "..."
-}
-]
-}`,
-          }],
-        }),
       });
-      if (!response.ok) throw new Error(`Erreur API ${response.status}`);
-      const data = await response.json();
-      const text = data.content[0].text;
-      const parsed = JSON.parse(text);
-      setIaSuggestions(parsed.actions ?? []);
+      if (error) throw new Error(error.message);
+      setIaSuggestions(data?.actions ?? []);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Erreur inconnue";
       toast.error("Erreur IA : " + message);
