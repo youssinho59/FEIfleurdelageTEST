@@ -452,6 +452,9 @@ export type Database = {
           points_ameliorer: string | null
           suggestions: string | null
           action_corrective_id: string | null
+          retour_admin: string | null
+          retour_admin_at: string | null
+          retour_admin_by: string | null
           created_at: string
         }
         Insert: {
@@ -471,6 +474,9 @@ export type Database = {
           points_ameliorer?: string | null
           suggestions?: string | null
           action_corrective_id?: string | null
+          retour_admin?: string | null
+          retour_admin_at?: string | null
+          retour_admin_by?: string | null
           created_at?: string
         }
         Update: {
@@ -490,6 +496,9 @@ export type Database = {
           points_ameliorer?: string | null
           suggestions?: string | null
           action_corrective_id?: string | null
+          retour_admin?: string | null
+          retour_admin_at?: string | null
+          retour_admin_by?: string | null
           created_at?: string
         }
         Relationships: []

@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import {
   Star as StarIcon, QrCode, Printer, Target, Plus, ChevronDown, ChevronUp,
   AlertTriangle, CheckCircle2, TrendingUp, Users, Calendar, Trash2,
+  Link2, Unlink, MessageSquare, Edit3,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -41,10 +42,13 @@ type Questionnaire = {
   points_ameliorer: string | null;
   suggestions: string | null;
   action_corrective_id: string | null;
+  retour_admin: string | null;
+  retour_admin_at: string | null;
+  retour_admin_by: string | null;
   created_at: string;
 };
 
-type ActionRef = { id: string; titre: string };
+type ActionRef = { id: string; titre: string; statut?: string };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -55,6 +59,16 @@ const REPONDANT_LABELS: Record<string, string> = {
 };
 
 const PIE_COLORS = ["#c46b48", "#d4956e", "#e8b896", "#a85636"];
+
+const STATUT_LABELS: Record<string, string> = {
+  a_faire: "À faire", en_cours: "En cours", termine: "Terminé", reporte: "Reporté",
+};
+
+const prioriteFromNote = (note: number | null): string => {
+  if (!note || note <= 2) return "haute";
+  if (note === 3) return "moyenne";
+  return "faible";
+};
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
@@ -101,7 +115,7 @@ export default function QuestionnairesAdminPage() {
 
   // Filters
   const [filterMonth, setFilterMonth] = useState("");
-  const [filterNote, setFilterNote] = useState(""); // "bad" | "medium" | "good"
+  const [filterNote, setFilterNote] = useState("");
   const [filterRepondant, setFilterRepondant] = useState("");
 
   // Expandable rows
@@ -119,8 +133,24 @@ export default function QuestionnairesAdminPage() {
   // PACQ create dialog
   const [pacqDialogOpen, setPacqDialogOpen] = useState(false);
   const [pacqTargetId, setPacqTargetId] = useState<string | null>(null);
-  const [pacqForm, setPacqForm] = useState({ titre: "", description: "", responsable_id: "", date_echeance: "" });
+  const [pacqForm, setPacqForm] = useState({
+    titre: "", description: "", responsable_id: "", date_echeance: "", priorite: "haute",
+  });
   const [savingPacq, setSavingPacq] = useState(false);
+
+  // PACQ link dialog (Option B)
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkTargetId, setLinkTargetId] = useState<string | null>(null);
+  const [linkSelectedAction, setLinkSelectedAction] = useState("");
+  const [linkingAction, setLinkingAction] = useState(false);
+
+  // Unlink PACQ
+  const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
+
+  // Retour admin inline edit
+  const [retourEditId, setRetourEditId] = useState<string | null>(null);
+  const [retourText, setRetourText] = useState("");
+  const [savingRetour, setSavingRetour] = useState(false);
 
   // ── Data loading ─────────────────────────────────────────────────────────────
 
@@ -128,7 +158,7 @@ export default function QuestionnairesAdminPage() {
     setLoading(true);
     const [qRes, aRes] = await Promise.all([
       supabase.from("questionnaire_satisfaction").select("*").order("created_at", { ascending: false }),
-      supabase.from("actions_correctives").select("id, titre").order("created_at", { ascending: false }),
+      supabase.from("actions_correctives").select("id, titre, statut").order("created_at", { ascending: false }),
     ]);
     setQuestionnaires((qRes.data as Questionnaire[]) || []);
     setActionsCorrectives((aRes.data as ActionRef[]) || []);
@@ -206,9 +236,7 @@ export default function QuestionnairesAdminPage() {
 
   const filteredQ = useMemo(() => {
     return questionnaires.filter((q) => {
-      if (filterMonth) {
-        if (!q.created_at.startsWith(filterMonth)) return false;
-      }
+      if (filterMonth && !q.created_at.startsWith(filterMonth)) return false;
       if (filterNote === "bad" && (q.note_globale ?? 0) > 2) return false;
       if (filterNote === "medium" && q.note_globale !== 3) return false;
       if (filterNote === "good" && (q.note_globale ?? 0) < 4) return false;
@@ -228,7 +256,7 @@ export default function QuestionnairesAdminPage() {
     setDeleting(false);
   };
 
-  // ── PACQ action ───────────────────────────────────────────────────────────────
+  // ── PACQ create (Option A) ────────────────────────────────────────────────────
 
   const openPacq = (q: Questionnaire) => {
     const dateFmt = q.date_sejour
@@ -236,10 +264,11 @@ export default function QuestionnairesAdminPage() {
       : new Date(q.created_at).toLocaleDateString("fr-FR");
     setPacqTargetId(q.id);
     setPacqForm({
-      titre: `Insatisfaction — ${q.service ?? "Général"} — ${dateFmt}`,
+      titre: `Satisfaction — ${q.service ?? "Général"} — ${dateFmt}`,
       description: [q.points_ameliorer, q.suggestions].filter(Boolean).join(" | ") || "",
       responsable_id: "",
       date_echeance: "",
+      priorite: prioriteFromNote(q.note_globale),
     });
     setPacqDialogOpen(true);
   };
@@ -259,7 +288,7 @@ export default function QuestionnairesAdminPage() {
         responsable: agent?.full_name ?? pacqForm.titre,
         responsable_id: pacqForm.responsable_id || null,
         date_echeance: pacqForm.date_echeance,
-        priorite: "haute",
+        priorite: pacqForm.priorite,
         statut: "a_faire",
         user_id: user.id,
       })
@@ -277,6 +306,64 @@ export default function QuestionnairesAdminPage() {
     setPacqDialogOpen(false);
     await fetchAll();
     setSavingPacq(false);
+  };
+
+  // ── PACQ link existing (Option B) ─────────────────────────────────────────────
+
+  const openLinkDialog = (q: Questionnaire) => {
+    setLinkTargetId(q.id);
+    setLinkSelectedAction("");
+    setLinkDialogOpen(true);
+  };
+
+  const handleLinkAction = async () => {
+    if (!linkTargetId || !linkSelectedAction) return;
+    setLinkingAction(true);
+    const { error } = await supabase
+      .from("questionnaire_satisfaction")
+      .update({ action_corrective_id: linkSelectedAction })
+      .eq("id", linkTargetId);
+    if (error) toast.error("Erreur : " + error.message);
+    else { toast.success("Action PACQ liée !"); setLinkDialogOpen(false); await fetchAll(); }
+    setLinkingAction(false);
+  };
+
+  // ── PACQ unlink ────────────────────────────────────────────────────────────────
+
+  const handleUnlinkAction = async (qId: string) => {
+    setUnlinkingId(qId);
+    const { error } = await supabase
+      .from("questionnaire_satisfaction")
+      .update({ action_corrective_id: null })
+      .eq("id", qId);
+    if (error) toast.error("Erreur : " + error.message);
+    else { toast.success("Lien PACQ supprimé."); await fetchAll(); }
+    setUnlinkingId(null);
+  };
+
+  // ── Retour admin ───────────────────────────────────────────────────────────────
+
+  const openRetourEdit = (q: Questionnaire) => {
+    setRetourEditId(q.id);
+    setRetourText(q.retour_admin ?? "");
+    // Auto-expand
+    setExpanded((prev) => { const n = new Set(prev); n.add(q.id); return n; });
+  };
+
+  const handleSaveRetour = async (qId: string) => {
+    if (!user) return;
+    setSavingRetour(true);
+    const { error } = await supabase
+      .from("questionnaire_satisfaction")
+      .update({
+        retour_admin: retourText.trim() || null,
+        retour_admin_at: new Date().toISOString(),
+        retour_admin_by: user.id,
+      })
+      .eq("id", qId);
+    if (error) toast.error("Erreur : " + error.message);
+    else { toast.success("Retour enregistré."); setRetourEditId(null); await fetchAll(); }
+    setSavingRetour(false);
   };
 
   // ── Print QR ──────────────────────────────────────────────────────────────────
@@ -372,7 +459,6 @@ export default function QuestionnairesAdminPage() {
           {questionnaires.length > 0 && (
             <div className="grid gap-5 lg:grid-cols-2">
 
-              {/* BarChart — Notes par critère */}
               <Card>
                 <CardHeader className="pb-2 pt-4 px-5">
                   <CardTitle className="font-display text-base">Notes moyennes par critère</CardTitle>
@@ -390,7 +476,6 @@ export default function QuestionnairesAdminPage() {
                 </CardContent>
               </Card>
 
-              {/* PieChart — Répondants */}
               {repondantData.length > 0 && (
                 <Card>
                   <CardHeader className="pb-2 pt-4 px-5">
@@ -421,7 +506,6 @@ export default function QuestionnairesAdminPage() {
                 </Card>
               )}
 
-              {/* LineChart — Évolution mensuelle */}
               {monthlyData.length > 1 && (
                 <Card className="lg:col-span-2">
                   <CardHeader className="pb-2 pt-4 px-5">
@@ -501,6 +585,11 @@ export default function QuestionnairesAdminPage() {
                   const linkedAction = actionsCorrectives.find((a) => a.id === q.action_corrective_id);
                   const isExpanded = expanded.has(q.id);
                   const repondantLabel = q.repondant ? (REPONDANT_LABELS[q.repondant] ?? q.repondant) : null;
+                  const retourAuthor = q.retour_admin_by
+                    ? agents.find((a) => a.id === q.retour_admin_by)?.full_name ?? "Administrateur"
+                    : null;
+                  const isEditingRetour = retourEditId === q.id;
+
                   return (
                     <Card key={q.id} className={isInsatisfait ? "border-red-200" : ""}>
                       <CardContent className="p-4">
@@ -515,6 +604,16 @@ export default function QuestionnairesAdminPage() {
                               )}
                               {repondantLabel && <Badge variant="secondary" className="text-xs">{repondantLabel}</Badge>}
                               {q.service && <Badge variant="outline" className="text-xs">{q.service}</Badge>}
+                              {linkedAction && (
+                                <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                                  <Target className="w-3 h-3" /> PACQ ✓
+                                </span>
+                              )}
+                              {q.retour_admin && (
+                                <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                                  <MessageSquare className="w-3 h-3" /> Retour ✓
+                                </span>
+                              )}
                               <span className="text-xs text-muted-foreground">
                                 {new Date(q.created_at).toLocaleDateString("fr-FR")}
                               </span>
@@ -525,19 +624,6 @@ export default function QuestionnairesAdminPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
-                            {isInsatisfait && !linkedAction && (
-                              <button
-                                onClick={() => openPacq(q)}
-                                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
-                              >
-                                <Plus className="w-3 h-3" /> Action PACQ
-                              </button>
-                            )}
-                            {linkedAction && (
-                              <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                                <Target className="w-3 h-3" /> PACQ ✓
-                              </span>
-                            )}
                             <button
                               onClick={() => toggleExpand(q.id)}
                               className="p-1 text-muted-foreground hover:text-foreground transition-colors"
@@ -556,7 +642,7 @@ export default function QuestionnairesAdminPage() {
 
                         {/* Expanded detail */}
                         {isExpanded && (
-                          <div className="mt-4 pt-4 border-t border-border/60 space-y-3">
+                          <div className="mt-4 pt-4 border-t border-border/60 space-y-4">
                             {/* Notes par critère */}
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                               {[
@@ -590,12 +676,119 @@ export default function QuestionnairesAdminPage() {
                                 <p className="text-xs text-foreground leading-relaxed">{q.suggestions}</p>
                               </div>
                             )}
-                            {linkedAction && (
-                              <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                                <Target className="w-3.5 h-3.5 shrink-0" />
-                                Action PACQ liée : <span className="font-medium">{linkedAction.titre}</span>
-                              </div>
-                            )}
+
+                            {/* ── Section PACQ ── */}
+                            <div className="pt-2 border-t border-border/40">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+                                <Target className="w-3 h-3" /> Action PACQ opérationnel
+                              </p>
+                              {linkedAction ? (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <div className="flex-1 min-w-0 flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                                    <Target className="w-3.5 h-3.5 shrink-0" />
+                                    <span className="font-medium truncate">{linkedAction.titre}</span>
+                                    {linkedAction.statut && (
+                                      <Badge variant="outline" className="text-[10px] shrink-0">
+                                        {STATUT_LABELS[linkedAction.statut] ?? linkedAction.statut}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs gap-1 text-muted-foreground border-dashed"
+                                    disabled={unlinkingId === q.id}
+                                    onClick={() => handleUnlinkAction(q.id)}
+                                  >
+                                    <Unlink className="w-3 h-3" />
+                                    {unlinkingId === q.id ? "…" : "Délier"}
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs gap-1.5"
+                                    onClick={() => openPacq(q)}
+                                  >
+                                    <Plus className="w-3 h-3" /> Créer action PACQ
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs gap-1.5 text-muted-foreground"
+                                    onClick={() => openLinkDialog(q)}
+                                  >
+                                    <Link2 className="w-3 h-3" /> Lier à une action existante
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* ── Section Retour admin ── */}
+                            <div className="pt-2 border-t border-border/40">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+                                <MessageSquare className="w-3 h-3" /> Retour administrateur
+                              </p>
+                              {isEditingRetour ? (
+                                <div className="space-y-2">
+                                  <Textarea
+                                    value={retourText}
+                                    onChange={(e) => setRetourText(e.target.value)}
+                                    rows={3}
+                                    className="text-xs resize-none"
+                                    placeholder="Saisir le retour administrateur…"
+                                    autoFocus
+                                  />
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      className="h-7 text-xs gap-1.5"
+                                      onClick={() => handleSaveRetour(q.id)}
+                                      disabled={savingRetour}
+                                    >
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      {savingRetour ? "Enregistrement…" : "Enregistrer"}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 text-xs"
+                                      disabled={savingRetour}
+                                      onClick={() => setRetourEditId(null)}
+                                    >
+                                      Annuler
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : q.retour_admin ? (
+                                <div className="space-y-1.5">
+                                  <div className="text-xs text-foreground leading-relaxed bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                                    {q.retour_admin}
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-[10px] text-muted-foreground">
+                                      Par {retourAuthor}
+                                      {q.retour_admin_at && ` — ${new Date(q.retour_admin_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}`}
+                                    </p>
+                                    <button
+                                      onClick={() => openRetourEdit(q)}
+                                      className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                                    >
+                                      <Edit3 className="w-3 h-3" /> Modifier
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => openRetourEdit(q)}
+                                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                  <Plus className="w-3.5 h-3.5" /> Ajouter un retour
+                                </button>
+                              )}
+                            </div>
                           </div>
                         )}
                       </CardContent>
@@ -671,9 +864,16 @@ export default function QuestionnairesAdminPage() {
                 <Input type="date" value={pacqForm.date_echeance} onChange={(e) => setPacqForm({ ...pacqForm, date_echeance: e.target.value })} />
               </div>
             </div>
-            <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              Cette action sera créée avec la priorité <strong>Haute</strong>.
+            <div className="space-y-1.5">
+              <Label>Priorité</Label>
+              <Select value={pacqForm.priorite} onValueChange={(v) => setPacqForm({ ...pacqForm, priorite: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="haute">Haute</SelectItem>
+                  <SelectItem value="moyenne">Moyenne</SelectItem>
+                  <SelectItem value="faible">Faible</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter className="gap-2">
@@ -681,6 +881,43 @@ export default function QuestionnairesAdminPage() {
             <Button onClick={handleSavePacq} disabled={savingPacq} className="gap-2">
               <CheckCircle2 className="w-4 h-4" />
               {savingPacq ? "Création…" : "Créer l'action PACQ"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog Lier action existante ─────────────────────────────────────── */}
+      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 font-display">
+              <Link2 className="w-4 h-4 text-primary" />
+              Lier à une action PACQ existante
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Action PACQ <span className="text-destructive">*</span></Label>
+              <Select value={linkSelectedAction || "none"} onValueChange={(v) => setLinkSelectedAction(v === "none" ? "" : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionner une action…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— Sélectionner —</SelectItem>
+                  {actionsCorrectives.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.titre} {a.statut ? `(${STATUT_LABELS[a.statut] ?? a.statut})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setLinkDialogOpen(false)} disabled={linkingAction}>Annuler</Button>
+            <Button onClick={handleLinkAction} disabled={linkingAction || !linkSelectedAction} className="gap-2">
+              <Link2 className="w-4 h-4" />
+              {linkingAction ? "Liaison…" : "Lier"}
             </Button>
           </DialogFooter>
         </DialogContent>
