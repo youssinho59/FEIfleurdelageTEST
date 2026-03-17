@@ -13,7 +13,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { generatePlaintePdf } from "@/lib/pdfGenerator";
-import { MessageSquareWarning, Calendar, User, FileText, ChevronRight, Trash2, ClipboardCheck, Search, MessageCircle, FileDown } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
+import { MessageSquareWarning, Calendar, User, FileText, ChevronRight, Trash2, ClipboardCheck, Search, MessageCircle, FileDown, QrCode, Printer, ExternalLink } from "lucide-react";
+
+const QR_URL = "https://fe-ifleurdelage-test.vercel.app/plainte-externe";
 
 const STATUTS_PLAINTE = [
   { value: "nouveau",   label: "Nouveau",    color: "bg-blue-100 text-blue-800" },
@@ -45,6 +48,7 @@ type PlainteRecord = {
   managed_by: string | null;
   managed_at: string | null;
   date_cloture: string | null;
+  source: string | null;
 };
 
 const PlaintesManagementPage = () => {
@@ -54,6 +58,8 @@ const PlaintesManagementPage = () => {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [filterStatut, setFilterStatut] = useState<string>("tous");
+  const [filterSource, setFilterSource] = useState<string>("toutes");
+  const [qrDialogOpen, setQrDialogOpen] = useState(false);
   const [selectedPlainte, setSelectedPlainte] = useState<PlainteRecord | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -79,6 +85,8 @@ const PlaintesManagementPage = () => {
       .select("*")
       .order("created_at", { ascending: false });
     if (filterStatut !== "tous") query = query.eq("statut", filterStatut);
+    if (filterSource === "interne") query = query.or("source.eq.interne,source.is.null");
+    if (filterSource === "externe") query = query.eq("source", "externe");
 
     // Responsable : filtrer par ses services (potentiellement plusieurs)
     if (isResponsable && !isAdmin && userServices.length > 0) {
@@ -92,7 +100,7 @@ const PlaintesManagementPage = () => {
     setLoading(false);
   };
 
-  useEffect(() => { fetchPlaintes(); }, [filterStatut]);
+  useEffect(() => { fetchPlaintes(); }, [filterStatut, filterSource]);
 
   const openDetail = (plainte: PlainteRecord) => {
     setSelectedPlainte(plainte);
@@ -188,13 +196,23 @@ const PlaintesManagementPage = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-display font-bold">Gestion des Réclamations</h1>
-        <p className="text-muted-foreground">Traitez et suivez les plaintes et réclamations enregistrées</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-display font-bold">Gestion des Réclamations</h1>
+          <p className="text-muted-foreground">Traitez et suivez les plaintes et réclamations enregistrées</p>
+        </div>
+        <Button
+          variant="outline"
+          className="gap-2 shrink-0"
+          onClick={() => setQrDialogOpen(true)}
+        >
+          <QrCode className="w-4 h-4" />
+          QR Code
+        </Button>
       </div>
 
       {/* Filter tabs */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 items-center">
         <Button variant={filterStatut === "tous" ? "default" : "outline"} size="sm" onClick={() => setFilterStatut("tous")}>
           Toutes ({plaintesList.length})
         </Button>
@@ -203,6 +221,22 @@ const PlaintesManagementPage = () => {
             {s.label}
           </Button>
         ))}
+        <div className="ml-auto flex items-center gap-1.5">
+          <span className="text-xs text-muted-foreground">Source :</span>
+          {(["toutes", "interne", "externe"] as const).map(src => (
+            <Button
+              key={src}
+              size="sm"
+              variant={filterSource === src ? "default" : "outline"}
+              onClick={() => setFilterSource(src)}
+              className={src === "externe" && filterSource !== "externe"
+                ? "border-orange-300 text-orange-600 hover:bg-orange-50"
+                : ""}
+            >
+              {src === "toutes" ? "Toutes" : src === "interne" ? "Interne" : "Externe"}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {/* List */}
@@ -241,6 +275,11 @@ const PlaintesManagementPage = () => {
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <Badge variant="outline" className={statutInfo.color}>{statutInfo.label}</Badge>
                         <Badge variant="secondary">{plainte.demandeur}</Badge>
+                        {plainte.source === "externe" && (
+                          <Badge className="bg-orange-100 text-orange-700 border border-orange-200 text-xs gap-1">
+                            <ExternalLink className="w-3 h-3" /> Externe
+                          </Badge>
+                        )}
                         {plainte.service && (
                           <Badge variant="outline" className="text-muted-foreground border-muted-foreground/30">
                             {plainte.service}
@@ -285,6 +324,80 @@ const PlaintesManagementPage = () => {
         </div>
       )}
 
+      {/* ── QR Code Dialog ─────────────────────────────────────────────── */}
+      <Dialog open={qrDialogOpen} onOpenChange={setQrDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 font-display">
+              <QrCode className="w-5 h-5 text-primary" />
+              QR Code — Plainte externe
+            </DialogTitle>
+          </DialogHeader>
+
+          <div id="qr-print-area" className="flex flex-col items-center gap-4 py-2">
+            {/* QR Code */}
+            <div className="p-4 bg-white rounded-2xl border border-border shadow-sm">
+              <QRCodeSVG
+                value={QR_URL}
+                size={200}
+                level="M"
+                includeMargin={false}
+              />
+            </div>
+
+            {/* URL */}
+            <div className="w-full rounded-lg bg-muted/60 px-3 py-2.5 text-center">
+              <p className="text-[11px] text-muted-foreground mb-0.5">Lien direct</p>
+              <p className="text-xs font-mono text-foreground break-all">{QR_URL}</p>
+            </div>
+
+            {/* Instructions */}
+            <div className="w-full rounded-lg border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs text-blue-800">
+              <p className="font-semibold mb-1">Comment l'utiliser ?</p>
+              <ul className="space-y-0.5 list-disc list-inside text-blue-700">
+                <li>Affichez ce QR Code à l'accueil</li>
+                <li>En salle à manger ou dans les chambres</li>
+                <li>Les résidents et familles scannent avec leur téléphone</li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <Button
+              variant="outline"
+              className="flex-1 gap-2"
+              onClick={() => {
+                const area = document.getElementById("qr-print-area");
+                if (!area) return;
+                const win = window.open("", "_blank");
+                win?.document.write(`
+                  <html><head><title>QR Code — Plainte Externe — EHPAD La Fleur de l'Âge</title>
+                  <style>
+                    body { font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 32px; background: #faf7f3; }
+                    .title { font-size: 20px; font-weight: bold; margin-bottom: 4px; color: #c46b48; }
+                    .sub { font-size: 13px; color: #666; margin-bottom: 24px; }
+                    .url { font-family: monospace; font-size: 12px; color: #333; margin-top: 16px; word-break: break-all; max-width: 300px; text-align: center; }
+                    .instructions { margin-top: 20px; font-size: 12px; color: #555; text-align: center; max-width: 280px; line-height: 1.7; }
+                  </style></head><body>
+                  <div class="title">EHPAD La Fleur de l'Âge</div>
+                  <div class="sub">Déposer une plainte ou réclamation</div>
+                  ${area.innerHTML}
+                  <div class="instructions">Scannez ce QR Code avec votre smartphone<br>pour accéder au formulaire confidentiel</div>
+                  </body></html>`);
+                win?.document.close();
+                win?.print();
+              }}
+            >
+              <Printer className="w-4 h-4" />
+              Imprimer
+            </Button>
+            <Button variant="outline" className="flex-1 gap-2" onClick={() => setQrDialogOpen(false)}>
+              Fermer
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
@@ -326,6 +439,11 @@ const PlaintesManagementPage = () => {
                       {getStatutInfo(selectedPlainte.statut).label}
                     </Badge>
                     <Badge variant="secondary">{selectedPlainte.demandeur}</Badge>
+                    {selectedPlainte.source === "externe" && (
+                      <Badge className="bg-orange-100 text-orange-700 border border-orange-200 text-xs gap-1">
+                        <ExternalLink className="w-3 h-3" /> Externe — QR Code
+                      </Badge>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div><span className="text-muted-foreground">Date : </span>{new Date(selectedPlainte.date_plainte).toLocaleDateString("fr-FR")}</div>

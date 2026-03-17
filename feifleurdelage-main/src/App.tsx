@@ -21,6 +21,7 @@ import PacqStrategiquePage from "@/pages/PacqStrategiquePage";
 import MesPacqStrategiquePage from "@/pages/MesPacqStrategiquePage";
 import ClasseurAdminPage from "@/pages/ClasseurAdminPage";
 import ClasseurAgentPage from "@/pages/ClasseurAgentPage";
+import PlainteExternePage from "@/pages/PlainteExternePage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -78,6 +79,8 @@ const AppRoutes = () => {
 
   return (
     <Routes>
+      {/* Route publique — accessible sans authentification */}
+      <Route path="/plainte-externe" element={<PlainteExternePage />} />
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/fei" element={<ProtectedRoute><FeiFormPage /></ProtectedRoute>} />

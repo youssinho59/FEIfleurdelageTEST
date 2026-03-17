@@ -87,6 +87,7 @@ export type Database = {
           id: string
           objet: string
           reponse_apportee: string | null
+          source: string | null
           statut: string
           updated_at: string
           user_id: string
@@ -100,6 +101,7 @@ export type Database = {
           id?: string
           objet: string
           reponse_apportee?: string | null
+          source?: string | null
           statut?: string
           updated_at?: string
           user_id: string
@@ -113,6 +115,7 @@ export type Database = {
           id?: string
           objet?: string
           reponse_apportee?: string | null
+          source?: string | null
           statut?: string
           updated_at?: string
           user_id?: string
