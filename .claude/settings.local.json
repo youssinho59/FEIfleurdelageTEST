@@ -19,7 +19,9 @@
       "Bash(grep:*)",
       "Bash(curl:*)",
       "Bash(cat:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(SUPABASE_URL=\"https://ciflawnwdldeevabgnsk.supabase.co\"\nANON_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpZmxhd253ZGxkZWV2YWJnbnNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxMzM3NzgsImV4cCI6MjA4ODcwOTc3OH0.3chsc74c5RJBYehGglawuMIP0JJR0kNE7n7xWuVBBBI\"\n\ncurl -v -k -X POST \"${SUPABASE_URL}/functions/v1/suggest-actions\" \\\\\n  -H \"Authorization: Bearer ${ANON_KEY}\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"context_type\":\"fei\",\"data\":{\"type_fei\":\"Chute\",\"description\":\"test\",\"gravite\":3,\"lieu\":\"Chambre 12\",\"service\":\"Soins\",\"actions_correctives\":\"\"}}' \\\\\n  2>&1 | tail -20)",
+      "Bash(npm run:*)"
     ]
   }
 }

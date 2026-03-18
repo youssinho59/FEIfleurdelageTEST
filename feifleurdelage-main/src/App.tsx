@@ -96,7 +96,7 @@ const AppRoutes = () => {
       <Route path="/suivi-instances" element={<ProtectedRoute adminOnly><SuiviInstancesPage /></ProtectedRoute>} />
       <Route path="/pacq-strategique" element={<ProtectedRoute adminOrResponsable><PacqStrategiquePage /></ProtectedRoute>} />
       <Route path="/mes-pacq-strategique" element={<ProtectedRoute><MesPacqStrategiquePage /></ProtectedRoute>} />
-      <Route path="/classeur-admin" element={<ProtectedRoute adminOrResponsable><ClasseurAdminPage /></ProtectedRoute>} />
+      <Route path="/classeur-admin" element={<ProtectedRoute adminOnly><ClasseurAdminPage /></ProtectedRoute>} />
       <Route path="/audits" element={<ProtectedRoute adminOrResponsable><AuditsPage /></ProtectedRoute>} />
       <Route path="/questionnaires-admin" element={<ProtectedRoute adminOrResponsable><QuestionnairesAdminPage /></ProtectedRoute>} />
       <Route path="/classeur" element={<ProtectedRoute><ClasseurAgentPage /></ProtectedRoute>} />

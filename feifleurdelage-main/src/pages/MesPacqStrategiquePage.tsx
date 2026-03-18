@@ -123,7 +123,7 @@ export default function MesPacqStrategiquePage() {
           <Target className="w-5 h-5 text-white" />
         </div>
         <div>
-          <h1 className="text-xl font-display font-bold text-foreground">Mes actions — PACQ Stratégique</h1>
+          <h1 className="text-xl font-display font-bold text-foreground">Mes actions — PACQS Stratégique</h1>
           <p className="text-xs text-muted-foreground">Actions du projet d'établissement dont vous êtes pilote</p>
         </div>
       </motion.div>

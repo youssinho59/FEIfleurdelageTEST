@@ -2,8 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Printer, CalendarRange, FileText, MessageSquareWarning, Loader2, Info } from "lucide-react";
+import { Printer, CalendarRange, FileText, MessageSquareWarning, Loader2, Info, MessageSquare } from "lucide-react";
 
 type InstanceRow = {
   source_id: string;
@@ -16,6 +19,7 @@ type InstanceRow = {
   cse_date: string;
   cvs_date: string;
   codir_date: string;
+  retour_analyse: string;
 };
 
 const INSTANCE_COLS = [
@@ -30,6 +34,8 @@ const SuiviInstancesPage = () => {
   const [rows, setRows] = useState<InstanceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingSet, setSavingSet] = useState<Set<string>>(new Set());
+  const [retourDialog, setRetourDialog] = useState<{ sourceId: string; text: string } | null>(null);
+  const [savingRetour, setSavingRetour] = useState(false);
 
   const fetchData = useCallback(async (year: number) => {
     setLoading(true);
@@ -55,7 +61,7 @@ const SuiviInstancesPage = () => {
     const plaintes = (plaintesRes.data || []) as Array<{ id: string; date_plainte: string; declarant_nom: string; description: string; objet: string }>;
 
     // Récupération des enregistrements suivi_instances existants
-    let suiviData: Array<{ id: string; fei_id: string | null; plainte_id: string | null; cse_date: string | null; cvs_date: string | null; codir_date: string | null }> = [];
+    let suiviData: Array<{ id: string; fei_id: string | null; plainte_id: string | null; cse_date: string | null; cvs_date: string | null; codir_date: string | null; retour_analyse: string | null }> = [];
     const feiIds = feis.map((f) => f.id);
     const plainteIds = plaintes.map((p) => p.id);
 
@@ -82,6 +88,7 @@ const SuiviInstancesPage = () => {
           cse_date: suivi?.cse_date ?? "",
           cvs_date: suivi?.cvs_date ?? "",
           codir_date: suivi?.codir_date ?? "",
+          retour_analyse: suivi?.retour_analyse ?? "",
         };
       }),
       ...plaintes.map((p) => {
@@ -97,6 +104,7 @@ const SuiviInstancesPage = () => {
           cse_date: suivi?.cse_date ?? "",
           cvs_date: suivi?.cvs_date ?? "",
           codir_date: suivi?.codir_date ?? "",
+          retour_analyse: suivi?.retour_analyse ?? "",
         };
       }),
     ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -148,6 +156,41 @@ const SuiviInstancesPage = () => {
     }
   };
 
+  const saveRetourAnalyse = async () => {
+    if (!retourDialog) return;
+    const row = rows.find((r) => r.source_id === retourDialog.sourceId);
+    if (!row) return;
+    setSavingRetour(true);
+    try {
+      if (row.suivi_id) {
+        const { error } = await supabase
+          .from("suivi_instances")
+          .update({ retour_analyse: retourDialog.text || null, updated_at: new Date().toISOString() })
+          .eq("id", row.suivi_id);
+        if (error) throw error;
+      } else {
+        const insert: Record<string, unknown> = {
+          retour_analyse: retourDialog.text || null,
+          ...(row.source_type === "fei" ? { fei_id: row.source_id } : { plainte_id: row.source_id }),
+        };
+        const { data, error } = await supabase.from("suivi_instances").insert(insert).select().single();
+        if (error) throw error;
+        if (data) {
+          const newId = (data as { id: string }).id;
+          setRows((prev) => prev.map((r) => (r.source_id === row.source_id ? { ...r, suivi_id: newId } : r)));
+        }
+      }
+      setRows((prev) => prev.map((r) => r.source_id === retourDialog.sourceId ? { ...r, retour_analyse: retourDialog.text } : r));
+      toast.success("Retour / Analyse sauvegardé");
+      setRetourDialog(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      toast.error("Erreur lors de la sauvegarde : " + msg);
+    } finally {
+      setSavingRetour(false);
+    }
+  };
+
   const handlePrint = () => {
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
@@ -172,6 +215,7 @@ const SuiviInstancesPage = () => {
         <td class="center date-cell">${row.cse_date ? new Date(row.cse_date + "T00:00:00").toLocaleDateString("fr-FR") : "—"}</td>
         <td class="center date-cell">${row.cvs_date ? new Date(row.cvs_date + "T00:00:00").toLocaleDateString("fr-FR") : "—"}</td>
         <td class="center date-cell">${row.codir_date ? new Date(row.codir_date + "T00:00:00").toLocaleDateString("fr-FR") : "—"}</td>
+        <td class="retour">${row.retour_analyse ? escapeHtml(row.retour_analyse) : ""}</td>
       </tr>`
       )
       .join("");
@@ -193,11 +237,12 @@ const SuiviInstancesPage = () => {
     .header .meta { font-size: 9.5px; color: #888; }
     .divider { border: none; border-top: 2px solid #c46b48; margin: 10px 0 16px; }
     table { width: 100%; border-collapse: collapse; }
-    colgroup col.col-type  { width: 13%; }
-    colgroup col.col-date  { width: 9%; }
-    colgroup col.col-decl  { width: 14%; }
-    colgroup col.col-desc  { width: 31%; }
-    colgroup col.col-inst  { width: 11%; }
+    colgroup col.col-type   { width: 12%; }
+    colgroup col.col-date   { width: 8%; }
+    colgroup col.col-decl   { width: 12%; }
+    colgroup col.col-desc   { width: 26%; }
+    colgroup col.col-inst   { width: 9%; }
+    colgroup col.col-retour { width: 24%; }
     thead tr { background: #c46b48; }
     thead th { padding: 7px 8px; text-align: left; font-size: 9px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.06em; color: white; }
     thead th.center { text-align: center; }
@@ -209,6 +254,7 @@ const SuiviInstancesPage = () => {
     td.nowrap  { white-space: nowrap; }
     td.desc    { font-size: 9.5px; color: #444; }
     td.date-cell { font-size: 10px; font-weight: 600; color: #2a2a2a; white-space: nowrap; }
+    td.retour    { font-size: 9px; color: #444; white-space: pre-wrap; }
     .badge { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 8.5px; font-weight: bold; }
     .badge-fei     { background: #dbeafe; color: #1e40af; }
     .badge-plainte { background: #fef3c7; color: #92400e; }
@@ -231,7 +277,7 @@ const SuiviInstancesPage = () => {
   <table>
     <colgroup>
       <col class="col-type"> <col class="col-date"> <col class="col-decl">
-      <col class="col-desc"> <col class="col-inst"> <col class="col-inst"> <col class="col-inst">
+      <col class="col-desc"> <col class="col-inst"> <col class="col-inst"> <col class="col-inst"> <col class="col-retour">
     </colgroup>
     <thead>
       <tr>
@@ -242,6 +288,7 @@ const SuiviInstancesPage = () => {
         <th class="inst">CSE</th>
         <th class="inst">CVS</th>
         <th class="inst">CODIR</th>
+        <th>Retour / Analyse</th>
       </tr>
     </thead>
     <tbody>${tableRows}</tbody>
@@ -353,6 +400,9 @@ const SuiviInstancesPage = () => {
                       {col.label}
                     </th>
                   ))}
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/40 whitespace-nowrap">
+                    Retour / Analyse
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -415,6 +465,31 @@ const SuiviInstancesPage = () => {
                         </td>
                       );
                     })}
+
+                    {/* Retour / Analyse */}
+                    <td className="px-3 py-2.5 align-top min-w-[180px]">
+                      {row.retour_analyse ? (
+                        <button
+                          onClick={() => setRetourDialog({ sourceId: row.source_id, text: row.retour_analyse })}
+                          className="text-left w-full group"
+                        >
+                          <p className="text-xs text-foreground line-clamp-2 leading-relaxed group-hover:text-primary transition-colors">
+                            {row.retour_analyse}
+                          </p>
+                          <span className="text-[10px] text-muted-foreground group-hover:text-primary mt-0.5 inline-flex items-center gap-1">
+                            <MessageSquare className="w-2.5 h-2.5" /> Modifier
+                          </span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setRetourDialog({ sourceId: row.source_id, text: "" })}
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                          Ajouter un retour
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -437,6 +512,39 @@ const SuiviInstancesPage = () => {
           </div>
         </div>
       )}
+
+      {/* ── Dialog Retour / Analyse ───────────────────────────────── */}
+      <Dialog open={!!retourDialog} onOpenChange={(open) => { if (!open) setRetourDialog(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-primary" />
+              Retour / Analyse
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <Label className="text-xs text-muted-foreground mb-2 block">
+              Saisissez le retour ou l'analyse suite à la présentation en instance
+            </Label>
+            <Textarea
+              value={retourDialog?.text ?? ""}
+              onChange={(e) => setRetourDialog((prev) => prev ? { ...prev, text: e.target.value } : prev)}
+              placeholder="Retour de l'instance, décisions prises, suites données…"
+              rows={5}
+              className="resize-none text-sm"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setRetourDialog(null)} disabled={savingRetour}>
+              Annuler
+            </Button>
+            <Button size="sm" onClick={saveRetourAnalyse} disabled={savingRetour} className="gap-1.5">
+              {savingRetour ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

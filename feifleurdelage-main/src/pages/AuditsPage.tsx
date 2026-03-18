@@ -316,7 +316,7 @@ export default function AuditsPage() {
       .select("id")
       .single();
     if (error || !newAct) {
-      toast.error("Erreur création action PACQ : " + (error?.message ?? "inconnue"));
+      toast.error("Erreur création action PACQS : " + (error?.message ?? "inconnue"));
       setSavingPacq(false);
       return;
     }
@@ -327,7 +327,7 @@ export default function AuditsPage() {
     if (pacqInForm) {
       setNcForm((prev) => ({ ...prev, action_corrective_id: newAct.id }));
     }
-    toast.success("Action PACQ créée et liée à la non-conformité !");
+    toast.success("Action PACQS créée et liée à la non-conformité !");
     setPacqDialogOpen(false);
     await fetchAll();
     setSavingPacq(false);
@@ -645,7 +645,7 @@ export default function AuditsPage() {
                                 {linkedAction ? (
                                   <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
                                     <Target className="w-3 h-3" />
-                                    PACQ ✓ — {linkedAction.titre}
+                                    PACQS ✓ — {linkedAction.titre}
                                   </span>
                                 ) : (
                                   <button
@@ -653,7 +653,7 @@ export default function AuditsPage() {
                                     className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
                                   >
                                     <Link2 className="w-3 h-3" />
-                                    Créer action PACQ
+                                    Créer action PACQS
                                   </button>
                                 )}
                               </div>
@@ -819,7 +819,7 @@ export default function AuditsPage() {
             <div className="space-y-2 pt-1 border-t border-border">
               <Label className="flex items-center gap-1.5">
                 <Target className="w-3.5 h-3.5 text-primary" />
-                Lien PACQ opérationnel
+                Lien PACQS opérationnel
                 <span className="text-muted-foreground text-xs font-normal">(optionnel)</span>
               </Label>
               <Select
@@ -843,13 +843,13 @@ export default function AuditsPage() {
                   onClick={openPacqFromForm}
                 >
                   <Plus className="w-3.5 h-3.5 text-primary" />
-                  Créer une action dans le PACQ
+                  Créer une action dans le PACQS
                 </Button>
               )}
               {ncForm.action_corrective_id && (
                 <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
                   <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                  Action PACQ liée
+                  Action PACQS liée
                 </div>
               )}
             </div>
@@ -870,7 +870,7 @@ export default function AuditsPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 font-display">
               <Target className="w-4 h-4 text-primary" />
-              Créer une action PACQ opérationnel
+              Créer une action PACQS opérationnel
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -914,7 +914,7 @@ export default function AuditsPage() {
             <Button variant="outline" onClick={() => setPacqDialogOpen(false)} disabled={savingPacq}>Annuler</Button>
             <Button onClick={handleSavePacq} disabled={savingPacq} className="gap-2">
               <CheckCircle2 className="w-4 h-4" />
-              {savingPacq ? "Création…" : "Créer l'action PACQ"}
+              {savingPacq ? "Création…" : "Créer l'action PACQS"}
             </Button>
           </DialogFooter>
         </DialogContent>

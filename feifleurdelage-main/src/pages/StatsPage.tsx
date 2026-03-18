@@ -351,7 +351,7 @@ const StatsPage = () => {
     const alertes: { label: string; severity: "high" | "medium" }[] = [
       feiNouveaux7j.length > 0 ? { label: `${feiNouveaux7j.length} FEI nouvelle(s) sans traitement depuis + 7 jours`, severity: "high" as const } : null,
       feigs.length > 0 ? { label: `${feigs.length} FEIGS non clôturée(s) à déclarer à l'ARS`, severity: "high" as const } : null,
-      pacqEnRetard.length > 0 ? { label: `${pacqEnRetard.length} action(s) PACQ opérationnel en retard`, severity: "medium" as const } : null,
+      pacqEnRetard.length > 0 ? { label: `${pacqEnRetard.length} action(s) PACQS opérationnel en retard`, severity: "medium" as const } : null,
       procsZero.length > 0 ? { label: `${procsZero.length} procédure(s) du classeur sans aucun émargement`, severity: "medium" as const } : null,
     ].filter(Boolean) as { label: string; severity: "high" | "medium" }[];
 
@@ -1021,7 +1021,7 @@ const StatsPage = () => {
                 bg="bg-accent/30"
               />
               <KpiCard
-                label="Avancement PACQ opérationnel"
+                label="Avancement PACQS opérationnel"
                 value={`${extraStats.tauxPacqOp}%`}
                 sub={extraStats.totalPacq > 0 ? `${extraStats.pacqRealisees} / ${extraStats.totalPacq} actions` : "Aucune action"}
                 icon={Target}
@@ -1071,10 +1071,10 @@ const StatsPage = () => {
           </div>
 
           {/* ══════════════════════════════════════════════════════════════════
-              PACQ Opérationnel
+              PACQS Opérationnel
           ════════════════════════════════════════════════════════════════════ */}
           <div>
-            <SectionTitle icon={Target} title="PACQ Opérationnel — Plan d'actions correctives" color="text-emerald-600" />
+            <SectionTitle icon={Target} title="PACQS Opérationnel — Plan d'actions correctives" color="text-emerald-600" />
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
               <KpiCard label="Total actions" value={extraStats.totalPacq} icon={ClipboardList} color="text-primary" bg="bg-primary/10" />
               <KpiCard label="À faire" value={extraStats.pacqAFaire} icon={Clock} color="text-slate-500" bg="bg-slate-500/10" />
@@ -1153,10 +1153,10 @@ const StatsPage = () => {
           </div>
 
           {/* ══════════════════════════════════════════════════════════════════
-              PACQ Stratégique
+              PACQS Stratégique
           ════════════════════════════════════════════════════════════════════ */}
           <div>
-            <SectionTitle icon={TrendingUp} title="PACQ Stratégique — Thématiques ESSMS" color="text-purple-600" />
+            <SectionTitle icon={TrendingUp} title="PACQS Stratégique — Thématiques ESSMS" color="text-purple-600" />
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
               <KpiCard label="Total actions stratégiques" value={extraStats.totalPacqS} icon={Target} color="text-purple-600" bg="bg-purple-500/10" />
               <KpiCard label="En cours" value={extraStats.pacqSEnCours} icon={Activity} color="text-yellow-600" bg="bg-yellow-500/10" />
@@ -1209,7 +1209,7 @@ const StatsPage = () => {
             ) : (
               <Card>
                 <CardContent className="py-10 text-center text-muted-foreground text-sm">
-                  Aucune action PACQ stratégique enregistrée
+                  Aucune action PACQS stratégique enregistrée
                 </CardContent>
               </Card>
             )}

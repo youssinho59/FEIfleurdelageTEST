@@ -30,6 +30,7 @@ const SERVICES = [
   "Lingerie",
   "Animation",
   "Soins/Hôtellerie",
+  "Entretien",
 ];
 
 const container = {

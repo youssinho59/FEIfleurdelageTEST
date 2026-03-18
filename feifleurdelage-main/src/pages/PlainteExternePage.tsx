@@ -15,7 +15,7 @@ const QUI_TYPES = ["Résident(e)", "Famille / Proche", "Visiteur", "Personnel", 
 
 const SERVICES = [
   "Administration", "Cuisine", "Technique",
-  "Lingerie", "Animation", "Soins/Hôtellerie",
+  "Lingerie", "Animation", "Soins/Hôtellerie", "Entretien",
 ];
 
 // UUID sentinelle pour les soumissions anonymes (non lié à un compte utilisateur)

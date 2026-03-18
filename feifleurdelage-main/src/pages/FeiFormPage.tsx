@@ -22,6 +22,7 @@ const SERVICES = [
   "Lingerie",
   "Animation",
   "Soins/Hôtellerie",
+  "Entretien",
 ];
 
 const GRAVITE_CONFIG = [
@@ -176,7 +177,7 @@ const FeiFormPage = () => {
   // ── Formulaire ────────────────────────────────────────────────────────────
   const canNext = () => {
     if (step === 1) return form.date_evenement && form.type_fei && form.service;
-    if (step === 2) return form.lieu && form.gravite > 0;
+    if (step === 2) return form.lieu;
     if (step === 3) return form.description.trim().length > 0;
     if (step === 4) return true;
     return true;
@@ -189,7 +190,7 @@ const FeiFormPage = () => {
       date_evenement: form.date_evenement,
       lieu: form.lieu,
       description: form.description,
-      gravite: form.gravite,
+      gravite: form.gravite || null,
       type_fei: form.type_fei,
       actions_correctives: form.actions_correctives || null,
       categorie_fei: "standard",
@@ -509,7 +510,7 @@ const FeiFormPage = () => {
                   <Input value={form.lieu} onChange={(e) => setForm({ ...form, lieu: e.target.value })} placeholder="Ex: Chambre 12, couloir étage 2..." required />
                 </div>
                 <div className="space-y-3">
-                  <Label className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5 text-destructive" /> Niveau de gravité</Label>
+                  <Label className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5 text-muted-foreground" /> Estimation de la gravité</Label>
                   <div className="space-y-2">
                     {GRAVITE_CONFIG.map((g) => (
                       <button
@@ -588,7 +589,7 @@ const FeiFormPage = () => {
                   <div><span className="text-muted-foreground">Type :</span> <span className="font-medium">{form.type_fei}</span></div>
                   <div><span className="text-muted-foreground">Date :</span> <span className="font-medium">{new Date(form.date_evenement).toLocaleDateString("fr-FR")}</span></div>
                   <div><span className="text-muted-foreground">Lieu :</span> <span className="font-medium">{form.lieu}</span></div>
-                  <div><span className="text-muted-foreground">Gravité :</span> <span className={`font-semibold ${GRAVITE_CONFIG[form.gravite - 1]?.color.split(" ")[2]}`}>{GRAVITE_CONFIG[form.gravite - 1]?.label}</span></div>
+                  <div><span className="text-muted-foreground">Gravité :</span> <span className={`font-semibold ${form.gravite > 0 ? GRAVITE_CONFIG[form.gravite - 1]?.color.split(" ")[2] : "text-muted-foreground"}`}>{form.gravite > 0 ? GRAVITE_CONFIG[form.gravite - 1]?.label : "Non renseignée"}</span></div>
                   {form.service && (
                     <div><span className="text-muted-foreground">Service :</span> <span className="font-medium">{form.service}</span></div>
                   )}

@@ -127,7 +127,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         { to: "/mes-fei", label: "Mes FEI", icon: FileText },
         { to: "/plaintes", label: "Plaintes & Réclamations", icon: MessageSquareWarning },
         { to: "/mes-actions", label: "Mes actions correctives", icon: CheckSquare },
-        { to: "/mes-pacq-strategique", label: "PACQ Stratégique", icon: Target },
+        { to: "/mes-pacq-strategique", label: "PACQS Stratégique", icon: Target },
         { to: "/classeur", label: "Classeur documentaire", icon: FolderOpen },
       ],
     },
@@ -139,6 +139,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         { to: "/", label: "Tableau de bord", icon: LayoutDashboard },
         { to: "/fei", label: "Saisir une FEI", icon: FilePlus },
         { to: "/mes-fei", label: "Mes FEI", icon: FileText },
+        { to: "/plaintes", label: "Plaintes & Réclamations", icon: MessageSquareWarning },
       ],
     },
     {
@@ -153,15 +154,15 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
     {
       label: "PLANS D'ACTION",
       items: [
-        { to: "/plan-actions", label: "PACQ Opérationnel", icon: CheckSquare },
-        { to: "/pacq-strategique", label: "PACQ Stratégique", icon: Target },
+        { to: "/plan-actions", label: "PACQS Opérationnel", icon: CheckSquare },
+        { to: "/pacq-strategique", label: "PACQS Stratégique", icon: Target },
       ],
     },
     {
       label: "DOCUMENTS & RH",
       items: [
         { to: "/classeur", label: "Classeur — Émargement", icon: FolderOpen },
-        { to: "/classeur-admin", label: "Classeur — Gestion", icon: FolderCog },
+        ...(isAdmin ? [{ to: "/classeur-admin", label: "Classeur — Gestion", icon: FolderCog }] : []),
         ...(isAdmin ? [{ to: "/agents", label: "Agents", icon: Users }] : []),
       ],
     },

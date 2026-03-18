@@ -39,7 +39,7 @@ type AgentInfo = { user_id: string; full_name: string; services: string[] };
 
 const SERVICES_LIST = [
   "Administration", "Cuisine", "Technique",
-  "Lingerie", "Animation", "Soins/Hôtellerie",
+  "Lingerie", "Animation", "Soins/Hôtellerie", "Entretien",
 ];
 
 const EMPTY_PROC_FORM = {

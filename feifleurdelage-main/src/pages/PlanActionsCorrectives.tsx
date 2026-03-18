@@ -33,9 +33,18 @@ type ActionCorrective = {
   statut: Statut;
   fei_id: string | null;
   plainte_id: string | null;
+  service: string | null;
+  source: string | null;
   user_id: string;
   created_at: string;
 };
+
+const SERVICES = ["Administration", "Cuisine", "Technique", "Lingerie", "Animation", "Soins/Hôtellerie", "Entretien"];
+
+const SOURCES_ACTION = [
+  "Enquête de satisfaction", "Avis", "Plainte et réclamation", "Groupe de travail",
+  "Audit interne", "Instance (CVS, CA...)", "Cartographie des risques", "FEI", "Autre",
+];
 
 type Commentaire = {
   id: string;
@@ -65,7 +74,7 @@ const STATUT_CONFIG: Record<Statut, { label: string; color: string }> = {
 const EMPTY_FORM = {
   titre: "", description: "", responsable_id: "",
   date_echeance: "", priorite: "moyenne" as Priorite,
-  statut: "a_faire" as Statut, fei_id: "",
+  statut: "a_faire" as Statut, fei_id: "", service: "", source: "",
 };
 
 const isRetard = (a: ActionCorrective) =>
@@ -94,6 +103,7 @@ export default function PlanActionsCorrectives() {
   const [filterStatut, setFilterStatut] = useState("tous");
   const [filterPriorite, setFilterPriorite] = useState("toutes");
   const [filterResponsable, setFilterResponsable] = useState("tous");
+  const [filterService, setFilterService] = useState("tous");
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAction, setEditingAction] = useState<ActionCorrective | null>(null);
@@ -145,8 +155,28 @@ export default function PlanActionsCorrectives() {
     if (filterStatut !== "tous" && a.statut !== filterStatut) return false;
     if (filterPriorite !== "toutes" && a.priorite !== filterPriorite) return false;
     if (filterResponsable !== "tous" && a.responsable_id !== filterResponsable) return false;
+    if (filterService !== "tous") {
+      if (filterService === "sans" && a.service) return false;
+      if (filterService !== "sans" && a.service !== filterService) return false;
+    }
     return true;
   });
+
+  // Groupement par service
+  const serviceGroups: { service: string | null; actions: ActionCorrective[] }[] = [];
+  const serviceMap = new Map<string, ActionCorrective[]>();
+  filtered.forEach(a => {
+    const key = a.service || "";
+    if (!serviceMap.has(key)) serviceMap.set(key, []);
+    serviceMap.get(key)!.push(a);
+  });
+  // Services avec actions, triés alphabétiquement, "Sans service" en dernier
+  const keys = Array.from(serviceMap.keys()).sort((a, b) => {
+    if (a === "") return 1;
+    if (b === "") return -1;
+    return a.localeCompare(b, "fr");
+  });
+  keys.forEach(k => serviceGroups.push({ service: k || null, actions: serviceMap.get(k)! }));
 
   const toggleComments = (id: string) =>
     setExpandedComments(prev => {
@@ -176,7 +206,7 @@ export default function PlanActionsCorrectives() {
   const openCreate = () => { setEditingAction(null); setForm(EMPTY_FORM); setDialogOpen(true); };
   const openEdit = (a: ActionCorrective) => {
     setEditingAction(a);
-    setForm({ titre: a.titre, description: a.description || "", responsable_id: a.responsable_id || "", date_echeance: a.date_echeance, priorite: a.priorite, statut: a.statut, fei_id: a.fei_id || "" });
+    setForm({ titre: a.titre, description: a.description || "", responsable_id: a.responsable_id || "", date_echeance: a.date_echeance, priorite: a.priorite, statut: a.statut, fei_id: a.fei_id || "", service: a.service || "", source: a.source || "" });
     setDialogOpen(true);
   };
 
@@ -197,6 +227,8 @@ export default function PlanActionsCorrectives() {
       priorite: form.priorite,
       statut: form.statut,
       fei_id: form.fei_id || null,
+      service: form.service || null,
+      source: form.source || null,
     };
     const { error } = editingAction
       ? await supabase.from("actions_correctives").update(payload).eq("id", editingAction.id)
@@ -229,7 +261,7 @@ export default function PlanActionsCorrectives() {
           </div>
           <div>
             <h1 className="text-xl font-display font-bold text-foreground">Plan d'Actions Correctives</h1>
-            <p className="text-xs text-muted-foreground">Plan d'Amélioration Continue de la Qualité (PACQ)</p>
+            <p className="text-xs text-muted-foreground">Plan d'Amélioration Continue de la Qualité et de la Sécurité (PACQS)</p>
           </div>
         </div>
         <Button onClick={openCreate} className="gap-2 shadow-warm shrink-0">
@@ -268,7 +300,7 @@ export default function PlanActionsCorrectives() {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-primary" />
-            <span className="text-sm font-semibold text-foreground">Progression globale du PACQ</span>
+            <span className="text-sm font-semibold text-foreground">Progression globale du PACQS</span>
           </div>
           <div className="flex items-center gap-3">
             {retards > 0 && (
@@ -313,9 +345,17 @@ export default function PlanActionsCorrectives() {
             {agents.map(a => <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>)}
           </SelectContent>
         </Select>
-        {(filterStatut !== "tous" || filterPriorite !== "toutes" || filterResponsable !== "tous") && (
+        <Select value={filterService} onValueChange={setFilterService}>
+          <SelectTrigger className="w-44 h-8 text-xs"><SelectValue placeholder="Tous les services" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="tous">Tous les services</SelectItem>
+            {SERVICES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+            <SelectItem value="sans">Sans service</SelectItem>
+          </SelectContent>
+        </Select>
+        {(filterStatut !== "tous" || filterPriorite !== "toutes" || filterResponsable !== "tous" || filterService !== "tous") && (
           <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground"
-            onClick={() => { setFilterStatut("tous"); setFilterPriorite("toutes"); setFilterResponsable("tous"); }}>
+            onClick={() => { setFilterStatut("tous"); setFilterPriorite("toutes"); setFilterResponsable("tous"); setFilterService("tous"); }}>
             Réinitialiser
           </Button>
         )}
@@ -332,8 +372,23 @@ export default function PlanActionsCorrectives() {
           <p className="text-sm">Modifiez les filtres ou créez une nouvelle action.</p>
         </div>
       ) : (
-        <motion.div variants={container} initial="hidden" animate="show" className="space-y-3">
-          {filtered.map(action => {
+        <motion.div variants={container} initial="hidden" animate="show" className="space-y-6">
+          {serviceGroups.map(({ service, actions: groupActions }) => {
+            const groupDone = groupActions.filter(a => a.statut === "realisee" || a.statut === "evaluee").length;
+            const groupPct = groupActions.length > 0 ? Math.round((groupDone / groupActions.length) * 100) : 0;
+            return (
+              <div key={service ?? "__sans__"} className="space-y-3">
+                {/* En-tête groupe service */}
+                <div className="flex items-center gap-3 pb-1 border-b border-border">
+                  <span className="text-sm font-semibold text-foreground">{service ?? "Sans service"}</span>
+                  <span className="text-xs text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5">{groupActions.length} action{groupActions.length > 1 ? "s" : ""}</span>
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <Progress value={groupPct} className="h-1.5 w-20" />
+                    <span className="text-[11px] font-semibold text-primary tabular-nums">{groupPct}%</span>
+                  </div>
+                </div>
+                <div className="space-y-3">
+          {groupActions.map(action => {
             const retard = isRetard(action);
             const prio = PRIORITE_CONFIG[action.priorite];
             const stat = STATUT_CONFIG[action.statut];
@@ -358,6 +413,11 @@ export default function PlanActionsCorrectives() {
                           <Badge variant="outline" className={`text-[11px] ${prio.color} border-0 flex items-center gap-1`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${prio.dot}`} />{prio.label}
                           </Badge>
+                          {action.source && (
+                            <Badge variant="outline" className="text-[11px] bg-violet-50 text-violet-700 border-violet-200">
+                              {action.source}
+                            </Badge>
+                          )}
                         </div>
                         <h3 className="font-display font-semibold text-foreground text-sm leading-snug mb-1">{action.titre}</h3>
                         {action.description && <p className="text-xs text-muted-foreground leading-relaxed mb-3">{action.description}</p>}
@@ -463,6 +523,10 @@ export default function PlanActionsCorrectives() {
               </motion.div>
             );
           })}
+                </div>
+              </div>
+            );
+          })}
         </motion.div>
       )}
 
@@ -520,6 +584,28 @@ export default function PlanActionsCorrectives() {
                     <SelectItem value="en_cours">En cours</SelectItem>
                     <SelectItem value="realisee">Réalisée</SelectItem>
                     <SelectItem value="evaluee">Évaluée</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Service <span className="text-muted-foreground text-xs">(optionnel)</span></Label>
+                <Select value={form.service || "none"} onValueChange={v => setForm({ ...form, service: v === "none" ? "" : v })}>
+                  <SelectTrigger><SelectValue placeholder="Tous les services" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— Sans service</SelectItem>
+                    {SERVICES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Source de l'action <span className="text-muted-foreground text-xs">(optionnel)</span></Label>
+                <Select value={form.source || "none"} onValueChange={v => setForm({ ...form, source: v === "none" ? "" : v })}>
+                  <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— Sans source</SelectItem>
+                    {SOURCES_ACTION.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

@@ -295,14 +295,14 @@ export default function QuestionnairesAdminPage() {
       .select("id")
       .single();
     if (error || !newAct) {
-      toast.error("Erreur création action PACQ : " + (error?.message ?? "inconnue"));
+      toast.error("Erreur création action PACQS : " + (error?.message ?? "inconnue"));
       setSavingPacq(false);
       return;
     }
     if (pacqTargetId) {
       await supabase.from("questionnaire_satisfaction").update({ action_corrective_id: newAct.id }).eq("id", pacqTargetId);
     }
-    toast.success("Action PACQ créée et liée au questionnaire !");
+    toast.success("Action PACQS créée et liée au questionnaire !");
     setPacqDialogOpen(false);
     await fetchAll();
     setSavingPacq(false);
@@ -324,7 +324,7 @@ export default function QuestionnairesAdminPage() {
       .update({ action_corrective_id: linkSelectedAction })
       .eq("id", linkTargetId);
     if (error) toast.error("Erreur : " + error.message);
-    else { toast.success("Action PACQ liée !"); setLinkDialogOpen(false); await fetchAll(); }
+    else { toast.success("Action PACQS liée !"); setLinkDialogOpen(false); await fetchAll(); }
     setLinkingAction(false);
   };
 
@@ -337,7 +337,7 @@ export default function QuestionnairesAdminPage() {
       .update({ action_corrective_id: null })
       .eq("id", qId);
     if (error) toast.error("Erreur : " + error.message);
-    else { toast.success("Lien PACQ supprimé."); await fetchAll(); }
+    else { toast.success("Lien PACQS supprimé."); await fetchAll(); }
     setUnlinkingId(null);
   };
 
@@ -606,7 +606,7 @@ export default function QuestionnairesAdminPage() {
                               {q.service && <Badge variant="outline" className="text-xs">{q.service}</Badge>}
                               {linkedAction && (
                                 <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                                  <Target className="w-3 h-3" /> PACQ ✓
+                                  <Target className="w-3 h-3" /> PACQS ✓
                                 </span>
                               )}
                               {q.retour_admin && (
@@ -680,7 +680,7 @@ export default function QuestionnairesAdminPage() {
                             {/* ── Section PACQ ── */}
                             <div className="pt-2 border-t border-border/40">
                               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-                                <Target className="w-3 h-3" /> Action PACQ opérationnel
+                                <Target className="w-3 h-3" /> Action PACQS opérationnel
                               </p>
                               {linkedAction ? (
                                 <div className="flex flex-wrap items-center gap-2">
@@ -712,7 +712,7 @@ export default function QuestionnairesAdminPage() {
                                     className="h-7 text-xs gap-1.5"
                                     onClick={() => openPacq(q)}
                                   >
-                                    <Plus className="w-3 h-3" /> Créer action PACQ
+                                    <Plus className="w-3 h-3" /> Créer action PACQS
                                   </Button>
                                   <Button
                                     variant="ghost"
@@ -836,7 +836,7 @@ export default function QuestionnairesAdminPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 font-display">
               <Target className="w-4 h-4 text-primary" />
-              Créer une action PACQ opérationnel
+              Créer une action PACQS opérationnel
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
@@ -880,7 +880,7 @@ export default function QuestionnairesAdminPage() {
             <Button variant="outline" onClick={() => setPacqDialogOpen(false)} disabled={savingPacq}>Annuler</Button>
             <Button onClick={handleSavePacq} disabled={savingPacq} className="gap-2">
               <CheckCircle2 className="w-4 h-4" />
-              {savingPacq ? "Création…" : "Créer l'action PACQ"}
+              {savingPacq ? "Création…" : "Créer l'action PACQS"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -892,12 +892,12 @@ export default function QuestionnairesAdminPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 font-display">
               <Link2 className="w-4 h-4 text-primary" />
-              Lier à une action PACQ existante
+              Lier à une action PACQS existante
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label>Action PACQ <span className="text-destructive">*</span></Label>
+              <Label>Action PACQS <span className="text-destructive">*</span></Label>
               <Select value={linkSelectedAction || "none"} onValueChange={(v) => setLinkSelectedAction(v === "none" ? "" : v)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Sélectionner une action…" />

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { FolderOpen, ExternalLink, CheckCircle2 } from "lucide-react";
+import { FolderOpen, ExternalLink, CheckCircle2, CheckCheck } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +32,7 @@ export default function ClasseurAgentPage() {
   const [emargements, setEmargements] = useState<Emargement[]>([]);
   const [loading, setLoading] = useState(true);
   const [emargingProc, setEmargingProc] = useState<string | null>(null);
+  const [emargingAll, setEmargingAll] = useState<string | null>(null); // categorie id
 
   // ── Chargement ───────────────────────────────────────────────────────────────
 
@@ -97,6 +98,25 @@ export default function ClasseurAgentPage() {
     setEmargingProc(null);
   };
 
+  // ── Tout marquer comme lu (catégorie) ────────────────────────────────────────
+
+  const handleEmargementAll = async (catId: string, catProcs: Procedure[]) => {
+    if (!user) return;
+    const nonEmarges = catProcs.filter(p => !emargements.find(e => e.procedure_id === p.id));
+    if (nonEmarges.length === 0) return;
+    setEmargingAll(catId);
+    const now = new Date().toISOString();
+    const rows = nonEmarges.map(p => ({ procedure_id: p.id, user_id: user.id, emarge_at: now }));
+    const { error } = await supabase.from("classeur_emargements").insert(rows);
+    if (error && error.code !== "23505") {
+      toast.error("Erreur lors de la validation groupée");
+    } else {
+      toast.success(`${nonEmarges.length} document(s) marqués comme lus ✓`);
+      await loadData();
+    }
+    setEmargingAll(null);
+  };
+
   // ── Rendu ────────────────────────────────────────────────────────────────────
 
   if (loading) return (
@@ -140,8 +160,23 @@ export default function ClasseurAgentPage() {
             const catProcs = procedures.filter(
               p => p.categorie_id === cat.id && isVisible(p)
             );
+            const allRead = catProcs.length > 0 && catProcs.every(p => emargements.find(e => e.procedure_id === p.id));
             return (
               <TabsContent key={cat.id} value={cat.id} className="mt-4 space-y-3">
+                {!allRead && catProcs.length > 1 && (
+                  <div className="flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 text-xs h-8"
+                      disabled={emargingAll === cat.id}
+                      onClick={() => handleEmargementAll(cat.id, catProcs)}
+                    >
+                      <CheckCheck className="w-3.5 h-3.5" />
+                      {emargingAll === cat.id ? "Validation…" : "Tout marquer comme lu"}
+                    </Button>
+                  </div>
+                )}
                 {catProcs.map((proc, i) => {
                   const em = emargements.find(e => e.procedure_id === proc.id);
                   return (

@@ -188,9 +188,9 @@ const PlaintesManagementPage = () => {
         user_id:      user.id,
       });
       if (pacqError) {
-        toast.warning("Plainte mise à jour, mais erreur PACQ : " + pacqError.message);
+        toast.warning("Plainte mise à jour, mais erreur PACQS : " + pacqError.message);
       } else {
-        toast.success("Réclamation mise à jour et action créée dans le PACQ ✓");
+        toast.success("Réclamation mise à jour et action créée dans le PACQS ✓");
       }
     } else {
       toast.success("Réclamation mise à jour avec succès");
@@ -279,8 +279,8 @@ const PlaintesManagementPage = () => {
       plainte_id: selectedPlainte.id,
       user_id: user.id,
     });
-    if (error) toast.error("Erreur création PACQ : " + error.message);
-    else { toast.success("Action créée dans le PACQ ✓"); setIaPacqTarget(null); }
+    if (error) toast.error("Erreur création PACQS : " + error.message);
+    else { toast.success("Action créée dans le PACQS ✓"); setIaPacqTarget(null); }
     setIaPacqSaving(false);
   };
 
@@ -613,7 +613,7 @@ const PlaintesManagementPage = () => {
                               className="h-6 text-[10px] gap-1 px-2"
                               onClick={() => openIAPacqDialog(s)}
                             >
-                              <ClipboardCheck className="w-3 h-3" /> Ajouter au PACQ
+                              <ClipboardCheck className="w-3 h-3" /> Ajouter au PACQS
                             </Button>
                             <Button
                               type="button"
@@ -668,7 +668,7 @@ const PlaintesManagementPage = () => {
                 <div className="rounded-xl border-l-4 border-l-emerald-400 border border-emerald-100 bg-emerald-50/50 p-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <ClipboardCheck className="w-4 h-4 text-emerald-600" />
-                    <p className="text-sm font-semibold text-emerald-800">Créer une action dans le PACQ</p>
+                    <p className="text-sm font-semibold text-emerald-800">Créer une action dans le PACQS</p>
                     <span className="text-[10px] text-emerald-500 ml-1">(optionnel — remplissez responsable + échéance)</span>
                   </div>
                   <div className="space-y-1.5">
@@ -736,7 +736,7 @@ const PlaintesManagementPage = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 font-display text-base">
               <Sparkles className="w-4 h-4 text-primary" />
-              Ajouter au PACQ opérationnel
+              Ajouter au PACQS opérationnel
             </DialogTitle>
           </DialogHeader>
           {iaPacqTarget && (

@@ -23,6 +23,7 @@ const SERVICES = [
   "Lingerie",
   "Animation",
   "Soins/Hôtellerie",
+  "Entretien",
 ];
 
 // Récupère le token JWT depuis localStorage sans passer par le client supabase-js

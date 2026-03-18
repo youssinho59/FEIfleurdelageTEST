@@ -40,8 +40,15 @@ type Action = {
   pilote_id: string | null;
   date_echeance: string | null;
   statut: "en_cours" | "realise" | "abandonne";
+  source: string | null;
   ordre: number;
 };
+
+const SOURCES_PACQS = [
+  "Auto-évaluation", "Projet d'établissement 2026-2030", "Réglementation",
+  "Évaluation externe 2027", "DUERP", "Cartographie des risques",
+  "Instance", "Audit interne", "Autre",
+];
 
 type Indicateur = {
   id: string;
@@ -74,7 +81,7 @@ const STATUT_CONFIG: Record<Action["statut"], { label: string; color: string }> 
 };
 
 const EMPTY_OBJ_FORM  = { titre: "" };
-const EMPTY_ACT_FORM  = { titre: "", description: "", pilote_id: "", date_echeance: "", statut: "en_cours" as Action["statut"] };
+const EMPTY_ACT_FORM  = { titre: "", description: "", pilote_id: "", date_echeance: "", statut: "en_cours" as Action["statut"], source: "" };
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.04 } } };
 const item      = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, transition: { duration: 0.25 } } };
@@ -250,6 +257,7 @@ export default function PacqStrategiquePage() {
       pilote_id: a.pilote_id || "",
       date_echeance: a.date_echeance || "",
       statut: a.statut,
+      source: a.source || "",
     });
     setActDialogOpen(true);
   };
@@ -263,6 +271,7 @@ export default function PacqStrategiquePage() {
       pilote_id: actForm.pilote_id || null,
       date_echeance: actForm.date_echeance || null,
       statut: actForm.statut,
+      source: actForm.source || null,
       objectif_id: actObjectifId,
     };
     const { error } = editingAct
@@ -384,7 +393,7 @@ export default function PacqStrategiquePage() {
       doc.text("EHPAD La Fleur de l'\u00C2ge", 42, 18);
       doc.setFontSize(11);
       doc.setFont("helvetica", "normal");
-      doc.text("PACQ Strat\u00E9gique \u2014 Plan d\u2019am\u00E9lioration continue de la qualit\u00E9", 42, 28);
+      doc.text("PACQS Strat\u00E9gique \u2014 Plan d\u2019am\u00E9lioration continue de la qualit\u00E9 et de la s\u00E9curit\u00E9", 42, 28);
       doc.setTextColor(...DARK);
     };
 
@@ -615,8 +624,8 @@ export default function PacqStrategiquePage() {
             <Target className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-display font-bold text-foreground">PACQ Stratégique</h1>
-            <p className="text-xs text-muted-foreground">Plan d'amélioration continue de la qualité — Projet d'établissement</p>
+            <h1 className="text-xl font-display font-bold text-foreground">PACQS Stratégique</h1>
+            <p className="text-xs text-muted-foreground">Plan d'amélioration continue de la qualité et de la sécurité — Projet d'établissement</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
@@ -780,6 +789,11 @@ export default function PacqStrategiquePage() {
                                             <Badge variant="outline" className={`text-[11px] border-0 ${stat.color}`}>
                                               {stat.label}
                                             </Badge>
+                                            {act.source && (
+                                              <Badge variant="outline" className="text-[11px] bg-violet-50 text-violet-700 border-violet-200">
+                                                {act.source}
+                                              </Badge>
+                                            )}
                                           </div>
                                           <p className="text-sm font-semibold text-foreground leading-snug">{act.titre}</p>
                                           {act.description && (
@@ -960,16 +974,28 @@ export default function PacqStrategiquePage() {
                 />
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Statut</Label>
-              <Select value={actForm.statut} onValueChange={v => setActForm({ ...actForm, statut: v as Action["statut"] })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="en_cours">En cours</SelectItem>
-                  <SelectItem value="realise">Réalisé</SelectItem>
-                  <SelectItem value="abandonne">Abandonné</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Statut</Label>
+                <Select value={actForm.statut} onValueChange={v => setActForm({ ...actForm, statut: v as Action["statut"] })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="en_cours">En cours</SelectItem>
+                    <SelectItem value="realise">Réalisé</SelectItem>
+                    <SelectItem value="abandonne">Abandonné</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Source <span className="text-muted-foreground text-xs">(optionnel)</span></Label>
+                <Select value={actForm.source || "none"} onValueChange={v => setActForm({ ...actForm, source: v === "none" ? "" : v })}>
+                  <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— Sans source</SelectItem>
+                    {SOURCES_PACQS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
           <DialogFooter className="gap-2">
