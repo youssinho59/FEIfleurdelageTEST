@@ -114,44 +114,63 @@ const FeiFormPage = () => {
     // globalStatus reste "recording" → useEffect le passera à "analyzing"
   };
 
-  // ── Dictée directe par champ (approche sans hook pour fiabilité) ──────────
-  const dictateField = (field: "description" | "actions_correctives") => {
+  // ── Dictée par champ — toggle Dicter / Arrêter ───────────────────────────
+  const [isRecordingDescription, setIsRecordingDescription] = useState(false);
+  const [isRecordingActions, setIsRecordingActions] = useState(false);
+  const recognitionDescRef = useRef<any>(null);
+  const recognitionActionsRef = useRef<any>(null);
+
+  const toggleDictation = (
+    field: "description" | "actions_correctives",
+    isRecording: boolean,
+    setIsRecording: (v: boolean) => void,
+    recognitionRef: React.MutableRefObject<any>
+  ) => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      toast.error("Dictée vocale non supportée sur ce navigateur");
+      toast.error("Dictée non supportée sur ce navigateur (utilisez Chrome ou Edge)");
       return;
     }
+
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+
     const recognition = new SpeechRecognition();
     recognition.lang = "fr-FR";
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = false;
+    recognitionRef.current = recognition;
 
-    toast.info("🎤 Parlez maintenant…");
+    recognition.onstart = () => setIsRecording(true);
 
-    recognition.onstart = () => {
-      toast.dismiss();
-      toast.info("🔴 Enregistrement en cours…");
-    };
     recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      toast.dismiss();
-      toast.success("✅ Texte ajouté !");
-      setForm(prev => ({
-        ...prev,
-        [field]: prev[field] ? `${prev[field]} ${transcript}` : transcript,
-      }));
+      const transcript = Array.from(event.results)
+        .map((r: any) => r[0].transcript)
+        .join(" ");
+      if (field === "description") {
+        setForm(prev => ({
+          ...prev,
+          description: prev.description ? prev.description + " " + transcript : transcript,
+        }));
+      } else {
+        setForm(prev => ({
+          ...prev,
+          actions_correctives: prev.actions_correctives ? prev.actions_correctives + " " + transcript : transcript,
+        }));
+      }
     };
-    recognition.onerror = (event: any) => {
-      toast.dismiss();
-      toast.error("Erreur dictée : " + event.error);
-    };
-    recognition.onend = () => { toast.dismiss(); };
 
-    try {
-      recognition.start();
-    } catch {
-      toast.error("Impossible de démarrer la dictée");
-    }
+    recognition.onerror = (e: any) => {
+      if (e.error !== "aborted") toast.error("Erreur dictée : " + e.error);
+      setIsRecording(false);
+    };
+
+    recognition.onend = () => setIsRecording(false);
+
+    recognition.start();
   };
 
   // ── Formulaire ────────────────────────────────────────────────────────────
@@ -530,13 +549,17 @@ const FeiFormPage = () => {
                   {isSupported && (
                     <Button
                       type="button"
-                      variant="outline"
+                      variant={isRecordingDescription ? "destructive" : "outline"}
                       size="sm"
                       disabled={globalStatus === "recording" || globalStatus === "analyzing"}
-                      className="h-7 gap-1.5 text-xs shrink-0 border-primary/30 text-primary hover:bg-primary/5"
-                      onClick={() => dictateField("description")}
+                      className={`h-7 gap-1.5 text-xs shrink-0 ${isRecordingDescription ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
+                      onClick={() => toggleDictation("description", isRecordingDescription, setIsRecordingDescription, recognitionDescRef)}
                     >
-                      <Mic className="w-3 h-3" /> Dicter
+                      {isRecordingDescription ? (
+                        <><MicOff className="w-3.5 h-3.5" /> 🔴 Arrêter</>
+                      ) : (
+                        <><Mic className="w-3.5 h-3.5" /> Dicter</>
+                      )}
                     </Button>
                   )}
                 </div>
@@ -577,13 +600,17 @@ const FeiFormPage = () => {
                   {isSupported && (
                     <Button
                       type="button"
-                      variant="outline"
+                      variant={isRecordingActions ? "destructive" : "outline"}
                       size="sm"
                       disabled={globalStatus === "recording" || globalStatus === "analyzing"}
-                      className="h-7 gap-1.5 text-xs shrink-0 border-primary/30 text-primary hover:bg-primary/5"
-                      onClick={() => dictateField("actions_correctives")}
+                      className={`h-7 gap-1.5 text-xs shrink-0 ${isRecordingActions ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
+                      onClick={() => toggleDictation("actions_correctives", isRecordingActions, setIsRecordingActions, recognitionActionsRef)}
                     >
-                      <Mic className="w-3 h-3" /> Dicter
+                      {isRecordingActions ? (
+                        <><MicOff className="w-3.5 h-3.5" /> 🔴 Arrêter</>
+                      ) : (
+                        <><Mic className="w-3.5 h-3.5" /> Dicter</>
+                      )}
                     </Button>
                   )}
                 </div>
