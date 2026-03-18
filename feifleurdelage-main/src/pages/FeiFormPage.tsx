@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
@@ -44,12 +44,7 @@ const FeiFormPage = () => {
   const singleService = userServices.length === 1 ? userServices[0] : null;
   const serviceOptions = userServices.length > 0 ? userServices : SERVICES;
   const [loading, setLoading] = useState(false);
-  const [loadingVoice, setLoadingVoice] = useState(false);
   const [step, setStep] = useState(1);
-
-  // ── Voice recognition ─────────────────────────────────────────────────────
-  const { isListening, transcript, isSupported, startListening, stopListening } = useSpeechRecognition();
-  const [voiceMode, setVoiceMode] = useState<"global" | "description" | "actions" | null>(null);
   const [form, setForm] = useState({
     date_evenement: new Date().toISOString().split("T")[0],
     lieu: "",
@@ -61,11 +56,102 @@ const FeiFormPage = () => {
     service: singleService || "",
   });
 
+  // ── Deux instances séparées pour éviter les conflits ──────────────────────
+  const globalVoice = useSpeechRecognition(); // bandeau global → IA
+  const fieldVoice  = useSpeechRecognition(); // boutons par champ → injection directe
+
+  // État visuel du bandeau global : idle | recording | analyzing | success
+  const [globalStatus, setGlobalStatus] = useState<"idle" | "recording" | "analyzing" | "success">("idle");
+  // Champ en cours de dictée par bouton
+  const [activeField, setActiveField] = useState<"description" | "actions" | null>(null);
+  // Champ en cours d'injection (indicateur transitoire)
+  const [fieldInjecting, setFieldInjecting] = useState<"description" | "actions" | null>(null);
+
+  // Ref pour lancer l'appel IA sans dépendance cyclique
+  const processGlobalRef = useRef<(text: string) => void>(() => {});
+
+  // ── Traitement global : quand l'enregistrement s'arrête ──────────────────
+  useEffect(() => {
+    if (globalVoice.isListening) return;            // encore en cours
+    if (globalStatus !== "recording") return;       // n'était pas en mode dictée
+    const text = globalVoice.transcript.trim();
+    if (!text) { setGlobalStatus("idle"); return; }
+    setGlobalStatus("analyzing");
+    processGlobalRef.current(text);
+  }, [globalVoice.isListening]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  processGlobalRef.current = async (text: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke("suggest-actions", {
+        body: { context_type: "voice_fei", data: { transcript: text } },
+      });
+      if (error) throw error;
+      const extracted = data.extracted;
+      setForm(prev => ({
+        ...prev,
+        type_fei:    extracted.type_fei    || prev.type_fei,
+        service:     extracted.service     || prev.service,
+        lieu:        extracted.lieu        || prev.lieu,
+        description: extracted.description || prev.description,
+      }));
+      setGlobalStatus("success");
+      toast.success("Formulaire pré-rempli grâce à la dictée !");
+    } catch {
+      toast.error("Impossible d'analyser la dictée");
+      setGlobalStatus("idle");
+    }
+  };
+
+  // Auto-dismiss de l'indicateur "succès" après 3 s
+  useEffect(() => {
+    if (globalStatus !== "success") return;
+    const t = setTimeout(() => setGlobalStatus("idle"), 3000);
+    return () => clearTimeout(t);
+  }, [globalStatus]);
+
+  // ── Traitement champ : injection quand enregistrement s'arrête ────────────
+  useEffect(() => {
+    if (fieldVoice.isListening) return;   // encore en cours
+    if (!activeField) return;             // aucun champ actif
+    const field = activeField;
+    setActiveField(null);
+    const text = fieldVoice.transcript.trim();
+    if (!text) return;
+    setFieldInjecting(field);
+    const key = field === "description" ? "description" : "actions_correctives";
+    setForm(prev => ({
+      ...prev,
+      [key]: prev[key] ? `${prev[key]}\n${text}` : text,
+    }));
+    const t = setTimeout(() => setFieldInjecting(null), 1800);
+    return () => clearTimeout(t);
+  }, [fieldVoice.isListening]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  const handleStartGlobalDictation = () => {
+    setGlobalStatus("recording");
+    globalVoice.startListening();
+  };
+  const handleStopGlobalDictation = () => {
+    globalVoice.stopListening();
+    // globalStatus reste "recording" → useEffect le passera à "analyzing"
+  };
+
+  const handleToggleFieldDictation = (field: "description" | "actions") => {
+    if (fieldVoice.isListening && activeField === field) {
+      fieldVoice.stopListening();
+    } else {
+      setActiveField(field);
+      fieldVoice.startListening();
+    }
+  };
+
+  // ── Formulaire ────────────────────────────────────────────────────────────
   const canNext = () => {
     if (step === 1) return form.date_evenement && form.type_fei && form.service;
     if (step === 2) return form.lieu && form.gravite > 0;
     if (step === 3) return form.description.trim().length > 0;
-    if (step === 4) return true; // Actions correctives optionnelles
+    if (step === 4) return true;
     return true;
   };
 
@@ -97,13 +183,10 @@ const FeiFormPage = () => {
     const fileName = `FEI_${data.id.slice(0, 8)}_${form.date_evenement}.pdf`;
     pdf.save(fileName);
 
-    // Notification email avec PDF en pièce jointe
     try {
       const pdfBytes = new Uint8Array(pdf.output("arraybuffer") as ArrayBuffer);
       let binary = "";
-      for (let i = 0; i < pdfBytes.byteLength; i++) {
-        binary += String.fromCharCode(pdfBytes[i]);
-      }
+      for (let i = 0; i < pdfBytes.byteLength; i++) binary += String.fromCharCode(pdfBytes[i]);
       const pdfBase64 = btoa(binary);
 
       const { error: emailError } = await supabase.functions.invoke("send-email-notification", {
@@ -133,13 +216,11 @@ const FeiFormPage = () => {
         },
       });
       if (emailError) {
-        console.error("Échec de la notification email FEI :", emailError);
         toast.error("FEI enregistrée, mais l'email n'a pas pu être envoyé : " + emailError.message);
       } else {
         toast.success("FEI enregistrée, PDF généré et email envoyé !");
       }
-    } catch (emailErr) {
-      console.error("Échec de la notification email FEI :", emailErr);
+    } catch {
       toast.error("FEI enregistrée, mais erreur lors de l'envoi email.");
     }
 
@@ -154,56 +235,12 @@ const FeiFormPage = () => {
   };
 
   const selectedGravite = GRAVITE_CONFIG.find((g) => g.level === form.gravite);
-
-  // Process transcript when recognition stops
-  useEffect(() => {
-    if (isListening || !voiceMode) return;
-    const mode = voiceMode;
-    setVoiceMode(null);
-    if (!transcript.trim()) return;
-    if (mode === "description") {
-      setForm(prev => ({ ...prev, description: prev.description ? `${prev.description}\n${transcript.trim()}` : transcript.trim() }));
-    } else if (mode === "actions") {
-      setForm(prev => ({ ...prev, actions_correctives: prev.actions_correctives ? `${prev.actions_correctives}\n${transcript.trim()}` : transcript.trim() }));
-    } else if (mode === "global") {
-      processGlobalDictation(transcript.trim());
-    }
-  }, [isListening]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const processGlobalDictation = async (text: string) => {
-    setLoadingVoice(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("suggest-actions", {
-        body: { context_type: "voice_fei", data: { transcript: text } },
-      });
-      if (error) throw error;
-      const extracted = data.extracted;
-      setForm(prev => ({
-        ...prev,
-        type_fei: extracted.type_fei || prev.type_fei,
-        service: extracted.service || prev.service,
-        lieu: extracted.lieu || prev.lieu,
-        description: extracted.description || prev.description,
-      }));
-      toast.success("Formulaire pré-rempli grâce à la dictée !");
-    } catch {
-      toast.error("Impossible d'analyser la dictée");
-    }
-    setLoadingVoice(false);
-  };
-
-  const handleStartGlobalDictation = () => { setVoiceMode("global"); startListening(); };
-  const handleStopGlobalDictation = () => { stopListening(); };
-  const handleToggleFieldDictation = (field: "description" | "actions") => {
-    if (isListening && voiceMode === field) { stopListening(); }
-    else { setVoiceMode(field); startListening(); }
-  };
+  const isSupported = globalVoice.isSupported;
 
   return (
     <div className="max-w-2xl mx-auto">
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-        {/* Title row */}
         <div className="flex items-center gap-3 mb-7">
           <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center shadow-warm shrink-0">
             <FileText className="w-5 h-5 text-white" />
@@ -256,7 +293,7 @@ const FeiFormPage = () => {
         </div>
       </motion.div>
 
-      {/* ── Bandeau dictée vocale ── */}
+      {/* ── Bandeau dictée vocale globale ── */}
       {isSupported && (
         <motion.div
           initial={{ opacity: 0, y: 6 }}
@@ -276,27 +313,61 @@ const FeiFormPage = () => {
             </div>
             <Button
               type="button"
-              variant={isListening && voiceMode === "global" ? "destructive" : "outline"}
+              variant={globalStatus === "recording" ? "destructive" : "outline"}
               size="sm"
-              disabled={loadingVoice || (isListening && voiceMode !== "global")}
-              onClick={isListening && voiceMode === "global" ? handleStopGlobalDictation : handleStartGlobalDictation}
-              className={`gap-2 shrink-0 ${isListening && voiceMode === "global" ? "animate-pulse" : ""}`}
+              disabled={globalStatus === "analyzing" || fieldVoice.isListening}
+              onClick={globalStatus === "recording" ? handleStopGlobalDictation : handleStartGlobalDictation}
+              className={`gap-2 shrink-0 ${globalStatus === "recording" ? "animate-pulse" : ""}`}
             >
-              {loadingVoice ? (
+              {globalStatus === "analyzing" ? (
                 <><Loader2 className="w-4 h-4 animate-spin" /> Analyse…</>
-              ) : isListening && voiceMode === "global" ? (
+              ) : globalStatus === "recording" ? (
                 <><MicOff className="w-4 h-4" /> Arrêter</>
               ) : (
                 <><Mic className="w-4 h-4" /> Dicter</>
               )}
             </Button>
           </div>
-          {isListening && voiceMode === "global" && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-              Enregistrement en cours… Parlez naturellement. Ex : "Monsieur Dupont a chuté dans le couloir ce matin, gravité modérée"
-            </div>
-          )}
+
+          {/* Indicateurs d'état */}
+          <AnimatePresence mode="wait">
+            {globalStatus === "recording" && (
+              <motion.div
+                key="recording"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600"
+              >
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+                🔴 Enregistrement en cours… Parlez naturellement. Ex : "Monsieur Dupont a chuté dans le couloir ce matin, gravité modérée"
+              </motion.div>
+            )}
+            {globalStatus === "analyzing" && (
+              <motion.div
+                key="analyzing"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-50 border border-orange-200 text-xs text-orange-700"
+              >
+                <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                ⏳ Analyse en cours — Claude extrait les informations de votre dictée…
+              </motion.div>
+            )}
+            {globalStatus === "success" && (
+              <motion.div
+                key="success"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 border border-green-200 text-xs text-green-700"
+              >
+                <Check className="w-3 h-3 shrink-0" />
+                ✅ Formulaire pré-rempli ! Vérifiez et complétez les champs si nécessaire.
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
       )}
 
@@ -451,20 +522,33 @@ const FeiFormPage = () => {
                   {isSupported && (
                     <Button
                       type="button"
-                      variant={isListening && voiceMode === "description" ? "destructive" : "outline"}
+                      variant={fieldVoice.isListening && activeField === "description" ? "destructive" : "outline"}
                       size="sm"
-                      className={`h-7 gap-1.5 text-xs shrink-0 ${isListening && voiceMode === "description" ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
+                      disabled={globalStatus === "recording" || globalStatus === "analyzing" || (fieldVoice.isListening && activeField !== "description")}
+                      className={`h-7 gap-1.5 text-xs shrink-0 ${fieldVoice.isListening && activeField === "description" ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
                       onClick={() => handleToggleFieldDictation("description")}
                     >
-                      {isListening && voiceMode === "description" ? (
-                        <><MicOff className="w-3 h-3" /> Arrêter</>
+                      {fieldVoice.isListening && activeField === "description" ? (
+                        <><MicOff className="w-3 h-3" /> 🔴 Arrêter</>
                       ) : (
                         <><Mic className="w-3 h-3" /> Dicter</>
                       )}
                     </Button>
                   )}
                 </div>
-                <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Qui, quoi, quand, comment... Décrivez les faits objectivement." rows={7} required className="resize-none" />
+                <Textarea
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  placeholder="Qui, quoi, quand, comment... Décrivez les faits objectivement."
+                  rows={7}
+                  required
+                  className="resize-none"
+                />
+                {fieldInjecting === "description" && (
+                  <p className="text-xs text-orange-600 flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin" /> ⏳ Injection en cours…
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground text-right">{form.description.length} caractères</p>
               </div>
             </>
@@ -494,20 +578,32 @@ const FeiFormPage = () => {
                   {isSupported && (
                     <Button
                       type="button"
-                      variant={isListening && voiceMode === "actions" ? "destructive" : "outline"}
+                      variant={fieldVoice.isListening && activeField === "actions" ? "destructive" : "outline"}
                       size="sm"
-                      className={`h-7 gap-1.5 text-xs shrink-0 ${isListening && voiceMode === "actions" ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
+                      disabled={globalStatus === "recording" || globalStatus === "analyzing" || (fieldVoice.isListening && activeField !== "actions")}
+                      className={`h-7 gap-1.5 text-xs shrink-0 ${fieldVoice.isListening && activeField === "actions" ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
                       onClick={() => handleToggleFieldDictation("actions")}
                     >
-                      {isListening && voiceMode === "actions" ? (
-                        <><MicOff className="w-3 h-3" /> Arrêter</>
+                      {fieldVoice.isListening && activeField === "actions" ? (
+                        <><MicOff className="w-3 h-3" /> 🔴 Arrêter</>
                       ) : (
                         <><Mic className="w-3 h-3" /> Dicter</>
                       )}
                     </Button>
                   )}
                 </div>
-                <Textarea value={form.actions_correctives} onChange={(e) => setForm({ ...form, actions_correctives: e.target.value })} placeholder="Décrivez les mesures prises immédiatement et les actions préventives envisagées..." rows={5} className="resize-none" />
+                <Textarea
+                  value={form.actions_correctives}
+                  onChange={(e) => setForm({ ...form, actions_correctives: e.target.value })}
+                  placeholder="Décrivez les mesures prises immédiatement et les actions préventives envisagées..."
+                  rows={5}
+                  className="resize-none"
+                />
+                {fieldInjecting === "actions" && (
+                  <p className="text-xs text-orange-600 flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin" /> ⏳ Injection en cours…
+                  </p>
+                )}
               </div>
             </>
           )}
