@@ -56,16 +56,11 @@ const FeiFormPage = () => {
     service: singleService || "",
   });
 
-  // ── Deux instances séparées pour éviter les conflits ──────────────────────
+  // ── Dictée vocale ─────────────────────────────────────────────────────────
   const globalVoice = useSpeechRecognition(); // bandeau global → IA
-  const fieldVoice  = useSpeechRecognition(); // boutons par champ → injection directe
 
   // État visuel du bandeau global : idle | recording | analyzing | success
   const [globalStatus, setGlobalStatus] = useState<"idle" | "recording" | "analyzing" | "success">("idle");
-  // Champ en cours de dictée par bouton
-  const [activeField, setActiveField] = useState<"description" | "actions" | null>(null);
-  // Champ en cours d'injection (indicateur transitoire)
-  const [fieldInjecting, setFieldInjecting] = useState<"description" | "actions" | null>(null);
 
   // Ref pour lancer l'appel IA sans dépendance cyclique
   const processGlobalRef = useRef<(text: string) => void>(() => {});
@@ -109,25 +104,7 @@ const FeiFormPage = () => {
     return () => clearTimeout(t);
   }, [globalStatus]);
 
-  // ── Traitement champ : injection quand enregistrement s'arrête ────────────
-  useEffect(() => {
-    if (fieldVoice.isListening) return;   // encore en cours
-    if (!activeField) return;             // aucun champ actif
-    const field = activeField;
-    setActiveField(null);
-    const text = fieldVoice.transcript.trim();
-    if (!text) return;
-    setFieldInjecting(field);
-    const key = field === "description" ? "description" : "actions_correctives";
-    setForm(prev => ({
-      ...prev,
-      [key]: prev[key] ? `${prev[key]}\n${text}` : text,
-    }));
-    const t = setTimeout(() => setFieldInjecting(null), 1800);
-    return () => clearTimeout(t);
-  }, [fieldVoice.isListening]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Handlers ─────────────────────────────────────────────────────────────
+  // ── Handlers global ───────────────────────────────────────────────────────
   const handleStartGlobalDictation = () => {
     setGlobalStatus("recording");
     globalVoice.startListening();
@@ -137,12 +114,43 @@ const FeiFormPage = () => {
     // globalStatus reste "recording" → useEffect le passera à "analyzing"
   };
 
-  const handleToggleFieldDictation = (field: "description" | "actions") => {
-    if (fieldVoice.isListening && activeField === field) {
-      fieldVoice.stopListening();
-    } else {
-      setActiveField(field);
-      fieldVoice.startListening();
+  // ── Dictée directe par champ (approche sans hook pour fiabilité) ──────────
+  const dictateField = (field: "description" | "actions_correctives") => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast.error("Dictée vocale non supportée sur ce navigateur");
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "fr-FR";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    toast.info("🎤 Parlez maintenant…");
+
+    recognition.onstart = () => {
+      toast.dismiss();
+      toast.info("🔴 Enregistrement en cours…");
+    };
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      toast.dismiss();
+      toast.success("✅ Texte ajouté !");
+      setForm(prev => ({
+        ...prev,
+        [field]: prev[field] ? `${prev[field]} ${transcript}` : transcript,
+      }));
+    };
+    recognition.onerror = (event: any) => {
+      toast.dismiss();
+      toast.error("Erreur dictée : " + event.error);
+    };
+    recognition.onend = () => { toast.dismiss(); };
+
+    try {
+      recognition.start();
+    } catch {
+      toast.error("Impossible de démarrer la dictée");
     }
   };
 
@@ -522,17 +530,13 @@ const FeiFormPage = () => {
                   {isSupported && (
                     <Button
                       type="button"
-                      variant={fieldVoice.isListening && activeField === "description" ? "destructive" : "outline"}
+                      variant="outline"
                       size="sm"
-                      disabled={globalStatus === "recording" || globalStatus === "analyzing" || (fieldVoice.isListening && activeField !== "description")}
-                      className={`h-7 gap-1.5 text-xs shrink-0 ${fieldVoice.isListening && activeField === "description" ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
-                      onClick={() => handleToggleFieldDictation("description")}
+                      disabled={globalStatus === "recording" || globalStatus === "analyzing"}
+                      className="h-7 gap-1.5 text-xs shrink-0 border-primary/30 text-primary hover:bg-primary/5"
+                      onClick={() => dictateField("description")}
                     >
-                      {fieldVoice.isListening && activeField === "description" ? (
-                        <><MicOff className="w-3 h-3" /> 🔴 Arrêter</>
-                      ) : (
-                        <><Mic className="w-3 h-3" /> Dicter</>
-                      )}
+                      <Mic className="w-3 h-3" /> Dicter
                     </Button>
                   )}
                 </div>
@@ -544,11 +548,6 @@ const FeiFormPage = () => {
                   required
                   className="resize-none"
                 />
-                {fieldInjecting === "description" && (
-                  <p className="text-xs text-orange-600 flex items-center gap-1.5">
-                    <Loader2 className="w-3 h-3 animate-spin" /> ⏳ Injection en cours…
-                  </p>
-                )}
                 <p className="text-xs text-muted-foreground text-right">{form.description.length} caractères</p>
               </div>
             </>
@@ -578,17 +577,13 @@ const FeiFormPage = () => {
                   {isSupported && (
                     <Button
                       type="button"
-                      variant={fieldVoice.isListening && activeField === "actions" ? "destructive" : "outline"}
+                      variant="outline"
                       size="sm"
-                      disabled={globalStatus === "recording" || globalStatus === "analyzing" || (fieldVoice.isListening && activeField !== "actions")}
-                      className={`h-7 gap-1.5 text-xs shrink-0 ${fieldVoice.isListening && activeField === "actions" ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
-                      onClick={() => handleToggleFieldDictation("actions")}
+                      disabled={globalStatus === "recording" || globalStatus === "analyzing"}
+                      className="h-7 gap-1.5 text-xs shrink-0 border-primary/30 text-primary hover:bg-primary/5"
+                      onClick={() => dictateField("actions_correctives")}
                     >
-                      {fieldVoice.isListening && activeField === "actions" ? (
-                        <><MicOff className="w-3 h-3" /> 🔴 Arrêter</>
-                      ) : (
-                        <><Mic className="w-3 h-3" /> Dicter</>
-                      )}
+                      <Mic className="w-3 h-3" /> Dicter
                     </Button>
                   )}
                 </div>
@@ -599,11 +594,6 @@ const FeiFormPage = () => {
                   rows={5}
                   className="resize-none"
                 />
-                {fieldInjecting === "actions" && (
-                  <p className="text-xs text-orange-600 flex items-center gap-1.5">
-                    <Loader2 className="w-3 h-3 animate-spin" /> ⏳ Injection en cours…
-                  </p>
-                )}
               </div>
             </>
           )}
