@@ -1,4 +1,4 @@
-import { useState, Fragment } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,7 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { generateFeiPdf } from "@/lib/pdfGenerator";
-import { FileText, Save, MapPin, AlertTriangle, Calendar, ClipboardList, Shield, ChevronRight, ChevronLeft, Check, ArrowRight, MessageSquareWarning } from "lucide-react";
+import { FileText, Save, MapPin, AlertTriangle, Calendar, ClipboardList, Shield, ChevronRight, ChevronLeft, Check, ArrowRight, MessageSquareWarning, Mic, MicOff, Loader2 } from "lucide-react";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 
 const FEI_TYPES = ["Chute", "Erreur médicamenteuse", "Fugue", "Agressivité", "Maltraitance", "Infection", "Autre"];
 
@@ -43,7 +44,12 @@ const FeiFormPage = () => {
   const singleService = userServices.length === 1 ? userServices[0] : null;
   const serviceOptions = userServices.length > 0 ? userServices : SERVICES;
   const [loading, setLoading] = useState(false);
+  const [loadingVoice, setLoadingVoice] = useState(false);
   const [step, setStep] = useState(1);
+
+  // ── Voice recognition ─────────────────────────────────────────────────────
+  const { isListening, transcript, isSupported, startListening, stopListening } = useSpeechRecognition();
+  const [voiceMode, setVoiceMode] = useState<"global" | "description" | "actions" | null>(null);
   const [form, setForm] = useState({
     date_evenement: new Date().toISOString().split("T")[0],
     lieu: "",
@@ -149,6 +155,50 @@ const FeiFormPage = () => {
 
   const selectedGravite = GRAVITE_CONFIG.find((g) => g.level === form.gravite);
 
+  // Process transcript when recognition stops
+  useEffect(() => {
+    if (isListening || !voiceMode) return;
+    const mode = voiceMode;
+    setVoiceMode(null);
+    if (!transcript.trim()) return;
+    if (mode === "description") {
+      setForm(prev => ({ ...prev, description: prev.description ? `${prev.description}\n${transcript.trim()}` : transcript.trim() }));
+    } else if (mode === "actions") {
+      setForm(prev => ({ ...prev, actions_correctives: prev.actions_correctives ? `${prev.actions_correctives}\n${transcript.trim()}` : transcript.trim() }));
+    } else if (mode === "global") {
+      processGlobalDictation(transcript.trim());
+    }
+  }, [isListening]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const processGlobalDictation = async (text: string) => {
+    setLoadingVoice(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("suggest-actions", {
+        body: { context_type: "voice_fei", data: { transcript: text } },
+      });
+      if (error) throw error;
+      const extracted = data.extracted;
+      setForm(prev => ({
+        ...prev,
+        type_fei: extracted.type_fei || prev.type_fei,
+        service: extracted.service || prev.service,
+        lieu: extracted.lieu || prev.lieu,
+        description: extracted.description || prev.description,
+      }));
+      toast.success("Formulaire pré-rempli grâce à la dictée !");
+    } catch {
+      toast.error("Impossible d'analyser la dictée");
+    }
+    setLoadingVoice(false);
+  };
+
+  const handleStartGlobalDictation = () => { setVoiceMode("global"); startListening(); };
+  const handleStopGlobalDictation = () => { stopListening(); };
+  const handleToggleFieldDictation = (field: "description" | "actions") => {
+    if (isListening && voiceMode === field) { stopListening(); }
+    else { setVoiceMode(field); startListening(); }
+  };
+
   return (
     <div className="max-w-2xl mx-auto">
       {/* Header */}
@@ -205,6 +255,50 @@ const FeiFormPage = () => {
           })}
         </div>
       </motion.div>
+
+      {/* ── Bandeau dictée vocale ── */}
+      {isSupported && (
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="mb-4 space-y-2"
+        >
+          <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Mic className="w-4 h-4 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-foreground">Option dictée vocale</p>
+                <p className="text-xs text-muted-foreground">Décrivez l'événement à voix haute — les champs se rempliront automatiquement</p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant={isListening && voiceMode === "global" ? "destructive" : "outline"}
+              size="sm"
+              disabled={loadingVoice || (isListening && voiceMode !== "global")}
+              onClick={isListening && voiceMode === "global" ? handleStopGlobalDictation : handleStartGlobalDictation}
+              className={`gap-2 shrink-0 ${isListening && voiceMode === "global" ? "animate-pulse" : ""}`}
+            >
+              {loadingVoice ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Analyse…</>
+              ) : isListening && voiceMode === "global" ? (
+                <><MicOff className="w-4 h-4" /> Arrêter</>
+              ) : (
+                <><Mic className="w-4 h-4" /> Dicter</>
+              )}
+            </Button>
+          </div>
+          {isListening && voiceMode === "global" && (
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+              Enregistrement en cours… Parlez naturellement. Ex : "Monsieur Dupont a chuté dans le couloir ce matin, gravité modérée"
+            </div>
+          )}
+        </motion.div>
+      )}
 
       {/* Définition FEI */}
       <motion.div
@@ -352,7 +446,24 @@ const FeiFormPage = () => {
                 <ClipboardList className="w-4 h-4 text-primary" /> Description détaillée de l'événement
               </h2>
               <div className="space-y-2">
-                <Label>Décrivez l'événement en détail</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Décrivez l'événement en détail</Label>
+                  {isSupported && (
+                    <Button
+                      type="button"
+                      variant={isListening && voiceMode === "description" ? "destructive" : "outline"}
+                      size="sm"
+                      className={`h-7 gap-1.5 text-xs shrink-0 ${isListening && voiceMode === "description" ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
+                      onClick={() => handleToggleFieldDictation("description")}
+                    >
+                      {isListening && voiceMode === "description" ? (
+                        <><MicOff className="w-3 h-3" /> Arrêter</>
+                      ) : (
+                        <><Mic className="w-3 h-3" /> Dicter</>
+                      )}
+                    </Button>
+                  )}
+                </div>
                 <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Qui, quoi, quand, comment... Décrivez les faits objectivement." rows={7} required className="resize-none" />
                 <p className="text-xs text-muted-foreground text-right">{form.description.length} caractères</p>
               </div>
@@ -378,7 +489,24 @@ const FeiFormPage = () => {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Mesures prises ou à prendre <span className="text-muted-foreground">(optionnel)</span></Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Mesures prises ou à prendre <span className="text-muted-foreground">(optionnel)</span></Label>
+                  {isSupported && (
+                    <Button
+                      type="button"
+                      variant={isListening && voiceMode === "actions" ? "destructive" : "outline"}
+                      size="sm"
+                      className={`h-7 gap-1.5 text-xs shrink-0 ${isListening && voiceMode === "actions" ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
+                      onClick={() => handleToggleFieldDictation("actions")}
+                    >
+                      {isListening && voiceMode === "actions" ? (
+                        <><MicOff className="w-3 h-3" /> Arrêter</>
+                      ) : (
+                        <><Mic className="w-3 h-3" /> Dicter</>
+                      )}
+                    </Button>
+                  )}
+                </div>
                 <Textarea value={form.actions_correctives} onChange={(e) => setForm({ ...form, actions_correctives: e.target.value })} placeholder="Décrivez les mesures prises immédiatement et les actions préventives envisagées..." rows={5} className="resize-none" />
               </div>
             </>
