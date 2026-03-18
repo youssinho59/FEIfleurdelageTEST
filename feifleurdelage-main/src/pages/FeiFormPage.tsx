@@ -148,9 +148,11 @@ const FeiFormPage = () => {
     recognition.onstart = () => setIsRecording(true);
 
     recognition.onresult = (event: any) => {
-      const transcript = Array.from(event.results)
-        .map((r: any) => r[0].transcript)
-        .join(" ");
+      let transcript = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) transcript += event.results[i][0].transcript;
+      }
+      if (!transcript) return;
       if (field === "description") {
         setForm(prev => ({
           ...prev,
@@ -174,6 +176,14 @@ const FeiFormPage = () => {
     recognition.start();
   };
 
+  // Arrêt de toute dictée active lors du changement d'étape
+  useEffect(() => {
+    if (recognitionDescRef.current) { recognitionDescRef.current.stop(); }
+    if (recognitionActionsRef.current) { recognitionActionsRef.current.stop(); }
+    setIsRecordingDescription(false);
+    setIsRecordingActions(false);
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Formulaire ────────────────────────────────────────────────────────────
   const canNext = () => {
     if (step === 1) return form.date_evenement && form.type_fei && form.service;
@@ -190,7 +200,7 @@ const FeiFormPage = () => {
       date_evenement: form.date_evenement,
       lieu: form.lieu,
       description: form.description,
-      gravite: form.gravite || null,
+      gravite: form.gravite || 0,
       type_fei: form.type_fei,
       actions_correctives: form.actions_correctives || null,
       categorie_fei: "standard",
