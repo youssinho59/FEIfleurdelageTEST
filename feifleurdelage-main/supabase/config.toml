@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.manage-agent]
 verify_jwt = false
+
+[functions.suggest-actions]
+verify_jwt = false
