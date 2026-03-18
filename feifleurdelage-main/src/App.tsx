@@ -25,6 +25,8 @@ import PlainteExternePage from "@/pages/PlainteExternePage";
 import AuditsPage from "@/pages/AuditsPage";
 import QuestionnaireSatisfactionPage from "@/pages/QuestionnaireSatisfactionPage";
 import QuestionnairesAdminPage from "@/pages/QuestionnairesAdminPage";
+import DuerpPage from "./pages/DuerpPage";
+import BatimentPage from "./pages/BatimentPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -100,6 +102,8 @@ const AppRoutes = () => {
       <Route path="/audits" element={<ProtectedRoute adminOrResponsable><AuditsPage /></ProtectedRoute>} />
       <Route path="/questionnaires-admin" element={<ProtectedRoute adminOrResponsable><QuestionnairesAdminPage /></ProtectedRoute>} />
       <Route path="/classeur" element={<ProtectedRoute><ClasseurAgentPage /></ProtectedRoute>} />
+      <Route path="/duerp" element={<ProtectedRoute adminOrResponsable><DuerpPage /></ProtectedRoute>} />
+      <Route path="/batiment" element={<ProtectedRoute adminOrResponsable><BatimentPage /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

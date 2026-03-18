@@ -21,6 +21,7 @@ import {
   FolderCog,
   Star,
   Building2,
+  ShieldAlert,
 } from "lucide-react";
 import { useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
@@ -149,6 +150,13 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         { to: "/gestion-reclamations", label: "Gestion Réclamations", icon: MessageSquareWarning },
         { to: "/audits", label: "Audits & NC", icon: ClipboardCheck },
         { to: "/questionnaires-admin", label: "Questionnaires", icon: Star },
+        { to: "/duerp", label: "DUERP", icon: ShieldAlert },
+      ],
+    },
+    {
+      label: "INFRASTRUCTURE",
+      items: [
+        { to: "/batiment", label: "Gestion du bâtiment", icon: Building2 },
       ],
     },
     {
