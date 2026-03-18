@@ -161,6 +161,7 @@ const StatsPage = () => {
   const [classeurEmargements, setClasseurEmargements] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
+  const [activeSourceTab, setActiveSourceTab] = useState<"op" | "strat">("op");
 
   const fetchData = async () => {
     setLoading(true);
@@ -355,6 +356,39 @@ const StatsPage = () => {
       procsZero.length > 0 ? { label: `${procsZero.length} procédure(s) du classeur sans aucun émargement`, severity: "medium" as const } : null,
     ].filter(Boolean) as { label: string; severity: "high" | "medium" }[];
 
+    // — Vue par source —
+    const groupBySource = (items: any[], isRealise: (a: any) => boolean) => {
+      const map = new Map<string, any[]>();
+      items.forEach(a => {
+        const key = a.source || "Non renseigné";
+        if (!map.has(key)) map.set(key, []);
+        map.get(key)!.push(a);
+      });
+      return Array.from(map.entries())
+        .map(([source, acts]) => ({
+          source,
+          total: acts.length,
+          realisees: acts.filter(isRealise).length,
+          taux: Math.round((acts.filter(isRealise).length / acts.length) * 100),
+          actions: acts,
+        }))
+        .sort((a, b) => {
+          if (a.source === "Non renseigné") return 1;
+          if (b.source === "Non renseigné") return -1;
+          return b.total - a.total;
+        });
+    };
+    const sourceGroupsOp = groupBySource(pacqActions, (a) => a.statut === "realisee" || a.statut === "evaluee");
+    const sourceGroupsStrat = groupBySource(pacqStrategique, (a) => a.statut === "realise");
+    const allActions = [...pacqActions, ...pacqStrategique];
+    const allSourceMap = new Map<string, number>();
+    allActions.forEach(a => { if (a.source) allSourceMap.set(a.source, (allSourceMap.get(a.source) || 0) + 1); });
+    const topSource = allSourceMap.size > 0 ? [...allSourceMap.entries()].sort((a, b) => b[1] - a[1])[0][0] : "—";
+    const sansSrc = allActions.filter(a => !a.source).length;
+    const pctSansSource = allActions.length > 0 ? Math.round((sansSrc / allActions.length) * 100) : 0;
+    const sourceBarOp = sourceGroupsOp.map(g => ({ name: g.source.length > 26 ? g.source.slice(0, 26) + "…" : g.source, value: g.total }));
+    const sourceBarStrat = sourceGroupsStrat.map(g => ({ name: g.source.length > 26 ? g.source.slice(0, 26) + "…" : g.source, value: g.total }));
+
     return {
       totalPacq, pacqRealisees, tauxPacqOp, pacqEnRetard, pacqByStatut, pacqByPriorite,
       pacqAFaire: pacqActions.filter((a) => a.statut === "a_faire").length,
@@ -363,6 +397,8 @@ const StatsPage = () => {
       totalProcs, procsWithEmarg, tauxEmargement, procsZero, top10Procs, emargByProc,
       scoreGlobal, tauxClotureFei, tauxResolutionPlaintes,
       alertes,
+      sourceGroupsOp, sourceGroupsStrat, topSource, pctSansSource, sourceBarOp, sourceBarStrat,
+      totalOp: pacqActions.length, totalStrat: pacqStrategique.length,
     };
   }, [feiData, plaintesData, pacqActions, pacqStrategique, classeurProcedures, classeurEmargements]);
 
@@ -968,6 +1004,156 @@ const StatsPage = () => {
                 </Card>
               )}
 
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              Vue par source — PACQS
+          ════════════════════════════════════════════════════════════════════ */}
+          {(extraStats.totalOp > 0 || extraStats.totalStrat > 0) && (
+            <div>
+              <SectionTitle icon={BarChart3} title="Actions PACQS par source" />
+
+              {/* 4 KPI cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+                <KpiCard label="Actions PACQS Opérationnel" value={extraStats.totalOp} sub="total enregistrées" icon={CheckCircle} color="text-primary" bg="bg-primary/10" />
+                <KpiCard label="Actions PACQS Stratégique" value={extraStats.totalStrat} sub="total enregistrées" icon={Target} color="text-purple-600" bg="bg-purple-50" />
+                <KpiCard label="Source la plus fréquente" value={extraStats.topSource} sub="toutes PACQS confondues" icon={TrendingUp} color="text-emerald-600" bg="bg-emerald-50" />
+                <KpiCard label="Sans source renseignée" value={`${extraStats.pctSansSource}%`} sub={`${[...extraStats.sourceGroupsOp, ...extraStats.sourceGroupsStrat].filter(g => g.source === "Non renseigné").reduce((s, g) => s + g.total, 0)} actions`} icon={Database} color="text-slate-500" bg="bg-slate-100" />
+              </div>
+
+              {/* Onglets */}
+              <div className="flex gap-2 mb-5">
+                {(["op", "strat"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveSourceTab(tab)}
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                      activeSourceTab === tab
+                        ? "bg-primary text-white shadow-sm"
+                        : "bg-muted/60 text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {tab === "op" ? "PACQS Opérationnel" : "PACQS Stratégique"}
+                  </button>
+                ))}
+              </div>
+
+              {activeSourceTab === "op" && (
+                <div className="grid gap-5 lg:grid-cols-2">
+                  {/* Bar chart */}
+                  {extraStats.sourceBarOp.length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-2 pt-4 px-5">
+                        <CardTitle className="font-display text-base">Nb actions par source</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={Math.max(140, extraStats.sourceBarOp.length * 36)}>
+                          <BarChart data={extraStats.sourceBarOp} layout="vertical" margin={{ top: 4, right: 40, left: 12, bottom: 4 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                            <YAxis dataKey="name" type="category" width={170} tick={{ fontSize: 11 }} />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Bar dataKey="value" name="Actions" radius={[0, 4, 4, 0]} fill="#c46b48" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Groupes par source */}
+                  <div className="space-y-4">
+                    {extraStats.sourceGroupsOp.map((g) => (
+                      <Card key={g.source}>
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between mb-2 gap-2">
+                            <span className="text-sm font-semibold text-foreground truncate">{g.source}</span>
+                            <span className="text-xs text-muted-foreground shrink-0">{g.total} action{g.total > 1 ? "s" : ""}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${g.taux}%` }} />
+                            </div>
+                            <span className="text-xs font-bold text-primary tabular-nums w-8 text-right">{g.taux}%</span>
+                          </div>
+                          <div className="space-y-1.5">
+                            {g.actions.slice(0, 5).map((a: any) => (
+                              <div key={a.id} className="flex items-center gap-2 text-xs">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${a.statut === "realisee" || a.statut === "evaluee" ? "bg-emerald-400" : a.statut === "en_cours" ? "bg-amber-400" : "bg-slate-300"}`} />
+                                <span className="flex-1 truncate text-foreground/80">{a.titre}</span>
+                                {a.service && <span className="text-muted-foreground shrink-0">{a.service}</span>}
+                              </div>
+                            ))}
+                            {g.actions.length > 5 && <p className="text-[10px] text-muted-foreground pl-3.5">+{g.actions.length - 5} autres actions</p>}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {activeSourceTab === "strat" && (
+                <div className="grid gap-5 lg:grid-cols-2">
+                  {/* Bar chart */}
+                  {extraStats.sourceBarStrat.length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-2 pt-4 px-5">
+                        <CardTitle className="font-display text-base">Nb actions par source</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={Math.max(140, extraStats.sourceBarStrat.length * 36)}>
+                          <BarChart data={extraStats.sourceBarStrat} layout="vertical" margin={{ top: 4, right: 40, left: 12, bottom: 4 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                            <YAxis dataKey="name" type="category" width={170} tick={{ fontSize: 11 }} />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Bar dataKey="value" name="Actions" radius={[0, 4, 4, 0]} fill="#a855f7" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Groupes par source */}
+                  <div className="space-y-4">
+                    {extraStats.sourceGroupsStrat.map((g) => (
+                      <Card key={g.source}>
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between mb-2 gap-2">
+                            <span className="text-sm font-semibold text-foreground truncate">{g.source}</span>
+                            <span className="text-xs text-muted-foreground shrink-0">{g.total} action{g.total > 1 ? "s" : ""}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-purple-500 transition-all duration-500" style={{ width: `${g.taux}%` }} />
+                            </div>
+                            <span className="text-xs font-bold text-purple-600 tabular-nums w-8 text-right">{g.taux}%</span>
+                          </div>
+                          <div className="space-y-1.5">
+                            {g.actions.slice(0, 5).map((a: any) => {
+                              const thematique = THEMATIQUES_ESSMS.find(t => t.id === a.pacq_strategique_objectifs?.thematique);
+                              return (
+                                <div key={a.id} className="flex items-center gap-2 text-xs">
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${a.statut === "realise" ? "bg-emerald-400" : a.statut === "en_cours" ? "bg-amber-400" : "bg-slate-300"}`} />
+                                  <span className="flex-1 truncate text-foreground/80">{a.titre}</span>
+                                  {thematique && (
+                                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                                      style={{ background: THEMATIQUE_HEX[thematique.color] + "20", color: THEMATIQUE_HEX[thematique.color] }}>
+                                      {thematique.label.length > 16 ? thematique.label.slice(0, 16) + "…" : thematique.label}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {g.actions.length > 5 && <p className="text-[10px] text-muted-foreground pl-3.5">+{g.actions.length - 5} autres actions</p>}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
