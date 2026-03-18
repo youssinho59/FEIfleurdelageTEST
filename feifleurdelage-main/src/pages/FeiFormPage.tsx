@@ -200,7 +200,7 @@ const FeiFormPage = () => {
       date_evenement: form.date_evenement,
       lieu: form.lieu,
       description: form.description,
-      gravite: form.gravite || 0,
+      gravite: form.gravite > 0 ? form.gravite : null,
       type_fei: form.type_fei,
       actions_correctives: form.actions_correctives || null,
       categorie_fei: "standard",
