@@ -162,6 +162,8 @@ const StatsPage = () => {
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [activeSourceTab, setActiveSourceTab] = useState<"op" | "strat">("op");
+  const [filterSourceOp, setFilterSourceOp] = useState("tous");
+  const [filterSourceStrat, setFilterSourceStrat] = useState("tous");
 
   const fetchData = async () => {
     setLoading(true);
@@ -1039,121 +1041,195 @@ const StatsPage = () => {
                 ))}
               </div>
 
-              {activeSourceTab === "op" && (
-                <div className="grid gap-5 lg:grid-cols-2">
-                  {/* Bar chart */}
-                  {extraStats.sourceBarOp.length > 0 && (
-                    <Card>
-                      <CardHeader className="pb-2 pt-4 px-5">
-                        <CardTitle className="font-display text-base">Nb actions par source</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <ResponsiveContainer width="100%" height={Math.max(140, extraStats.sourceBarOp.length * 36)}>
-                          <BarChart data={extraStats.sourceBarOp} layout="vertical" margin={{ top: 4, right: 40, left: 12, bottom: 4 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                            <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                            <YAxis dataKey="name" type="category" width={170} tick={{ fontSize: 11 }} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Bar dataKey="value" name="Actions" radius={[0, 4, 4, 0]} fill="#c46b48" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-                  )}
+              {activeSourceTab === "op" && (() => {
+                const visibleOp = filterSourceOp === "tous"
+                  ? extraStats.sourceGroupsOp
+                  : extraStats.sourceGroupsOp.filter(g => g.source === filterSourceOp);
+                const barDataOp = filterSourceOp === "tous"
+                  ? extraStats.sourceBarOp
+                  : extraStats.sourceBarOp.filter(d => {
+                      const src = filterSourceOp.length > 26 ? filterSourceOp.slice(0, 26) + "…" : filterSourceOp;
+                      return d.name === src;
+                    });
+                return (
+                  <div className="space-y-5">
+                    {/* Filtre */}
+                    <div className="flex items-center gap-2">
+                      <Select value={filterSourceOp} onValueChange={setFilterSourceOp}>
+                        <SelectTrigger className="w-64 h-8 text-xs"><SelectValue placeholder="Toutes les sources" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="tous">Toutes les sources</SelectItem>
+                          {extraStats.sourceGroupsOp.map(g => (
+                            <SelectItem key={g.source} value={g.source}>{g.source}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {filterSourceOp !== "tous" && (
+                        <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground" onClick={() => setFilterSourceOp("tous")}>
+                          ✕ Réinitialiser
+                        </Button>
+                      )}
+                      <span className="ml-auto text-xs text-muted-foreground">{visibleOp.reduce((s, g) => s + g.total, 0)} action{visibleOp.reduce((s, g) => s + g.total, 0) > 1 ? "s" : ""}</span>
+                    </div>
 
-                  {/* Groupes par source */}
-                  <div className="space-y-4">
-                    {extraStats.sourceGroupsOp.map((g) => (
-                      <Card key={g.source}>
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between mb-2 gap-2">
-                            <span className="text-sm font-semibold text-foreground truncate">{g.source}</span>
-                            <span className="text-xs text-muted-foreground shrink-0">{g.total} action{g.total > 1 ? "s" : ""}</span>
-                          </div>
-                          <div className="flex items-center gap-2 mb-3">
-                            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                              <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${g.taux}%` }} />
-                            </div>
-                            <span className="text-xs font-bold text-primary tabular-nums w-8 text-right">{g.taux}%</span>
-                          </div>
-                          <div className="space-y-1.5">
-                            {g.actions.slice(0, 5).map((a: any) => (
-                              <div key={a.id} className="flex items-center gap-2 text-xs">
-                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${a.statut === "realisee" || a.statut === "evaluee" ? "bg-emerald-400" : a.statut === "en_cours" ? "bg-amber-400" : "bg-slate-300"}`} />
-                                <span className="flex-1 truncate text-foreground/80">{a.titre}</span>
-                                {a.service && <span className="text-muted-foreground shrink-0">{a.service}</span>}
+                    <div className="grid gap-5 lg:grid-cols-2">
+                      {/* Bar chart */}
+                      {barDataOp.length > 0 && (
+                        <Card>
+                          <CardHeader className="pb-2 pt-4 px-5">
+                            <CardTitle className="font-display text-base">Nb actions par source</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <ResponsiveContainer width="100%" height={Math.max(140, barDataOp.length * 36)}>
+                              <BarChart data={barDataOp} layout="vertical" margin={{ top: 4, right: 40, left: 12, bottom: 4 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                                <YAxis dataKey="name" type="category" width={170} tick={{ fontSize: 11 }} />
+                                <Tooltip content={<CustomTooltip />} />
+                                <Bar dataKey="value" name="Actions" radius={[0, 4, 4, 0]}>
+                                  {barDataOp.map((d) => {
+                                    const isSelected = filterSourceOp !== "tous" && (d.name === (filterSourceOp.length > 26 ? filterSourceOp.slice(0, 26) + "…" : filterSourceOp));
+                                    return <Cell key={d.name} fill={isSelected || filterSourceOp === "tous" ? "#c46b48" : "#e8c4b0"} />;
+                                  })}
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {/* Groupes par source */}
+                      <div className="space-y-4">
+                        {visibleOp.map((g) => (
+                          <Card key={g.source} className={filterSourceOp === g.source ? "ring-2 ring-primary/40" : ""}>
+                            <CardContent className="p-4">
+                              <div className="flex items-center justify-between mb-2 gap-2">
+                                <span className="text-sm font-semibold text-foreground truncate">{g.source}</span>
+                                <span className="text-xs text-muted-foreground shrink-0">{g.total} action{g.total > 1 ? "s" : ""}</span>
                               </div>
-                            ))}
-                            {g.actions.length > 5 && <p className="text-[10px] text-muted-foreground pl-3.5">+{g.actions.length - 5} autres actions</p>}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {activeSourceTab === "strat" && (
-                <div className="grid gap-5 lg:grid-cols-2">
-                  {/* Bar chart */}
-                  {extraStats.sourceBarStrat.length > 0 && (
-                    <Card>
-                      <CardHeader className="pb-2 pt-4 px-5">
-                        <CardTitle className="font-display text-base">Nb actions par source</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <ResponsiveContainer width="100%" height={Math.max(140, extraStats.sourceBarStrat.length * 36)}>
-                          <BarChart data={extraStats.sourceBarStrat} layout="vertical" margin={{ top: 4, right: 40, left: 12, bottom: 4 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                            <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                            <YAxis dataKey="name" type="category" width={170} tick={{ fontSize: 11 }} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Bar dataKey="value" name="Actions" radius={[0, 4, 4, 0]} fill="#a855f7" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Groupes par source */}
-                  <div className="space-y-4">
-                    {extraStats.sourceGroupsStrat.map((g) => (
-                      <Card key={g.source}>
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between mb-2 gap-2">
-                            <span className="text-sm font-semibold text-foreground truncate">{g.source}</span>
-                            <span className="text-xs text-muted-foreground shrink-0">{g.total} action{g.total > 1 ? "s" : ""}</span>
-                          </div>
-                          <div className="flex items-center gap-2 mb-3">
-                            <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                              <div className="h-full rounded-full bg-purple-500 transition-all duration-500" style={{ width: `${g.taux}%` }} />
-                            </div>
-                            <span className="text-xs font-bold text-purple-600 tabular-nums w-8 text-right">{g.taux}%</span>
-                          </div>
-                          <div className="space-y-1.5">
-                            {g.actions.slice(0, 5).map((a: any) => {
-                              const thematique = THEMATIQUES_ESSMS.find(t => t.id === a.pacq_strategique_objectifs?.thematique);
-                              return (
-                                <div key={a.id} className="flex items-center gap-2 text-xs">
-                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${a.statut === "realise" ? "bg-emerald-400" : a.statut === "en_cours" ? "bg-amber-400" : "bg-slate-300"}`} />
-                                  <span className="flex-1 truncate text-foreground/80">{a.titre}</span>
-                                  {thematique && (
-                                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
-                                      style={{ background: THEMATIQUE_HEX[thematique.color] + "20", color: THEMATIQUE_HEX[thematique.color] }}>
-                                      {thematique.label.length > 16 ? thematique.label.slice(0, 16) + "…" : thematique.label}
-                                    </span>
-                                  )}
+                              <div className="flex items-center gap-2 mb-3">
+                                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${g.taux}%` }} />
                                 </div>
-                              );
-                            })}
-                            {g.actions.length > 5 && <p className="text-[10px] text-muted-foreground pl-3.5">+{g.actions.length - 5} autres actions</p>}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                                <span className="text-xs font-bold text-primary tabular-nums w-8 text-right">{g.taux}%</span>
+                              </div>
+                              <div className="space-y-1.5">
+                                {g.actions.slice(0, filterSourceOp !== "tous" ? g.actions.length : 5).map((a: any) => (
+                                  <div key={a.id} className="flex items-center gap-2 text-xs">
+                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${a.statut === "realisee" || a.statut === "evaluee" ? "bg-emerald-400" : a.statut === "en_cours" ? "bg-amber-400" : "bg-slate-300"}`} />
+                                    <span className="flex-1 truncate text-foreground/80">{a.titre}</span>
+                                    {a.service && <span className="text-muted-foreground shrink-0">{a.service}</span>}
+                                  </div>
+                                ))}
+                                {filterSourceOp === "tous" && g.actions.length > 5 && <p className="text-[10px] text-muted-foreground pl-3.5">+{g.actions.length - 5} autres actions</p>}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
+
+              {activeSourceTab === "strat" && (() => {
+                const visibleStrat = filterSourceStrat === "tous"
+                  ? extraStats.sourceGroupsStrat
+                  : extraStats.sourceGroupsStrat.filter(g => g.source === filterSourceStrat);
+                const barDataStrat = filterSourceStrat === "tous"
+                  ? extraStats.sourceBarStrat
+                  : extraStats.sourceBarStrat.filter(d => {
+                      const src = filterSourceStrat.length > 26 ? filterSourceStrat.slice(0, 26) + "…" : filterSourceStrat;
+                      return d.name === src;
+                    });
+                return (
+                  <div className="space-y-5">
+                    {/* Filtre */}
+                    <div className="flex items-center gap-2">
+                      <Select value={filterSourceStrat} onValueChange={setFilterSourceStrat}>
+                        <SelectTrigger className="w-64 h-8 text-xs"><SelectValue placeholder="Toutes les sources" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="tous">Toutes les sources</SelectItem>
+                          {extraStats.sourceGroupsStrat.map(g => (
+                            <SelectItem key={g.source} value={g.source}>{g.source}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {filterSourceStrat !== "tous" && (
+                        <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground" onClick={() => setFilterSourceStrat("tous")}>
+                          ✕ Réinitialiser
+                        </Button>
+                      )}
+                      <span className="ml-auto text-xs text-muted-foreground">{visibleStrat.reduce((s, g) => s + g.total, 0)} action{visibleStrat.reduce((s, g) => s + g.total, 0) > 1 ? "s" : ""}</span>
+                    </div>
+
+                    <div className="grid gap-5 lg:grid-cols-2">
+                      {/* Bar chart */}
+                      {barDataStrat.length > 0 && (
+                        <Card>
+                          <CardHeader className="pb-2 pt-4 px-5">
+                            <CardTitle className="font-display text-base">Nb actions par source</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <ResponsiveContainer width="100%" height={Math.max(140, barDataStrat.length * 36)}>
+                              <BarChart data={barDataStrat} layout="vertical" margin={{ top: 4, right: 40, left: 12, bottom: 4 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                                <YAxis dataKey="name" type="category" width={170} tick={{ fontSize: 11 }} />
+                                <Tooltip content={<CustomTooltip />} />
+                                <Bar dataKey="value" name="Actions" radius={[0, 4, 4, 0]}>
+                                  {barDataStrat.map((d) => {
+                                    const isSelected = filterSourceStrat !== "tous" && (d.name === (filterSourceStrat.length > 26 ? filterSourceStrat.slice(0, 26) + "…" : filterSourceStrat));
+                                    return <Cell key={d.name} fill={isSelected || filterSourceStrat === "tous" ? "#a855f7" : "#d8b4fe"} />;
+                                  })}
+                                </Bar>
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {/* Groupes par source */}
+                      <div className="space-y-4">
+                        {visibleStrat.map((g) => (
+                          <Card key={g.source} className={filterSourceStrat === g.source ? "ring-2 ring-purple-400/40" : ""}>
+                            <CardContent className="p-4">
+                              <div className="flex items-center justify-between mb-2 gap-2">
+                                <span className="text-sm font-semibold text-foreground truncate">{g.source}</span>
+                                <span className="text-xs text-muted-foreground shrink-0">{g.total} action{g.total > 1 ? "s" : ""}</span>
+                              </div>
+                              <div className="flex items-center gap-2 mb-3">
+                                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full bg-purple-500 transition-all duration-500" style={{ width: `${g.taux}%` }} />
+                                </div>
+                                <span className="text-xs font-bold text-purple-600 tabular-nums w-8 text-right">{g.taux}%</span>
+                              </div>
+                              <div className="space-y-1.5">
+                                {g.actions.slice(0, filterSourceStrat !== "tous" ? g.actions.length : 5).map((a: any) => {
+                                  const thematique = THEMATIQUES_ESSMS.find(t => t.id === a.pacq_strategique_objectifs?.thematique);
+                                  return (
+                                    <div key={a.id} className="flex items-center gap-2 text-xs">
+                                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${a.statut === "realise" ? "bg-emerald-400" : a.statut === "en_cours" ? "bg-amber-400" : "bg-slate-300"}`} />
+                                      <span className="flex-1 truncate text-foreground/80">{a.titre}</span>
+                                      {thematique && (
+                                        <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium"
+                                          style={{ background: THEMATIQUE_HEX[thematique.color] + "20", color: THEMATIQUE_HEX[thematique.color] }}>
+                                          {thematique.label.length > 16 ? thematique.label.slice(0, 16) + "…" : thematique.label}
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                                {filterSourceStrat === "tous" && g.actions.length > 5 && <p className="text-[10px] text-muted-foreground pl-3.5">+{g.actions.length - 5} autres actions</p>}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
