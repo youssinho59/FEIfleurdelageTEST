@@ -323,7 +323,7 @@ const FeiFormPage = () => {
               type="button"
               variant={globalStatus === "recording" ? "destructive" : "outline"}
               size="sm"
-              disabled={globalStatus === "analyzing" || fieldVoice.isListening}
+              disabled={globalStatus === "analyzing"}
               onClick={globalStatus === "recording" ? handleStopGlobalDictation : handleStartGlobalDictation}
               className={`gap-2 shrink-0 ${globalStatus === "recording" ? "animate-pulse" : ""}`}
             >
