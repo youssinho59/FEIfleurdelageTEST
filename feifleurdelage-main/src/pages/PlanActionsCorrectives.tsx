@@ -104,6 +104,7 @@ export default function PlanActionsCorrectives() {
   const [filterPriorite, setFilterPriorite] = useState("toutes");
   const [filterResponsable, setFilterResponsable] = useState("tous");
   const [filterService, setFilterService] = useState("tous");
+  const [filterSource, setFilterSource] = useState("tous");
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAction, setEditingAction] = useState<ActionCorrective | null>(null);
@@ -159,8 +160,15 @@ export default function PlanActionsCorrectives() {
       if (filterService === "sans" && a.service) return false;
       if (filterService !== "sans" && a.service !== filterService) return false;
     }
+    if (filterSource !== "tous") {
+      if (filterSource === "sans" && a.source) return false;
+      if (filterSource !== "sans" && a.source !== filterSource) return false;
+    }
     return true;
   });
+
+  // Sources dynamiques présentes dans les données
+  const sourcesPresentes = Array.from(new Set(actions.map(a => a.source).filter(Boolean) as string[])).sort();
 
   // Groupement par service
   const serviceGroups: { service: string | null; actions: ActionCorrective[] }[] = [];
@@ -353,9 +361,19 @@ export default function PlanActionsCorrectives() {
             <SelectItem value="sans">Sans service</SelectItem>
           </SelectContent>
         </Select>
-        {(filterStatut !== "tous" || filterPriorite !== "toutes" || filterResponsable !== "tous" || filterService !== "tous") && (
+        {sourcesPresentes.length > 0 && (
+          <Select value={filterSource} onValueChange={setFilterSource}>
+            <SelectTrigger className="w-44 h-8 text-xs"><SelectValue placeholder="Toutes les sources" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tous">Toutes les sources</SelectItem>
+              {sourcesPresentes.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              <SelectItem value="sans">Sans source</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+        {(filterStatut !== "tous" || filterPriorite !== "toutes" || filterResponsable !== "tous" || filterService !== "tous" || filterSource !== "tous") && (
           <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground"
-            onClick={() => { setFilterStatut("tous"); setFilterPriorite("toutes"); setFilterResponsable("tous"); setFilterService("tous"); }}>
+            onClick={() => { setFilterStatut("tous"); setFilterPriorite("toutes"); setFilterResponsable("tous"); setFilterService("tous"); setFilterSource("tous"); }}>
             Réinitialiser
           </Button>
         )}

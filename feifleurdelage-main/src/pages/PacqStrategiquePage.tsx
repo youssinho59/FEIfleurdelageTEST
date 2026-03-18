@@ -93,6 +93,7 @@ export default function PacqStrategiquePage() {
   const agents = useAgents();
 
   const [selectedThematique, setSelectedThematique] = useState(THEMATIQUES_ESSMS[0].id);
+  const [filterSourceStrat, setFilterSourceStrat] = useState("tous");
   const [allObjectifs, setAllObjectifs]   = useState<Objectif[]>([]);
   const [actions, setActions]             = useState<Action[]>([]);
   const [indicateurs, setIndicateurs]     = useState<Indicateur[]>([]);
@@ -603,6 +604,9 @@ export default function PacqStrategiquePage() {
 
   const countByThematique = (id: string) => allObjectifs.filter(o => o.thematique === id).length;
 
+  // Sources dynamiques pour le filtre
+  const sourcesStrat = Array.from(new Set(actions.map(a => a.source).filter(Boolean) as string[])).sort();
+
   const toggleActions = (objId: string) =>
     setExpandedActions(prev => { const n = new Set(prev); n.has(objId) ? n.delete(objId) : n.add(objId); return n; });
 
@@ -683,6 +687,25 @@ export default function PacqStrategiquePage() {
         </div>
       </motion.div>
 
+      {/* Filtre par source */}
+      {sourcesStrat.length > 0 && (
+        <div className="flex items-center gap-2">
+          <Select value={filterSourceStrat} onValueChange={setFilterSourceStrat}>
+            <SelectTrigger className="w-56 h-8 text-xs"><SelectValue placeholder="Toutes les sources" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="tous">Toutes les sources</SelectItem>
+              {sourcesStrat.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              <SelectItem value="sans">Sans source</SelectItem>
+            </SelectContent>
+          </Select>
+          {filterSourceStrat !== "tous" && (
+            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground" onClick={() => setFilterSourceStrat("tous")}>
+              × Réinitialiser
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* Contenu de la thématique */}
       {loading ? (
         <div className="flex justify-center py-16">
@@ -711,7 +734,13 @@ export default function PacqStrategiquePage() {
             </motion.div>
           ) : (
             objectifsCurrent.map(obj => {
-              const objActions = actions.filter(a => a.objectif_id === obj.id);
+              const allObjActions = actions.filter(a => a.objectif_id === obj.id);
+              const objActions = filterSourceStrat === "tous"
+                ? allObjActions
+                : filterSourceStrat === "sans"
+                  ? allObjActions.filter(a => !a.source)
+                  : allObjActions.filter(a => a.source === filterSourceStrat);
+              if (filterSourceStrat !== "tous" && objActions.length === 0) return null;
               const expanded = expandedActions.has(obj.id);
               const realise = objActions.filter(a => a.statut === "realise").length;
 
