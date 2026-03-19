@@ -118,14 +118,20 @@ const FeiFormPage = () => {
   // ── Dictée par champ — toggle Dicter / Arrêter ───────────────────────────
   const [isRecordingDescription, setIsRecordingDescription] = useState(false);
   const [isRecordingActions, setIsRecordingActions] = useState(false);
+  const [interimDesc, setInterimDesc] = useState("");
+  const [interimActions, setInterimActions] = useState("");
   const recognitionDescRef = useRef<any>(null);
   const recognitionActionsRef = useRef<any>(null);
+  const shouldStopDescRef = useRef(false);
+  const shouldStopActionsRef = useRef(false);
 
   const toggleDictation = (
     field: "description" | "actions_correctives",
     isRecording: boolean,
     setIsRecording: (v: boolean) => void,
-    recognitionRef: React.MutableRefObject<any>
+    recognitionRef: React.MutableRefObject<any>,
+    setInterim: (v: string) => void,
+    shouldStopRef: React.MutableRefObject<boolean>
   ) => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -134,54 +140,75 @@ const FeiFormPage = () => {
     }
 
     if (isRecording) {
+      shouldStopRef.current = true;
       recognitionRef.current?.stop();
       setIsRecording(false);
+      setInterim("");
       return;
     }
 
     const recognition = new SpeechRecognition();
     recognition.lang = "fr-FR";
     recognition.continuous = true;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+    shouldStopRef.current = false;
     recognitionRef.current = recognition;
 
     recognition.onstart = () => setIsRecording(true);
 
     recognition.onresult = (event: any) => {
-      let transcript = "";
+      let finalChunk = "";
+      let interimChunk = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) transcript += event.results[i][0].transcript;
+        const result = event.results[i];
+        if (result.isFinal) {
+          finalChunk += result[0].transcript;
+        } else {
+          interimChunk += result[0].transcript;
+        }
       }
-      if (!transcript) return;
-      if (field === "description") {
-        setForm(prev => ({
-          ...prev,
-          description: prev.description ? prev.description + " " + transcript : transcript,
-        }));
-      } else {
-        setForm(prev => ({
-          ...prev,
-          actions_correctives: prev.actions_correctives ? prev.actions_correctives + " " + transcript : transcript,
-        }));
+      if (finalChunk) {
+        const t = finalChunk.trim();
+        if (field === "description") {
+          setForm(prev => ({ ...prev, description: prev.description ? prev.description + " " + t : t }));
+        } else {
+          setForm(prev => ({ ...prev, actions_correctives: prev.actions_correctives ? prev.actions_correctives + " " + t : t }));
+        }
+        setInterim("");
+      } else if (interimChunk) {
+        setInterim(interimChunk);
       }
     };
 
     recognition.onerror = (e: any) => {
+      if (e.error === "no-speech") return; // onend relancera
       if (e.error !== "aborted") toast.error("Erreur dictée : " + e.error);
-      setIsRecording(false);
     };
 
-    recognition.onend = () => setIsRecording(false);
+    recognition.onend = () => {
+      setInterim("");
+      if (!shouldStopRef.current) {
+        // Relance automatique si l'utilisateur n'a pas appuyé sur "Arrêter"
+        try { recognition.start(); } catch { setIsRecording(false); }
+      } else {
+        setIsRecording(false);
+      }
+    };
 
     recognition.start();
   };
 
   // Arrêt de toute dictée active lors du changement d'étape
   useEffect(() => {
+    shouldStopDescRef.current = true;
+    shouldStopActionsRef.current = true;
     if (recognitionDescRef.current) { recognitionDescRef.current.stop(); }
     if (recognitionActionsRef.current) { recognitionActionsRef.current.stop(); }
     setIsRecordingDescription(false);
     setIsRecordingActions(false);
+    setInterimDesc("");
+    setInterimActions("");
   }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Formulaire ────────────────────────────────────────────────────────────
@@ -563,11 +590,11 @@ const FeiFormPage = () => {
                       variant={isRecordingDescription ? "destructive" : "outline"}
                       size="sm"
                       disabled={globalStatus === "recording" || globalStatus === "analyzing"}
-                      className={`h-7 gap-1.5 text-xs shrink-0 ${isRecordingDescription ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
-                      onClick={() => toggleDictation("description", isRecordingDescription, setIsRecordingDescription, recognitionDescRef)}
+                      className={`h-7 gap-1.5 text-xs shrink-0 ${isRecordingDescription ? "" : "border-primary/30 text-primary hover:bg-primary/5"}`}
+                      onClick={() => toggleDictation("description", isRecordingDescription, setIsRecordingDescription, recognitionDescRef, setInterimDesc, shouldStopDescRef)}
                     >
                       {isRecordingDescription ? (
-                        <><MicOff className="w-3.5 h-3.5" /> 🔴 Arrêter</>
+                        <><span className="inline-block w-2 h-2 rounded-full bg-white animate-pulse mr-0.5" />Arrêter</>
                       ) : (
                         <><Mic className="w-3.5 h-3.5" /> Dicter</>
                       )}
@@ -582,6 +609,12 @@ const FeiFormPage = () => {
                   required
                   className="resize-none"
                 />
+                {interimDesc && (
+                  <p className="text-xs text-muted-foreground italic px-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse mr-1.5 align-middle" />
+                    {interimDesc}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground text-right">{form.description.length} caractères</p>
               </div>
             </>
@@ -614,11 +647,11 @@ const FeiFormPage = () => {
                       variant={isRecordingActions ? "destructive" : "outline"}
                       size="sm"
                       disabled={globalStatus === "recording" || globalStatus === "analyzing"}
-                      className={`h-7 gap-1.5 text-xs shrink-0 ${isRecordingActions ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
-                      onClick={() => toggleDictation("actions_correctives", isRecordingActions, setIsRecordingActions, recognitionActionsRef)}
+                      className={`h-7 gap-1.5 text-xs shrink-0 ${isRecordingActions ? "" : "border-primary/30 text-primary hover:bg-primary/5"}`}
+                      onClick={() => toggleDictation("actions_correctives", isRecordingActions, setIsRecordingActions, recognitionActionsRef, setInterimActions, shouldStopActionsRef)}
                     >
                       {isRecordingActions ? (
-                        <><MicOff className="w-3.5 h-3.5" /> 🔴 Arrêter</>
+                        <><span className="inline-block w-2 h-2 rounded-full bg-white animate-pulse mr-0.5" />Arrêter</>
                       ) : (
                         <><Mic className="w-3.5 h-3.5" /> Dicter</>
                       )}
@@ -632,6 +665,12 @@ const FeiFormPage = () => {
                   rows={5}
                   className="resize-none"
                 />
+                {interimActions && (
+                  <p className="text-xs text-muted-foreground italic px-1">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse mr-1.5 align-middle" />
+                    {interimActions}
+                  </p>
+                )}
               </div>
             </>
           )}

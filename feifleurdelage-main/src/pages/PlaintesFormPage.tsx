@@ -50,7 +50,7 @@ const PlaintesFormPage = () => {
   const [loadingVoice, setLoadingVoice] = useState(false);
 
   // ── Voice recognition ─────────────────────────────────────────────────────
-  const { isListening, transcript, isSupported, startListening, stopListening } = useSpeechRecognition();
+  const { isListening, transcript, interimText, isSupported, startListening, stopListening } = useSpeechRecognition();
   const [voiceMode, setVoiceMode] = useState<"global" | "description" | null>(null);
 
   const [form, setForm] = useState({
@@ -464,6 +464,12 @@ const PlaintesFormPage = () => {
                     rows={4}
                     required
                   />
+                  {interimText && isListening && voiceMode === "description" && (
+                    <p className="text-xs text-muted-foreground italic px-1">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse mr-1.5 align-middle" />
+                      {interimText}
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
