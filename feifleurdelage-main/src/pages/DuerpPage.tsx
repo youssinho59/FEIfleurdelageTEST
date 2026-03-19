@@ -148,30 +148,13 @@ const PRIORITE_COLOR_AI: Record<string, string> = {
   "Critique": "bg-red-100 text-red-700",
 };
 
-const AI_SYSTEM_PROMPT = `Tu es un expert en prévention des risques professionnels en EHPAD (établissement d'hébergement pour personnes âgées dépendantes).
-Tu dois analyser une situation dangereuse et compléter une fiche DUERP.
-Réponds UNIQUEMENT en JSON valide, sans markdown, sans commentaires.`;
-
-async function callAnthropicApi(systemPrompt: string, userPrompt: string): Promise<string> {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("Clé API Anthropic manquante (VITE_ANTHROPIC_API_KEY)");
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-opus-4-5",
-      max_tokens: 2000,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-    }),
+async function callDuerpEdgeFunction(contextType: string, data: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const { data: result, error } = await supabase.functions.invoke("suggest-actions", {
+    body: { context_type: contextType, data },
   });
-  if (!response.ok) throw new Error(`Erreur API : ${response.status}`);
-  const data = await response.json();
-  return data.content?.[0]?.text ?? "";
+  if (error) throw new Error(error.message);
+  if (result?.error) throw new Error(result.error);
+  return result;
 }
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } };
@@ -482,9 +465,10 @@ export default function DuerpPage() {
     if (!risqueForm.unite_travail || !risqueForm.situation_dangereuse.trim()) return;
     setAiLoading(true);
     try {
-      const userPrompt = `Unité de travail : ${risqueForm.unite_travail}\nSituation dangereuse : ${risqueForm.situation_dangereuse}\nComplète la fiche DUERP en JSON avec exactement ces champs :\n{\n"risques": "description des risques identifiés",\n"dommages": "dommages potentiels pour les agents",\n"effectif_expose": nombre entier estimé,\n"probabilite": nombre entre 1 et 4,\n"gravite": nombre entre 1 et 4,\n"criticite": nombre entre 1 et 16 (probabilite × gravite),\n"mesures_existantes": "mesures de prévention déjà en place typiquement dans un EHPAD",\n"mesures_proposees": "actions correctives recommandées",\n"priorite": "Faible" | "Modérée" | "Élevée" | "Critique"\n}`;
-      const text = await callAnthropicApi(AI_SYSTEM_PROMPT, userPrompt);
-      const json = JSON.parse(text.trim());
+      const json = await callDuerpEdgeFunction("duerp_complete", {
+        unite_travail: risqueForm.unite_travail,
+        situation_dangereuse: risqueForm.situation_dangereuse,
+      });
       const filled = new Set<string>();
       const updates: Partial<typeof risqueForm> = {};
       if (json.risques) { updates.dangers = json.risques; filled.add("dangers"); }
@@ -513,10 +497,10 @@ export default function DuerpPage() {
     setPropositionsLoading(true);
     setPropositionsData([]);
     try {
-      const userPrompt = `Unité de travail : ${propositionsUnite}\nGénère une liste de 10 risques professionnels typiques pour cette unité de travail dans un EHPAD.\nRéponds UNIQUEMENT en JSON valide, sans markdown :\n{\n"risques": [\n{\n"situation_dangereuse": "...",\n"risques": "...",\n"dommages": "...",\n"effectif_expose": nombre,\n"probabilite": 1-4,\n"gravite": 1-4,\n"criticite": nombre,\n"mesures_existantes": "...",\n"mesures_proposees": "...",\n"priorite": "Faible|Modérée|Élevée|Critique"\n}\n]\n}`;
-      const text = await callAnthropicApi(AI_SYSTEM_PROMPT, userPrompt);
-      const json = JSON.parse(text.trim());
-      const items: AiRisqueProposition[] = json.risques ?? [];
+      const json = await callDuerpEdgeFunction("duerp_propositions", {
+        unite_travail: propositionsUnite,
+      });
+      const items: AiRisqueProposition[] = (json.risques as AiRisqueProposition[]) ?? [];
       setPropositionsData(items);
       setPropositionsSelection(items.map(() => true));
     } catch {

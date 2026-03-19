@@ -156,9 +156,37 @@ Réponds avec ce JSON exact :
 }
 ]
 }`;
+    // ── DUERP — Auto-complétion d'un risque ────────────────────────────────
+
+    } else if (context_type === "duerp_complete") {
+      const system = "Tu es un expert en prévention des risques professionnels en EHPAD (établissement d'hébergement pour personnes âgées dépendantes). Tu dois analyser une situation dangereuse et compléter une fiche DUERP. Réponds UNIQUEMENT en JSON valide, sans markdown, sans commentaires.";
+      const prompt = `Unité de travail : ${data.unite_travail}\nSituation dangereuse : ${data.situation_dangereuse}\nComplète la fiche DUERP en JSON avec exactement ces champs :\n{\n"risques": "description des risques identifiés",\n"dommages": "dommages potentiels pour les agents",\n"effectif_expose": nombre entier estimé,\n"probabilite": nombre entre 1 et 4,\n"gravite": nombre entre 1 et 4,\n"criticite": nombre entre 1 et 16 (probabilite x gravite),\n"mesures_existantes": "mesures de prévention déjà en place typiquement dans un EHPAD",\n"mesures_proposees": "actions correctives recommandées",\n"priorite": "Faible" ou "Modérée" ou "Élevée" ou "Critique"\n}`;
+      const response = await callAnthropic(apiKey, system, prompt, 1000);
+      if (!response.ok) {
+        const errText = await response.text();
+        return new Response(JSON.stringify({ error: `Erreur API Anthropic ${response.status}: ${errText}` }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const anthropicData = await response.json();
+      const parsed = JSON.parse(anthropicData.content[0].text.trim());
+      return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+    // ── DUERP — Propositions de risques par unité de travail ────────────────
+
+    } else if (context_type === "duerp_propositions") {
+      const system = "Tu es un expert en prévention des risques professionnels en EHPAD (établissement d'hébergement pour personnes âgées dépendantes). Tu dois analyser une situation dangereuse et compléter une fiche DUERP. Réponds UNIQUEMENT en JSON valide, sans markdown, sans commentaires.";
+      const prompt = `Unité de travail : ${data.unite_travail}\nGénère une liste de 10 risques professionnels typiques pour cette unité de travail dans un EHPAD.\nRéponds UNIQUEMENT en JSON valide, sans markdown :\n{\n"risques": [\n{\n"situation_dangereuse": "...",\n"risques": "...",\n"dommages": "...",\n"effectif_expose": nombre,\n"probabilite": 1-4,\n"gravite": 1-4,\n"criticite": nombre,\n"mesures_existantes": "...",\n"mesures_proposees": "...",\n"priorite": "Faible ou Modérée ou Élevée ou Critique"\n}\n]\n}`;
+      const response = await callAnthropic(apiKey, system, prompt, 2000);
+      if (!response.ok) {
+        const errText = await response.text();
+        return new Response(JSON.stringify({ error: `Erreur API Anthropic ${response.status}: ${errText}` }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const anthropicData = await response.json();
+      const parsed = JSON.parse(anthropicData.content[0].text.trim());
+      return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
     } else {
       return new Response(
-        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte" }),
+        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte | duerp_complete | duerp_propositions" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
