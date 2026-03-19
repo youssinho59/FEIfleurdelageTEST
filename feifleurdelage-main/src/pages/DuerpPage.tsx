@@ -7,13 +7,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import {
   ShieldAlert, Plus, Pencil, Trash2, AlertTriangle, CheckCircle2,
   Archive, ChevronRight, Activity, TrendingUp, Shield, Zap,
+  Loader2, Sparkles, Lightbulb,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -118,6 +121,59 @@ const EMPTY_RISQUE_FORM = {
   statut: "ouvert" as DuerpRisque["statut"],
 };
 
+type AiRisqueProposition = {
+  situation_dangereuse: string;
+  risques: string;
+  dommages: string;
+  effectif_expose: number;
+  probabilite: number;
+  gravite: number;
+  criticite: number;
+  mesures_existantes: string;
+  mesures_proposees: string;
+  priorite: string;
+};
+
+const PRIORITE_MAP: Record<string, DuerpRisque["priorite"]> = {
+  "Faible": "faible",
+  "Modérée": "moyenne",
+  "Élevée": "haute",
+  "Critique": "critique",
+};
+
+const PRIORITE_COLOR_AI: Record<string, string> = {
+  "Faible":   "bg-emerald-100 text-emerald-700",
+  "Modérée":  "bg-amber-100 text-amber-700",
+  "Élevée":   "bg-orange-100 text-orange-700",
+  "Critique": "bg-red-100 text-red-700",
+};
+
+const AI_SYSTEM_PROMPT = `Tu es un expert en prévention des risques professionnels en EHPAD (établissement d'hébergement pour personnes âgées dépendantes).
+Tu dois analyser une situation dangereuse et compléter une fiche DUERP.
+Réponds UNIQUEMENT en JSON valide, sans markdown, sans commentaires.`;
+
+async function callAnthropicApi(systemPrompt: string, userPrompt: string): Promise<string> {
+  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("Clé API Anthropic manquante (VITE_ANTHROPIC_API_KEY)");
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-opus-4-5",
+      max_tokens: 2000,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+    }),
+  });
+  if (!response.ok) throw new Error(`Erreur API : ${response.status}`);
+  const data = await response.json();
+  return data.content?.[0]?.text ?? "";
+}
+
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } };
 const itemVariant = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.3 } } };
 
@@ -148,6 +204,18 @@ export default function DuerpPage() {
   const [savingRisque, setSavingRisque] = useState(false);
   const [deleteRisqueTarget, setDeleteRisqueTarget] = useState<DuerpRisque | null>(null);
   const [deletingRisque, setDeletingRisque] = useState(false);
+
+  // IA — auto-complétion
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiFilledFields, setAiFilledFields] = useState<Set<string>>(new Set());
+
+  // IA — propositions par unité de travail
+  const [propositionsDialogOpen, setPropositionsDialogOpen] = useState(false);
+  const [propositionsUnite, setPropositionsUnite] = useState("");
+  const [propositionsLoading, setPropositionsLoading] = useState(false);
+  const [propositionsData, setPropositionsData] = useState<AiRisqueProposition[]>([]);
+  const [propositionsSelection, setPropositionsSelection] = useState<boolean[]>([]);
+  const [importingPropositions, setImportingPropositions] = useState(false);
 
   // Action PACQS dialog
   const [pacqDialogOpen, setPacqDialogOpen] = useState(false);
@@ -285,11 +353,13 @@ export default function DuerpPage() {
     if (!selectedVersionId) return;
     setEditingRisque(null);
     setRisqueForm(EMPTY_RISQUE_FORM);
+    setAiFilledFields(new Set());
     setRisqueDialogOpen(true);
   };
 
   const openEditRisque = (r: DuerpRisque) => {
     setEditingRisque(r);
+    setAiFilledFields(new Set());
     setRisqueForm({
       unite_travail: r.unite_travail,
       situation_dangereuse: r.situation_dangereuse,
@@ -405,6 +475,88 @@ export default function DuerpPage() {
   const probNum = risqueForm.probabilite ? Number(risqueForm.probabilite) : null;
   const gravNum = risqueForm.gravite ? Number(risqueForm.gravite) : null;
   const criticiteLive = probNum !== null && gravNum !== null ? probNum * gravNum : null;
+
+  // ── IA — Auto-complétion risque ───────────────────────────────────────────
+
+  const handleAiComplete = async () => {
+    if (!risqueForm.unite_travail || !risqueForm.situation_dangereuse.trim()) return;
+    setAiLoading(true);
+    try {
+      const userPrompt = `Unité de travail : ${risqueForm.unite_travail}\nSituation dangereuse : ${risqueForm.situation_dangereuse}\nComplète la fiche DUERP en JSON avec exactement ces champs :\n{\n"risques": "description des risques identifiés",\n"dommages": "dommages potentiels pour les agents",\n"effectif_expose": nombre entier estimé,\n"probabilite": nombre entre 1 et 4,\n"gravite": nombre entre 1 et 4,\n"criticite": nombre entre 1 et 16 (probabilite × gravite),\n"mesures_existantes": "mesures de prévention déjà en place typiquement dans un EHPAD",\n"mesures_proposees": "actions correctives recommandées",\n"priorite": "Faible" | "Modérée" | "Élevée" | "Critique"\n}`;
+      const text = await callAnthropicApi(AI_SYSTEM_PROMPT, userPrompt);
+      const json = JSON.parse(text.trim());
+      const filled = new Set<string>();
+      const updates: Partial<typeof risqueForm> = {};
+      if (json.risques) { updates.dangers = json.risques; filled.add("dangers"); }
+      if (json.dommages) {
+        const eff = json.effectif_expose ? ` (${json.effectif_expose} exposés)` : "";
+        updates.personnes_exposees = json.dommages + eff;
+        filled.add("personnes_exposees");
+      }
+      if (json.probabilite) { updates.probabilite = String(Math.min(4, Math.max(1, Number(json.probabilite)))); filled.add("probabilite"); }
+      if (json.gravite) { updates.gravite = String(Math.min(4, Math.max(1, Number(json.gravite)))); filled.add("gravite"); }
+      if (json.mesures_existantes) { updates.mesures_existantes = json.mesures_existantes; filled.add("mesures_existantes"); }
+      if (json.mesures_proposees) { updates.mesures_proposees = json.mesures_proposees; filled.add("mesures_proposees"); }
+      if (json.priorite && PRIORITE_MAP[json.priorite]) { updates.priorite = PRIORITE_MAP[json.priorite]; filled.add("priorite"); }
+      setRisqueForm(f => ({ ...f, ...updates }));
+      setAiFilledFields(filled);
+    } catch {
+      toast.error("Erreur IA, veuillez réessayer");
+    }
+    setAiLoading(false);
+  };
+
+  // ── IA — Propositions par unité de travail ────────────────────────────────
+
+  const handleGeneratePropositions = async () => {
+    if (!propositionsUnite) return;
+    setPropositionsLoading(true);
+    setPropositionsData([]);
+    try {
+      const userPrompt = `Unité de travail : ${propositionsUnite}\nGénère une liste de 10 risques professionnels typiques pour cette unité de travail dans un EHPAD.\nRéponds UNIQUEMENT en JSON valide, sans markdown :\n{\n"risques": [\n{\n"situation_dangereuse": "...",\n"risques": "...",\n"dommages": "...",\n"effectif_expose": nombre,\n"probabilite": 1-4,\n"gravite": 1-4,\n"criticite": nombre,\n"mesures_existantes": "...",\n"mesures_proposees": "...",\n"priorite": "Faible|Modérée|Élevée|Critique"\n}\n]\n}`;
+      const text = await callAnthropicApi(AI_SYSTEM_PROMPT, userPrompt);
+      const json = JSON.parse(text.trim());
+      const items: AiRisqueProposition[] = json.risques ?? [];
+      setPropositionsData(items);
+      setPropositionsSelection(items.map(() => true));
+    } catch {
+      toast.error("Erreur IA, veuillez réessayer");
+    }
+    setPropositionsLoading(false);
+  };
+
+  const handleImportPropositions = async () => {
+    if (!user || !selectedVersionId) return;
+    const toImport = propositionsData.filter((_, i) => propositionsSelection[i]);
+    if (toImport.length === 0) return;
+    setImportingPropositions(true);
+    const rows = toImport.map(p => ({
+      version_id: selectedVersionId,
+      unite_travail: propositionsUnite,
+      situation_dangereuse: p.situation_dangereuse,
+      dangers: p.risques || null,
+      personnes_exposees: p.dommages ? p.dommages + (p.effectif_expose ? ` (${p.effectif_expose} exposés)` : "") : null,
+      probabilite: p.probabilite ?? null,
+      gravite: p.gravite ?? null,
+      criticite: p.criticite ?? null,
+      mesures_existantes: p.mesures_existantes || null,
+      mesures_proposees: p.mesures_proposees || null,
+      priorite: (PRIORITE_MAP[p.priorite] ?? "moyenne") as DuerpRisque["priorite"],
+      statut: "ouvert" as const,
+      created_by: user.id,
+    }));
+    const { error } = await supabase.from("duerp_risques").insert(rows);
+    if (error) {
+      toast.error("Erreur lors de l'import : " + error.message);
+    } else {
+      toast.success(`${toImport.length} risque${toImport.length > 1 ? "s" : ""} importé${toImport.length > 1 ? "s" : ""} avec succès`);
+      setPropositionsDialogOpen(false);
+      setPropositionsData([]);
+      setPropositionsUnite("");
+      fetchRisques();
+    }
+    setImportingPropositions(false);
+  };
 
   const selectedVersion = versions.find(v => v.id === selectedVersionId) || null;
 
@@ -594,13 +746,23 @@ export default function DuerpPage() {
                 </Select>
               </div>
               {canWrite && (
-                <Button
-                  onClick={openCreateRisque}
-                  disabled={!selectedVersionId}
-                  className="gap-2 shadow-warm"
-                >
-                  <Plus className="w-4 h-4" /> Ajouter un risque
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => { setPropositionsUnite(""); setPropositionsData([]); setPropositionsDialogOpen(true); }}
+                    disabled={!selectedVersionId}
+                    className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50"
+                  >
+                    <Lightbulb className="w-4 h-4" /> Propositions IA
+                  </Button>
+                  <Button
+                    onClick={openCreateRisque}
+                    disabled={!selectedVersionId}
+                    className="gap-2 shadow-warm"
+                  >
+                    <Plus className="w-4 h-4" /> Ajouter un risque
+                  </Button>
+                </>
               )}
             </div>
 
@@ -840,33 +1002,47 @@ export default function DuerpPage() {
                 className="resize-none"
               />
             </div>
+            {/* Bouton IA */}
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!risqueForm.unite_travail || !risqueForm.situation_dangereuse.trim() || aiLoading}
+                onClick={handleAiComplete}
+                className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-40"
+              >
+                {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                {aiLoading ? "Analyse en cours..." : "✨ Compléter avec l'IA"}
+              </Button>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Dangers / Facteurs de risque</Label>
                 <Textarea
                   value={risqueForm.dangers}
-                  onChange={e => setRisqueForm({ ...risqueForm, dangers: e.target.value })}
+                  onChange={e => { setRisqueForm({ ...risqueForm, dangers: e.target.value }); setAiFilledFields(s => { const n = new Set(s); n.delete("dangers"); return n; }); }}
                   placeholder="Agents physiques, chimiques, biologiques…"
                   rows={2}
-                  className="resize-none"
+                  className={`resize-none transition-colors ${aiFilledFields.has("dangers") ? "bg-blue-50 border-blue-200" : ""}`}
                 />
               </div>
               <div className="space-y-1.5">
                 <Label>Personnes exposées</Label>
                 <Textarea
                   value={risqueForm.personnes_exposees}
-                  onChange={e => setRisqueForm({ ...risqueForm, personnes_exposees: e.target.value })}
+                  onChange={e => { setRisqueForm({ ...risqueForm, personnes_exposees: e.target.value }); setAiFilledFields(s => { const n = new Set(s); n.delete("personnes_exposees"); return n; }); }}
                   placeholder="Qui est exposé à ce risque ?"
                   rows={2}
-                  className="resize-none"
+                  className={`resize-none transition-colors ${aiFilledFields.has("personnes_exposees") ? "bg-blue-50 border-blue-200" : ""}`}
                 />
               </div>
             </div>
             <div className="grid grid-cols-3 gap-4 items-end">
               <div className="space-y-1.5">
                 <Label>Probabilité</Label>
-                <Select value={risqueForm.probabilite} onValueChange={v => setRisqueForm({ ...risqueForm, probabilite: v })}>
-                  <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+                <Select value={risqueForm.probabilite} onValueChange={v => { setRisqueForm({ ...risqueForm, probabilite: v }); setAiFilledFields(s => { const n = new Set(s); n.delete("probabilite"); return n; }); }}>
+                  <SelectTrigger className={aiFilledFields.has("probabilite") ? "bg-blue-50 border-blue-200" : ""}><SelectValue placeholder="Sélectionner" /></SelectTrigger>
                   <SelectContent>
                     {[1, 2, 3, 4].map(n => (
                       <SelectItem key={n} value={String(n)}>{n} — {PROBA_LABELS[n]}</SelectItem>
@@ -876,8 +1052,8 @@ export default function DuerpPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>Gravité</Label>
-                <Select value={risqueForm.gravite} onValueChange={v => setRisqueForm({ ...risqueForm, gravite: v })}>
-                  <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
+                <Select value={risqueForm.gravite} onValueChange={v => { setRisqueForm({ ...risqueForm, gravite: v }); setAiFilledFields(s => { const n = new Set(s); n.delete("gravite"); return n; }); }}>
+                  <SelectTrigger className={aiFilledFields.has("gravite") ? "bg-blue-50 border-blue-200" : ""}><SelectValue placeholder="Sélectionner" /></SelectTrigger>
                   <SelectContent>
                     {[1, 2, 3, 4].map(n => (
                       <SelectItem key={n} value={String(n)}>{n} — {GRAVITE_LABELS[n]}</SelectItem>
@@ -894,8 +1070,8 @@ export default function DuerpPage() {
             </div>
             <div className="space-y-1.5">
               <Label>Priorité</Label>
-              <Select value={risqueForm.priorite} onValueChange={v => setRisqueForm({ ...risqueForm, priorite: v as DuerpRisque["priorite"] })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select value={risqueForm.priorite} onValueChange={v => { setRisqueForm({ ...risqueForm, priorite: v as DuerpRisque["priorite"] }); setAiFilledFields(s => { const n = new Set(s); n.delete("priorite"); return n; }); }}>
+                <SelectTrigger className={aiFilledFields.has("priorite") ? "bg-blue-50 border-blue-200" : ""}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="faible">Faible</SelectItem>
                   <SelectItem value="moyenne">Moyenne</SelectItem>
@@ -909,20 +1085,20 @@ export default function DuerpPage() {
                 <Label>Mesures existantes</Label>
                 <Textarea
                   value={risqueForm.mesures_existantes}
-                  onChange={e => setRisqueForm({ ...risqueForm, mesures_existantes: e.target.value })}
+                  onChange={e => { setRisqueForm({ ...risqueForm, mesures_existantes: e.target.value }); setAiFilledFields(s => { const n = new Set(s); n.delete("mesures_existantes"); return n; }); }}
                   placeholder="Mesures de prévention déjà en place"
                   rows={2}
-                  className="resize-none"
+                  className={`resize-none transition-colors ${aiFilledFields.has("mesures_existantes") ? "bg-blue-50 border-blue-200" : ""}`}
                 />
               </div>
               <div className="space-y-1.5">
                 <Label>Mesures proposées</Label>
                 <Textarea
                   value={risqueForm.mesures_proposees}
-                  onChange={e => setRisqueForm({ ...risqueForm, mesures_proposees: e.target.value })}
+                  onChange={e => { setRisqueForm({ ...risqueForm, mesures_proposees: e.target.value }); setAiFilledFields(s => { const n = new Set(s); n.delete("mesures_proposees"); return n; }); }}
                   placeholder="Actions à mettre en œuvre"
                   rows={2}
-                  className="resize-none"
+                  className={`resize-none transition-colors ${aiFilledFields.has("mesures_proposees") ? "bg-blue-50 border-blue-200" : ""}`}
                 />
               </div>
             </div>
@@ -1014,6 +1190,102 @@ export default function DuerpPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ─── Dialog Propositions IA ────────────────────────────────────────────── */}
+      <Dialog open={propositionsDialogOpen} onOpenChange={o => { setPropositionsDialogOpen(o); if (!o) { setPropositionsData([]); setPropositionsUnite(""); } }}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 font-display">
+              <Lightbulb className="w-4 h-4 text-amber-500" />
+              Propositions IA — Risques par unité de travail
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Étape 1 : sélection */}
+          <div className="flex items-end gap-3 py-2">
+            <div className="flex-1 max-w-xs space-y-1.5">
+              <Label>Unité de travail</Label>
+              <Select value={propositionsUnite} onValueChange={setPropositionsUnite}>
+                <SelectTrigger><SelectValue placeholder="Sélectionner une unité" /></SelectTrigger>
+                <SelectContent>
+                  {UNITES_TRAVAIL.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              onClick={handleGeneratePropositions}
+              disabled={!propositionsUnite || propositionsLoading}
+              className="gap-2 bg-amber-500 hover:bg-amber-600 text-white"
+            >
+              {propositionsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              {propositionsLoading ? "Génération en cours..." : "Générer"}
+            </Button>
+          </div>
+
+          {/* Étape 2 : tableau des propositions */}
+          {propositionsData.length > 0 && (
+            <>
+              <div className="rounded-lg border border-border overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/40">
+                      <TableHead className="w-10">
+                        <Checkbox
+                          checked={propositionsSelection.every(Boolean)}
+                          onCheckedChange={v => setPropositionsSelection(propositionsData.map(() => !!v))}
+                        />
+                      </TableHead>
+                      <TableHead>Situation dangereuse</TableHead>
+                      <TableHead>Risques</TableHead>
+                      <TableHead>Dommages</TableHead>
+                      <TableHead className="w-12 text-center">P</TableHead>
+                      <TableHead className="w-12 text-center">G</TableHead>
+                      <TableHead className="w-12 text-center">C</TableHead>
+                      <TableHead className="w-24">Priorité</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {propositionsData.map((p, i) => (
+                      <TableRow key={i} className={propositionsSelection[i] ? "" : "opacity-40"}>
+                        <TableCell>
+                          <Checkbox
+                            checked={propositionsSelection[i]}
+                            onCheckedChange={v => setPropositionsSelection(s => s.map((x, j) => j === i ? !!v : x))}
+                          />
+                        </TableCell>
+                        <TableCell className="text-xs font-medium max-w-[180px]">{p.situation_dangereuse}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[160px]">{p.risques}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[140px]">{p.dommages}</TableCell>
+                        <TableCell className="text-center text-xs font-bold">{p.probabilite}</TableCell>
+                        <TableCell className="text-center text-xs font-bold">{p.gravite}</TableCell>
+                        <TableCell className="text-center">
+                          <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${getCriticiteBadge(p.criticite).color}`}>{p.criticite}</span>
+                        </TableCell>
+                        <TableCell>
+                          <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${PRIORITE_COLOR_AI[p.priorite] ?? "bg-slate-100 text-slate-600"}`}>
+                            {p.priorite}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <DialogFooter className="gap-2 pt-2">
+                <Button variant="outline" onClick={() => setPropositionsDialogOpen(false)} disabled={importingPropositions}>Annuler</Button>
+                <Button
+                  onClick={handleImportPropositions}
+                  disabled={importingPropositions || propositionsSelection.every(v => !v)}
+                  className="gap-2 shadow-warm"
+                >
+                  {importingPropositions ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                  {importingPropositions ? "Import…" : `Importer la sélection (${propositionsSelection.filter(Boolean).length})`}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
