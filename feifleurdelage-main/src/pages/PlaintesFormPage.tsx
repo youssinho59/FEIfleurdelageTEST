@@ -463,6 +463,12 @@ const PlaintesFormPage = () => {
                       Enregistrement en cours… Cliquez sur "Arrêter" pour transcrire.
                     </p>
                   )}
+                  {descWhisper.isTranscribing && (
+                    <p className="text-xs text-orange-600 italic px-1 flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                      ⏳ Transcription en cours… (10-30 secondes)
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>

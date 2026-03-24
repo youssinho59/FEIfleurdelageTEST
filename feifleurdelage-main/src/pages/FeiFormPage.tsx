@@ -515,6 +515,12 @@ const FeiFormPage = () => {
                     Enregistrement en cours… Cliquez sur "Arrêter" pour transcrire.
                   </p>
                 )}
+                {descWhisper.isTranscribing && (
+                  <p className="text-xs text-orange-600 italic px-1 flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                    ⏳ Transcription en cours… (10-30 secondes)
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground text-right">{form.description.length} caractères</p>
               </div>
             </>
@@ -576,6 +582,12 @@ const FeiFormPage = () => {
                   <p className="text-xs text-red-500 italic px-1">
                     <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse mr-1.5 align-middle" />
                     Enregistrement en cours… Cliquez sur "Arrêter" pour transcrire.
+                  </p>
+                )}
+                {actionsWhisper.isTranscribing && (
+                  <p className="text-xs text-orange-600 italic px-1 flex items-center gap-1.5">
+                    <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                    ⏳ Transcription en cours… (10-30 secondes)
                   </p>
                 )}
               </div>
