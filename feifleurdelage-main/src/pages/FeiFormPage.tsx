@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,8 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { generateFeiPdf } from "@/lib/pdfGenerator";
-import { FileText, Save, MapPin, AlertTriangle, Calendar, ClipboardList, Shield, ChevronRight, ChevronLeft, Check, ArrowRight, MessageSquareWarning, Mic, MicOff, Loader2 } from "lucide-react";
-import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import { FileText, Save, MapPin, AlertTriangle, Calendar, ClipboardList, Shield, ChevronRight, ChevronLeft, Check, ArrowRight, MessageSquareWarning, Mic, Square, Loader2 } from "lucide-react";
+import { useWhisperDictation } from "@/hooks/useWhisperDictation";
 
 const FEI_TYPES = ["Chute", "Erreur médicamenteuse", "Fugue", "Agressivité", "Maltraitance", "Infection", "Autre"];
 
@@ -57,26 +57,31 @@ const FeiFormPage = () => {
     service: singleService || "",
   });
 
-  // ── Dictée vocale ─────────────────────────────────────────────────────────
-  const globalVoice = useSpeechRecognition(); // bandeau global → IA
+  // ── Dictée vocale Whisper (MediaRecorder + OpenAI) ────────────────────────
+  const globalWhisper = useWhisperDictation();
+  const descWhisper = useWhisperDictation();
+  const actionsWhisper = useWhisperDictation();
 
-  // État visuel du bandeau global : idle | recording | analyzing | success
-  const [globalStatus, setGlobalStatus] = useState<"idle" | "recording" | "analyzing" | "success">("idle");
+  // État visuel du bandeau global : idle | recording | transcribing | analyzing | success
+  const [globalStatus, setGlobalStatus] = useState<"idle" | "recording" | "transcribing" | "analyzing" | "success">("idle");
 
-  // Ref pour lancer l'appel IA sans dépendance cyclique
-  const processGlobalRef = useRef<(text: string) => void>(() => {});
-
-  // ── Traitement global : quand l'enregistrement s'arrête ──────────────────
+  // Auto-dismiss de l'indicateur "succès" après 3 s
   useEffect(() => {
-    if (globalVoice.isListening) return;            // encore en cours
-    if (globalStatus !== "recording") return;       // n'était pas en mode dictée
-    const text = globalVoice.transcript.trim();
-    if (!text) { setGlobalStatus("idle"); return; }
-    setGlobalStatus("analyzing");
-    processGlobalRef.current(text);
-  }, [globalVoice.isListening]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (globalStatus !== "success") return;
+    const t = setTimeout(() => setGlobalStatus("idle"), 3000);
+    return () => clearTimeout(t);
+  }, [globalStatus]);
 
-  processGlobalRef.current = async (text: string) => {
+  const handleStartGlobalDictation = async () => {
+    setGlobalStatus("recording");
+    await globalWhisper.startRecording();
+  };
+
+  const handleStopGlobalDictation = async () => {
+    setGlobalStatus("transcribing");
+    const text = await globalWhisper.stopRecording();
+    if (!text.trim()) { setGlobalStatus("idle"); return; }
+    setGlobalStatus("analyzing");
     try {
       const { data, error } = await supabase.functions.invoke("suggest-actions", {
         body: { context_type: "voice_fei", data: { transcript: text } },
@@ -97,135 +102,6 @@ const FeiFormPage = () => {
       setGlobalStatus("idle");
     }
   };
-
-  // Auto-dismiss de l'indicateur "succès" après 3 s
-  useEffect(() => {
-    if (globalStatus !== "success") return;
-    const t = setTimeout(() => setGlobalStatus("idle"), 3000);
-    return () => clearTimeout(t);
-  }, [globalStatus]);
-
-  // ── Handlers global ───────────────────────────────────────────────────────
-  const handleStartGlobalDictation = () => {
-    setGlobalStatus("recording");
-    globalVoice.startListening();
-  };
-  const handleStopGlobalDictation = () => {
-    globalVoice.stopListening();
-    // globalStatus reste "recording" → useEffect le passera à "analyzing"
-  };
-
-  // ── Dictée par champ — toggle Dicter / Arrêter ───────────────────────────
-  const [isRecordingDescription, setIsRecordingDescription] = useState(false);
-  const [isRecordingActions, setIsRecordingActions] = useState(false);
-  const [interimDesc, setInterimDesc] = useState("");
-  const [interimActions, setInterimActions] = useState("");
-  const recognitionDescRef = useRef<any>(null);
-  const recognitionActionsRef = useRef<any>(null);
-  const shouldStopDescRef = useRef(false);
-  const shouldStopActionsRef = useRef(false);
-
-  const toggleDictation = async (
-    field: "description" | "actions_correctives",
-    isRecording: boolean,
-    setIsRecording: (v: boolean) => void,
-    recognitionRef: React.MutableRefObject<any>,
-    setInterim: (v: string) => void,
-    shouldStopRef: React.MutableRefObject<boolean>
-  ) => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      toast.error("Dictée non supportée sur ce navigateur (utilisez Chrome ou Edge)");
-      return;
-    }
-
-    if (isRecording) {
-      shouldStopRef.current = true;
-      recognitionRef.current?.stop();
-      setIsRecording(false);
-      setInterim("");
-      return;
-    }
-
-    // Demande explicite de permission micro AVANT recognition.start()
-    // sans ça, Chrome HTTPS bloque silencieusement la reconnaissance
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(t => t.stop());
-    } catch {
-      toast.error("Permission microphone refusée. Autorisez le micro dans les paramètres du navigateur.");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = "fr-FR";
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-    shouldStopRef.current = false;
-    recognitionRef.current = recognition;
-
-    recognition.onstart = () => setIsRecording(true);
-
-    recognition.onresult = (event: any) => {
-      let finalChunk = "";
-      let interimChunk = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          finalChunk += result[0].transcript;
-        } else {
-          interimChunk += result[0].transcript;
-        }
-      }
-      if (finalChunk) {
-        const t = finalChunk.trim();
-        if (field === "description") {
-          setForm(prev => ({ ...prev, description: prev.description ? prev.description + " " + t : t }));
-        } else {
-          setForm(prev => ({ ...prev, actions_correctives: prev.actions_correctives ? prev.actions_correctives + " " + t : t }));
-        }
-        setInterim("");
-      } else if (interimChunk) {
-        setInterim(interimChunk);
-      }
-    };
-
-    recognition.onerror = (e: any) => {
-      if (e.error === "no-speech") return; // onend relancera
-      if (e.error === "not-allowed") {
-        toast.error("Permission microphone refusée. Autorisez le micro dans les paramètres du navigateur.");
-        shouldStopRef.current = true;
-        setIsRecording(false);
-        return;
-      }
-      if (e.error !== "aborted") toast.error("Erreur dictée : " + e.error);
-    };
-
-    recognition.onend = () => {
-      setInterim("");
-      if (!shouldStopRef.current) {
-        // Relance automatique si l'utilisateur n'a pas appuyé sur "Arrêter"
-        try { recognition.start(); } catch { setIsRecording(false); }
-      } else {
-        setIsRecording(false);
-      }
-    };
-
-    recognition.start();
-  };
-
-  // Arrêt de toute dictée active lors du changement d'étape
-  useEffect(() => {
-    shouldStopDescRef.current = true;
-    shouldStopActionsRef.current = true;
-    if (recognitionDescRef.current) { recognitionDescRef.current.stop(); }
-    if (recognitionActionsRef.current) { recognitionActionsRef.current.stop(); }
-    setIsRecordingDescription(false);
-    setIsRecordingActions(false);
-    setInterimDesc("");
-    setInterimActions("");
-  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Formulaire ────────────────────────────────────────────────────────────
   const canNext = () => {
@@ -316,7 +192,6 @@ const FeiFormPage = () => {
   };
 
   const selectedGravite = GRAVITE_CONFIG.find((g) => g.level === form.gravite);
-  const isSupported = globalVoice.isSupported;
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -374,83 +249,85 @@ const FeiFormPage = () => {
         </div>
       </motion.div>
 
-      {/* ── Bandeau dictée vocale globale ── */}
-      {isSupported && (
-        <motion.div
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="mb-4 space-y-2"
-        >
-          <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <Mic className="w-4 h-4 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-foreground">Option dictée vocale</p>
-                <p className="text-xs text-muted-foreground">Décrivez l'événement à voix haute — les champs se rempliront automatiquement</p>
-              </div>
+      {/* ── Bandeau dictée vocale globale (Whisper) ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        className="mb-4 space-y-2"
+      >
+        <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+              <Mic className="w-4 h-4 text-primary" />
             </div>
-            <Button
-              type="button"
-              variant={globalStatus === "recording" ? "destructive" : "outline"}
-              size="sm"
-              disabled={globalStatus === "analyzing"}
-              onClick={globalStatus === "recording" ? handleStopGlobalDictation : handleStartGlobalDictation}
-              className={`gap-2 shrink-0 ${globalStatus === "recording" ? "animate-pulse" : ""}`}
-            >
-              {globalStatus === "analyzing" ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Analyse…</>
-              ) : globalStatus === "recording" ? (
-                <><MicOff className="w-4 h-4" /> Arrêter</>
-              ) : (
-                <><Mic className="w-4 h-4" /> Dicter</>
-              )}
-            </Button>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Option dictée vocale</p>
+              <p className="text-xs text-muted-foreground">Décrivez l'événement à voix haute — les champs se rempliront automatiquement</p>
+            </div>
           </div>
+          <Button
+            type="button"
+            variant={globalStatus === "recording" ? "destructive" : "outline"}
+            size="sm"
+            disabled={globalStatus === "transcribing" || globalStatus === "analyzing"}
+            onClick={globalStatus === "recording" ? handleStopGlobalDictation : handleStartGlobalDictation}
+            className={`gap-2 shrink-0 ${globalStatus === "recording" ? "animate-pulse" : ""}`}
+          >
+            {globalStatus === "transcribing" ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> Transcription…</>
+            ) : globalStatus === "analyzing" ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> Analyse…</>
+            ) : globalStatus === "recording" ? (
+              <><Square className="w-4 h-4" /> Arrêter {globalWhisper.formatTimer()}</>
+            ) : (
+              <><Mic className="w-4 h-4" /> Dicter</>
+            )}
+          </Button>
+        </div>
 
-          {/* Indicateurs d'état */}
-          <AnimatePresence mode="wait">
-            {globalStatus === "recording" && (
-              <motion.div
-                key="recording"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600"
-              >
-                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-                🔴 Enregistrement en cours… Parlez naturellement. Ex : "Monsieur Dupont a chuté dans le couloir ce matin, gravité modérée"
-              </motion.div>
-            )}
-            {globalStatus === "analyzing" && (
-              <motion.div
-                key="analyzing"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-50 border border-orange-200 text-xs text-orange-700"
-              >
-                <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                ⏳ Analyse en cours — Claude extrait les informations de votre dictée…
-              </motion.div>
-            )}
-            {globalStatus === "success" && (
-              <motion.div
-                key="success"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 border border-green-200 text-xs text-green-700"
-              >
-                <Check className="w-3 h-3 shrink-0" />
-                ✅ Formulaire pré-rempli ! Vérifiez et complétez les champs si nécessaire.
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-      )}
+        {/* Indicateurs d'état */}
+        <AnimatePresence mode="wait">
+          {globalStatus === "recording" && (
+            <motion.div
+              key="recording"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600"
+            >
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+              Enregistrement en cours… Parlez naturellement. Ex : "Monsieur Dupont a chuté dans le couloir ce matin, gravité modérée"
+            </motion.div>
+          )}
+          {(globalStatus === "transcribing" || globalStatus === "analyzing") && (
+            <motion.div
+              key="processing"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-50 border border-orange-200 text-xs text-orange-700"
+            >
+              <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+              {globalStatus === "transcribing"
+                ? "Transcription audio en cours (Whisper)…"
+                : "Analyse en cours — Claude extrait les informations de votre dictée…"}
+            </motion.div>
+          )}
+          {globalStatus === "success" && (
+            <motion.div
+              key="success"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 border border-green-200 text-xs text-green-700"
+            >
+              <Check className="w-3 h-3 shrink-0" />
+              Formulaire pré-rempli ! Vérifiez et complétez les champs si nécessaire.
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
 
       {/* Définition FEI */}
       <motion.div
@@ -600,22 +477,29 @@ const FeiFormPage = () => {
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <Label>Décrivez l'événement en détail</Label>
-                  {isSupported && (
-                    <Button
-                      type="button"
-                      variant={isRecordingDescription ? "destructive" : "outline"}
-                      size="sm"
-                      disabled={globalStatus === "recording" || globalStatus === "analyzing"}
-                      className={`h-7 gap-1.5 text-xs shrink-0 ${isRecordingDescription ? "" : "border-primary/30 text-primary hover:bg-primary/5"}`}
-                      onClick={() => toggleDictation("description", isRecordingDescription, setIsRecordingDescription, recognitionDescRef, setInterimDesc, shouldStopDescRef)}
-                    >
-                      {isRecordingDescription ? (
-                        <><span className="inline-block w-2 h-2 rounded-full bg-white animate-pulse mr-0.5" />Arrêter</>
-                      ) : (
-                        <><Mic className="w-3.5 h-3.5" /> Dicter</>
-                      )}
-                    </Button>
-                  )}
+                  <Button
+                    type="button"
+                    variant={descWhisper.isRecording ? "destructive" : "outline"}
+                    size="sm"
+                    disabled={descWhisper.isTranscribing || globalStatus === "recording" || globalStatus === "transcribing" || globalStatus === "analyzing"}
+                    className={`h-7 gap-1.5 text-xs shrink-0 ${descWhisper.isRecording ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
+                    onClick={async () => {
+                      if (descWhisper.isRecording) {
+                        const text = await descWhisper.stopRecording();
+                        if (text) setForm(prev => ({ ...prev, description: prev.description ? prev.description + " " + text : text }));
+                      } else {
+                        await descWhisper.startRecording();
+                      }
+                    }}
+                  >
+                    {descWhisper.isTranscribing ? (
+                      <><Loader2 className="w-3 h-3 animate-spin" /> Transcription…</>
+                    ) : descWhisper.isRecording ? (
+                      <><Square className="w-3 h-3" /> Arrêter {descWhisper.formatTimer()}</>
+                    ) : (
+                      <><Mic className="w-3.5 h-3.5" /> Dicter</>
+                    )}
+                  </Button>
                 </div>
                 <Textarea
                   value={form.description}
@@ -625,10 +509,10 @@ const FeiFormPage = () => {
                   required
                   className="resize-none"
                 />
-                {interimDesc && (
-                  <p className="text-xs text-muted-foreground italic px-1">
+                {descWhisper.isRecording && (
+                  <p className="text-xs text-red-500 italic px-1">
                     <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse mr-1.5 align-middle" />
-                    {interimDesc}
+                    Enregistrement en cours… Cliquez sur "Arrêter" pour transcrire.
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground text-right">{form.description.length} caractères</p>
@@ -657,22 +541,29 @@ const FeiFormPage = () => {
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <Label>Mesures prises ou à prendre <span className="text-muted-foreground">(optionnel)</span></Label>
-                  {isSupported && (
-                    <Button
-                      type="button"
-                      variant={isRecordingActions ? "destructive" : "outline"}
-                      size="sm"
-                      disabled={globalStatus === "recording" || globalStatus === "analyzing"}
-                      className={`h-7 gap-1.5 text-xs shrink-0 ${isRecordingActions ? "" : "border-primary/30 text-primary hover:bg-primary/5"}`}
-                      onClick={() => toggleDictation("actions_correctives", isRecordingActions, setIsRecordingActions, recognitionActionsRef, setInterimActions, shouldStopActionsRef)}
-                    >
-                      {isRecordingActions ? (
-                        <><span className="inline-block w-2 h-2 rounded-full bg-white animate-pulse mr-0.5" />Arrêter</>
-                      ) : (
-                        <><Mic className="w-3.5 h-3.5" /> Dicter</>
-                      )}
-                    </Button>
-                  )}
+                  <Button
+                    type="button"
+                    variant={actionsWhisper.isRecording ? "destructive" : "outline"}
+                    size="sm"
+                    disabled={actionsWhisper.isTranscribing || globalStatus === "recording" || globalStatus === "transcribing" || globalStatus === "analyzing"}
+                    className={`h-7 gap-1.5 text-xs shrink-0 ${actionsWhisper.isRecording ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
+                    onClick={async () => {
+                      if (actionsWhisper.isRecording) {
+                        const text = await actionsWhisper.stopRecording();
+                        if (text) setForm(prev => ({ ...prev, actions_correctives: prev.actions_correctives ? prev.actions_correctives + " " + text : text }));
+                      } else {
+                        await actionsWhisper.startRecording();
+                      }
+                    }}
+                  >
+                    {actionsWhisper.isTranscribing ? (
+                      <><Loader2 className="w-3 h-3 animate-spin" /> Transcription…</>
+                    ) : actionsWhisper.isRecording ? (
+                      <><Square className="w-3 h-3" /> Arrêter {actionsWhisper.formatTimer()}</>
+                    ) : (
+                      <><Mic className="w-3.5 h-3.5" /> Dicter</>
+                    )}
+                  </Button>
                 </div>
                 <Textarea
                   value={form.actions_correctives}
@@ -681,10 +572,10 @@ const FeiFormPage = () => {
                   rows={5}
                   className="resize-none"
                 />
-                {interimActions && (
-                  <p className="text-xs text-muted-foreground italic px-1">
+                {actionsWhisper.isRecording && (
+                  <p className="text-xs text-red-500 italic px-1">
                     <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse mr-1.5 align-middle" />
-                    {interimActions}
+                    Enregistrement en cours… Cliquez sur "Arrêter" pour transcrire.
                   </p>
                 )}
               </div>

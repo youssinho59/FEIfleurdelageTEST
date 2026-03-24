@@ -12,8 +12,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { generatePlaintePdf } from "@/lib/pdfGenerator";
 import { PLAINTE_CATEGORIES } from "@/lib/plaintesCategories";
-import { MessageSquareWarning, Save, Calendar, FileText, MessageCircle, ArrowRight, Briefcase, Mic, MicOff, Loader2 } from "lucide-react";
-import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import { MessageSquareWarning, Save, Calendar, FileText, MessageCircle, ArrowRight, Briefcase, Mic, Square, Loader2 } from "lucide-react";
+import { useWhisperDictation } from "@/hooks/useWhisperDictation";
 
 const DEMANDEUR_TYPES = [
   "Résident",
@@ -49,9 +49,9 @@ const PlaintesFormPage = () => {
   const [loading, setLoading] = useState(false);
   const [loadingVoice, setLoadingVoice] = useState(false);
 
-  // ── Voice recognition ─────────────────────────────────────────────────────
-  const { isListening, transcript, interimText, isSupported, startListening, stopListening } = useSpeechRecognition();
-  const [voiceMode, setVoiceMode] = useState<"global" | "description" | null>(null);
+  // ── Dictée vocale Whisper (MediaRecorder + OpenAI) ────────────────────────
+  const globalWhisper = useWhisperDictation();
+  const descWhisper = useWhisperDictation();
 
   const [form, setForm] = useState({
     date_plainte: new Date().toISOString().split("T")[0],
@@ -149,43 +149,30 @@ const PlaintesFormPage = () => {
     setLoading(false);
   };
 
-  // Process transcript when recognition stops
-  useEffect(() => {
-    if (isListening || !voiceMode) return;
-    const mode = voiceMode;
-    setVoiceMode(null);
-    if (!transcript.trim()) return;
-    if (mode === "description") {
-      setForm(prev => ({ ...prev, description: prev.description ? `${prev.description}\n${transcript.trim()}` : transcript.trim() }));
-    } else if (mode === "global") {
-      processGlobalDictation(transcript.trim());
-    }
-  }, [isListening]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const processGlobalDictation = async (text: string) => {
-    setLoadingVoice(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("suggest-actions", {
-        body: { context_type: "voice_plainte", data: { transcript: text } },
-      });
-      if (error) throw error;
-      const extracted = data.extracted;
-      setForm(prev => ({
-        ...prev,
-        description: extracted.description || prev.description,
-      }));
-      toast.success("Description pré-remplie grâce à la dictée !");
-    } catch {
-      toast.error("Impossible d'analyser la dictée");
-    }
-    setLoadingVoice(false);
+  const handleStartGlobalDictation = async () => {
+    await globalWhisper.startRecording();
   };
 
-  const handleStartGlobalDictation = () => { setVoiceMode("global"); startListening(); };
-  const handleStopGlobalDictation = () => { stopListening(); };
-  const handleToggleDescriptionDictation = () => {
-    if (isListening && voiceMode === "description") { stopListening(); }
-    else { setVoiceMode("description"); startListening(); }
+  const handleStopGlobalDictation = async () => {
+    setLoadingVoice(true);
+    const text = await globalWhisper.stopRecording();
+    if (text.trim()) {
+      try {
+        const { data, error } = await supabase.functions.invoke("suggest-actions", {
+          body: { context_type: "voice_plainte", data: { transcript: text } },
+        });
+        if (error) throw error;
+        const extracted = data.extracted;
+        setForm(prev => ({
+          ...prev,
+          description: extracted.description || prev.description,
+        }));
+        toast.success("Description pré-remplie grâce à la dictée !");
+      } catch {
+        toast.error("Impossible d'analyser la dictée");
+      }
+    }
+    setLoadingVoice(false);
   };
 
   return (
@@ -267,49 +254,47 @@ const PlaintesFormPage = () => {
         </div>
       </motion.div>
 
-      {/* ── Bandeau dictée vocale ── */}
-      {isSupported && (
-        <motion.div
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-          className="mb-5 space-y-2"
-        >
-          <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <Mic className="w-4 h-4 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-foreground">Option dictée vocale</p>
-                <p className="text-xs text-muted-foreground">Décrivez la situation à voix haute — la description sera remplie automatiquement</p>
-              </div>
+      {/* ── Bandeau dictée vocale (Whisper) ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15 }}
+        className="mb-5 space-y-2"
+      >
+        <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+              <Mic className="w-4 h-4 text-primary" />
             </div>
-            <Button
-              type="button"
-              variant={isListening && voiceMode === "global" ? "destructive" : "outline"}
-              size="sm"
-              disabled={loadingVoice || (isListening && voiceMode !== "global")}
-              onClick={isListening && voiceMode === "global" ? handleStopGlobalDictation : handleStartGlobalDictation}
-              className={`gap-2 shrink-0 ${isListening && voiceMode === "global" ? "animate-pulse" : ""}`}
-            >
-              {loadingVoice ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Analyse…</>
-              ) : isListening && voiceMode === "global" ? (
-                <><MicOff className="w-4 h-4" /> Arrêter</>
-              ) : (
-                <><Mic className="w-4 h-4" /> Dicter</>
-              )}
-            </Button>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Option dictée vocale</p>
+              <p className="text-xs text-muted-foreground">Décrivez la situation à voix haute — la description sera remplie automatiquement</p>
+            </div>
           </div>
-          {isListening && voiceMode === "global" && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-              Enregistrement en cours… Parlez naturellement. Ex : "La famille de Mme Martin se plaint de la qualité des repas servis le soir"
-            </div>
-          )}
-        </motion.div>
-      )}
+          <Button
+            type="button"
+            variant={globalWhisper.isRecording ? "destructive" : "outline"}
+            size="sm"
+            disabled={loadingVoice || globalWhisper.isTranscribing || descWhisper.isRecording || descWhisper.isTranscribing}
+            onClick={globalWhisper.isRecording ? handleStopGlobalDictation : handleStartGlobalDictation}
+            className={`gap-2 shrink-0 ${globalWhisper.isRecording ? "animate-pulse" : ""}`}
+          >
+            {(loadingVoice || globalWhisper.isTranscribing) ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> {globalWhisper.isTranscribing ? "Transcription…" : "Analyse…"}</>
+            ) : globalWhisper.isRecording ? (
+              <><Square className="w-4 h-4" /> Arrêter {globalWhisper.formatTimer()}</>
+            ) : (
+              <><Mic className="w-4 h-4" /> Dicter</>
+            )}
+          </Button>
+        </div>
+        {globalWhisper.isRecording && (
+          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600">
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+            Enregistrement en cours… Parlez naturellement. Ex : "La famille de Mme Martin se plaint de la qualité des repas servis le soir"
+          </div>
+        )}
+      </motion.div>
 
       <form onSubmit={handleSubmit}>
         <motion.div variants={container} initial="hidden" animate="show" className="space-y-5">
@@ -440,21 +425,29 @@ const PlaintesFormPage = () => {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <Label htmlFor="description">Description complète de la situation</Label>
-                    {isSupported && (
-                      <Button
-                        type="button"
-                        variant={isListening && voiceMode === "description" ? "destructive" : "outline"}
-                        size="sm"
-                        className={`h-7 gap-1.5 text-xs shrink-0 ${isListening && voiceMode === "description" ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
-                        onClick={handleToggleDescriptionDictation}
-                      >
-                        {isListening && voiceMode === "description" ? (
-                          <><MicOff className="w-3 h-3" /> Arrêter</>
-                        ) : (
-                          <><Mic className="w-3 h-3" /> Dicter</>
-                        )}
-                      </Button>
-                    )}
+                    <Button
+                      type="button"
+                      variant={descWhisper.isRecording ? "destructive" : "outline"}
+                      size="sm"
+                      disabled={descWhisper.isTranscribing || globalWhisper.isRecording || globalWhisper.isTranscribing || loadingVoice}
+                      className={`h-7 gap-1.5 text-xs shrink-0 ${descWhisper.isRecording ? "animate-pulse" : "border-primary/30 text-primary hover:bg-primary/5"}`}
+                      onClick={async () => {
+                        if (descWhisper.isRecording) {
+                          const text = await descWhisper.stopRecording();
+                          if (text) setForm(prev => ({ ...prev, description: prev.description ? prev.description + " " + text : text }));
+                        } else {
+                          await descWhisper.startRecording();
+                        }
+                      }}
+                    >
+                      {descWhisper.isTranscribing ? (
+                        <><Loader2 className="w-3 h-3 animate-spin" /> Transcription…</>
+                      ) : descWhisper.isRecording ? (
+                        <><Square className="w-3 h-3" /> Arrêter {descWhisper.formatTimer()}</>
+                      ) : (
+                        <><Mic className="w-3 h-3" /> Dicter</>
+                      )}
+                    </Button>
                   </div>
                   <Textarea
                     id="description"
@@ -464,10 +457,10 @@ const PlaintesFormPage = () => {
                     rows={4}
                     required
                   />
-                  {interimText && isListening && voiceMode === "description" && (
-                    <p className="text-xs text-muted-foreground italic px-1">
+                  {descWhisper.isRecording && (
+                    <p className="text-xs text-red-500 italic px-1">
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse mr-1.5 align-middle" />
-                      {interimText}
+                      Enregistrement en cours… Cliquez sur "Arrêter" pour transcrire.
                     </p>
                   )}
                 </div>
