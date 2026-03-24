@@ -23,6 +23,8 @@ export const useWhisperDictation = () => {
         ? 'audio/mp4'
         : ''
 
+      console.log('[Dictée] mimeType sélectionné:', mimeType || '(défaut navigateur)')
+
       const mediaRecorder = mimeType
         ? new MediaRecorder(stream, { mimeType })
         : new MediaRecorder(stream)
@@ -31,6 +33,7 @@ export const useWhisperDictation = () => {
       chunksRef.current = []
 
       mediaRecorder.ondataavailable = (e) => {
+        console.log('[Dictée] chunk reçu:', e.data.size, 'bytes')
         if (e.data.size > 0) chunksRef.current.push(e.data)
       }
 
@@ -38,7 +41,9 @@ export const useWhisperDictation = () => {
       setIsRecording(true)
       setTimer(0)
       timerRef.current = setInterval(() => setTimer(t => t + 1), 1000)
-    } catch {
+      console.log('[Dictée] Enregistrement démarré')
+    } catch (err) {
+      console.error('[Dictée] Erreur accès micro:', err)
       toast.error("Impossible d'accéder au microphone. Vérifiez les permissions.")
     }
   }
@@ -46,7 +51,10 @@ export const useWhisperDictation = () => {
   const stopRecording = (): Promise<string> => {
     return new Promise((resolve) => {
       const mediaRecorder = mediaRecorderRef.current
-      if (!mediaRecorder) return resolve('')
+      if (!mediaRecorder) {
+        console.warn('[Dictée] stopRecording appelé sans mediaRecorder actif')
+        return resolve('')
+      }
 
       if (timerRef.current) {
         clearInterval(timerRef.current)
@@ -60,13 +68,28 @@ export const useWhisperDictation = () => {
         const mimeType = mediaRecorder.mimeType || 'audio/webm'
         const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm'
         const audioBlob = new Blob(chunksRef.current, { type: mimeType })
+
+        console.log('[Dictée] Blob audio:', audioBlob.size, 'bytes, type:', audioBlob.type, 'ext:', ext)
+        console.log('[Dictée] Nombre de chunks:', chunksRef.current.length)
+
+        if (audioBlob.size === 0) {
+          console.error('[Dictée] Blob vide — aucun audio capturé')
+          toast.error('Aucun audio capturé. Parlez plus près du micro et réessayez.')
+          setIsTranscribing(false)
+          mediaRecorder.stream.getTracks().forEach(t => t.stop())
+          return resolve('')
+        }
+
         const formData = new FormData()
         formData.append('audio', audioBlob, `audio.${ext}`)
 
         try {
-          // Utilise fetch directement pour garantir l'envoi correct de FormData
           const { data: { session } } = await supabase.auth.getSession()
           const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
+
+          console.log('[Dictée] Envoi vers Edge Function:', supabaseUrl + '/functions/v1/transcribe-audio')
+          console.log('[Dictée] Session token présent:', !!session?.access_token)
+
           const response = await fetch(`${supabaseUrl}/functions/v1/transcribe-audio`, {
             method: 'POST',
             headers: {
@@ -75,10 +98,19 @@ export const useWhisperDictation = () => {
             },
             body: formData,
           })
-          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+          console.log('[Dictée] Réponse HTTP:', response.status, response.statusText)
+
           const result = await response.json()
+          console.log('[Dictée] Résultat Edge Function:', result)
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status} — ${result.error ?? response.statusText}`)
+          }
+
           resolve(result.text || '')
-        } catch {
+        } catch (err) {
+          console.error('[Dictée] Erreur transcription:', err)
           toast.error('La transcription a échoué. Réessayez.')
           resolve('')
         } finally {
@@ -88,6 +120,7 @@ export const useWhisperDictation = () => {
       }
 
       mediaRecorder.stop()
+      console.log('[Dictée] Enregistrement arrêté, envoi en cours…')
     })
   }
 
