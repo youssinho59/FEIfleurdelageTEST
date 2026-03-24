@@ -75,9 +75,21 @@ export const useSpeechRecognition = () => {
     return recognition;
   }, []);
 
-  const startListening = useCallback(() => {
+  const startListening = useCallback(async () => {
     const recognition = buildRecognition();
     if (!recognition) return;
+
+    // Demande explicite de permission micro AVANT recognition.start()
+    // sans ça, Chrome HTTPS peut bloquer silencieusement
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // On libère immédiatement le stream — recognition gérera le micro
+      stream.getTracks().forEach(t => t.stop());
+    } catch {
+      setIsListening(false);
+      return; // permission refusée — on n'essaie pas de démarrer
+    }
+
     shouldStopRef.current = false;
     setTranscript("");
     setInterimText("");

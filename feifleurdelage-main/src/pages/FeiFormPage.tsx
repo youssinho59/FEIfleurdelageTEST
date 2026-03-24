@@ -125,7 +125,7 @@ const FeiFormPage = () => {
   const shouldStopDescRef = useRef(false);
   const shouldStopActionsRef = useRef(false);
 
-  const toggleDictation = (
+  const toggleDictation = async (
     field: "description" | "actions_correctives",
     isRecording: boolean,
     setIsRecording: (v: boolean) => void,
@@ -144,6 +144,16 @@ const FeiFormPage = () => {
       recognitionRef.current?.stop();
       setIsRecording(false);
       setInterim("");
+      return;
+    }
+
+    // Demande explicite de permission micro AVANT recognition.start()
+    // sans ça, Chrome HTTPS bloque silencieusement la reconnaissance
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach(t => t.stop());
+    } catch {
+      toast.error("Permission microphone refusée. Autorisez le micro dans les paramètres du navigateur.");
       return;
     }
 
@@ -183,6 +193,12 @@ const FeiFormPage = () => {
 
     recognition.onerror = (e: any) => {
       if (e.error === "no-speech") return; // onend relancera
+      if (e.error === "not-allowed") {
+        toast.error("Permission microphone refusée. Autorisez le micro dans les paramètres du navigateur.");
+        shouldStopRef.current = true;
+        setIsRecording(false);
+        return;
+      }
       if (e.error !== "aborted") toast.error("Erreur dictée : " + e.error);
     };
 
