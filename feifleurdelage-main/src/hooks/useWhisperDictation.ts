@@ -84,31 +84,18 @@ export const useWhisperDictation = () => {
         formData.append('audio', audioBlob, `audio.${ext}`)
 
         try {
-          const { data: { session } } = await supabase.auth.getSession()
-          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
+          console.log('[Dictée] Envoi via supabase.functions.invoke...')
 
-          console.log('[Dictée] Envoi vers Edge Function:', supabaseUrl + '/functions/v1/transcribe-audio')
-          console.log('[Dictée] Session token présent:', !!session?.access_token)
-
-          const response = await fetch(`${supabaseUrl}/functions/v1/transcribe-audio`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${session?.access_token ?? ''}`,
-              apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
-            },
+          // supabase.functions.invoke gère automatiquement le token JWT
+          const { data, error: fnError } = await supabase.functions.invoke('transcribe-audio', {
             body: formData,
           })
 
-          console.log('[Dictée] Réponse HTTP:', response.status, response.statusText)
+          console.log('[Dictée] Résultat Edge Function:', data, 'Erreur:', fnError)
 
-          const result = await response.json()
-          console.log('[Dictée] Résultat Edge Function:', result)
+          if (fnError) throw new Error(fnError.message ?? String(fnError))
 
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status} — ${result.error ?? response.statusText}`)
-          }
-
-          resolve(result.text || '')
+          resolve(data?.text || '')
         } catch (err) {
           console.error('[Dictée] Erreur transcription:', err)
           toast.error('La transcription a échoué. Réessayez.')
