@@ -109,30 +109,21 @@ export function CvsDemandesTab() {
         body: {
           context_type: 'cvs_demande',
           data: {
-            categorie: CATEGORIES.find(c => c.value === form.categorie)?.label || form.categorie,
+            categorie: form.categorie,
             description: form.description,
           },
         },
       });
       if (error) throw error;
-
-      const suggestion =
-        (Array.isArray(data?.suggestions) ? data.suggestions[0]?.action || data.suggestions[0]?.description || data.suggestions[0] : null) ||
-        data?.suggestion ||
-        data?.content ||
-        data?.action ||
-        (typeof data === 'string' ? data : null);
-
-      if (suggestion) {
-        setForm(f => ({ ...f, action_proposee: typeof suggestion === 'string' ? suggestion : JSON.stringify(suggestion) }));
+      if (data?.suggestion) {
+        setForm(f => ({ ...f, action_proposee: data.suggestion }));
         toast.success('Suggestion IA générée ✨');
       } else {
-        console.error('Réponse IA inattendue:', data);
-        toast.error('Format de réponse IA inattendu');
+        toast.error("Pas de suggestion reçue");
       }
     } catch (e: unknown) {
-      console.error('Erreur IA:', e);
-      toast.error('Erreur lors de la suggestion IA : ' + (e instanceof Error ? e.message : 'inconnue'));
+      console.error('Erreur IA CVS:', e);
+      toast.error("Erreur IA : " + (e instanceof Error ? e.message : 'inconnue'));
     } finally {
       setLoadingIA(false);
     }
