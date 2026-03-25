@@ -6,7 +6,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Printer, CalendarRange, FileText, MessageSquareWarning, Loader2, Info, MessageSquare } from "lucide-react";
+import { Printer, CalendarRange, FileText, MessageSquareWarning, Loader2, Info, MessageSquare, Users } from "lucide-react";
+import { CvsDemandesTab } from "@/components/instances/CvsDemandesTab";
 
 type InstanceRow = {
   source_id: string;
@@ -30,6 +31,7 @@ const INSTANCE_COLS = [
 
 const SuiviInstancesPage = () => {
   const currentYear = new Date().getFullYear();
+  const [activeTab, setActiveTab] = useState<"suivi" | "demandes-cvs">("suivi");
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [rows, setRows] = useState<InstanceRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -354,6 +356,38 @@ const SuiviInstancesPage = () => {
         </div>
       </div>
 
+      {/* ── Onglets ──────────────────────────────────────────────── */}
+      <div className="flex gap-1 border-b border-border">
+        <button
+          onClick={() => setActiveTab("suivi")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "suivi"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <CalendarRange className="w-4 h-4" />
+          Tableau de suivi
+        </button>
+        <button
+          onClick={() => setActiveTab("demandes-cvs")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "demandes-cvs"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          Demandes CVS
+        </button>
+      </div>
+
+      {/* ── Contenu de l'onglet Demandes CVS ─────────────────────── */}
+      {activeTab === "demandes-cvs" && <CvsDemandesTab />}
+
+      {/* ── Contenu de l'onglet Tableau de suivi ─────────────────── */}
+      {activeTab === "suivi" && <>
+
       {/* ── Bandeau info ─────────────────────────────────────────── */}
       <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-blue-700 flex items-start gap-2.5">
         <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-500" />
@@ -512,6 +546,8 @@ const SuiviInstancesPage = () => {
           </div>
         </div>
       )}
+
+      </>}
 
       {/* ── Dialog Retour / Analyse ───────────────────────────────── */}
       <Dialog open={!!retourDialog} onOpenChange={(open) => { if (!open) setRetourDialog(null); }}>
