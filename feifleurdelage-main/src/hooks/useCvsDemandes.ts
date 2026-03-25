@@ -75,18 +75,33 @@ export function useCvsDemandes() {
     return error;
   };
 
-  const marquerAjoutPacq = async (id: string, pacq_action_id?: string) => {
-    const { error } = await supabase
-      .from('cvs_demandes')
-      .update({
+  const ajouterAuPacqOperationnel = async (demande: CvsDemande) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return new Error('Utilisateur non connecté');
+
+    const { data, error } = await supabase
+      .from('actions_correctives')
+      .insert([{
+        titre: `[CVS] ${demande.description.substring(0, 100)}`,
+        description: demande.action_proposee || demande.description,
+        responsable: demande.responsable || 'À définir',
+        date_echeance: demande.delai_prevu || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        priorite: 'moyenne',
+        statut: 'en_cours',
+        user_id: user.id,
+        source: 'cvs',
+      }])
+      .select('id')
+      .single();
+
+    if (!error && data) {
+      await updateDemande(demande.id, {
         ajoute_au_pacq: true,
-        pacq_action_id: pacq_action_id || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id);
-    if (!error) fetchDemandes();
+        pacq_action_id: (data as { id: string }).id,
+      });
+    }
     return error;
   };
 
-  return { demandes, loading, addDemande, updateDemande, deleteDemande, marquerAjoutPacq, refetch: fetchDemandes };
+  return { demandes, loading, addDemande, updateDemande, deleteDemande, ajouterAuPacqOperationnel, refetch: fetchDemandes };
 }

@@ -43,10 +43,8 @@ const emptyForm = {
   date_reponse_cvs: '',
 };
 
-type PacqDialogState = { demande: CvsDemande; objectifId: string } | null;
-
 export function CvsDemandesTab() {
-  const { demandes, loading, addDemande, updateDemande, deleteDemande, marquerAjoutPacq } = useCvsDemandes();
+  const { demandes, loading, addDemande, updateDemande, deleteDemande, ajouterAuPacqOperationnel } = useCvsDemandes();
 
   // Form dialog
   const [open, setOpen] = useState(false);
@@ -67,21 +65,6 @@ export function CvsDemandesTab() {
   // Filtres
   const [filterDate, setFilterDate] = useState('');
   const [filterStatut, setFilterStatut] = useState('tous');
-
-  // Dialog PACQ
-  const [pacqDialog, setPacqDialog] = useState<PacqDialogState>(null);
-  const [objectifs, setObjectifs] = useState<{ id: string; titre: string; thematique: string }[]>([]);
-  const [savingPacq, setSavingPacq] = useState(false);
-
-  useEffect(() => {
-    if (pacqDialog) {
-      supabase
-        .from('pacq_strategique_objectifs')
-        .select('id, titre, thematique')
-        .order('thematique')
-        .then(({ data }) => setObjectifs((data || []) as { id: string; titre: string; thematique: string }[]));
-    }
-  }, [pacqDialog]);
 
   // ── Filtrage & groupement ────────────────────────────────────────────────
 
@@ -125,59 +108,33 @@ export function CvsDemandesTab() {
       const { data, error } = await supabase.functions.invoke('suggest-actions', {
         body: {
           context_type: 'cvs_demande',
-          data: { categorie: form.categorie, description: form.description },
+          data: {
+            categorie: CATEGORIES.find(c => c.value === form.categorie)?.label || form.categorie,
+            description: form.description,
+          },
         },
       });
       if (error) throw error;
-      const suggestion = data?.suggestion || '';
+
+      const suggestion =
+        (Array.isArray(data?.suggestions) ? data.suggestions[0]?.action || data.suggestions[0]?.description || data.suggestions[0] : null) ||
+        data?.suggestion ||
+        data?.content ||
+        data?.action ||
+        (typeof data === 'string' ? data : null);
+
       if (suggestion) {
-        setForm(f => ({ ...f, action_proposee: suggestion }));
+        setForm(f => ({ ...f, action_proposee: typeof suggestion === 'string' ? suggestion : JSON.stringify(suggestion) }));
         toast.success('Suggestion IA générée ✨');
       } else {
-        toast.error("L'IA n'a pas pu générer de suggestion");
+        console.error('Réponse IA inattendue:', data);
+        toast.error('Format de réponse IA inattendu');
       }
-    } catch {
-      toast.error('Erreur lors de la suggestion IA');
+    } catch (e: unknown) {
+      console.error('Erreur IA:', e);
+      toast.error('Erreur lors de la suggestion IA : ' + (e instanceof Error ? e.message : 'inconnue'));
     } finally {
       setLoadingIA(false);
-    }
-  };
-
-  // ── PACQ ─────────────────────────────────────────────────────────────────
-
-  const handleCreerActionPacq = async () => {
-    if (!pacqDialog || !pacqDialog.objectifId) {
-      toast.error('Sélectionnez un objectif PACQ');
-      return;
-    }
-    const d = pacqDialog.demande;
-    setSavingPacq(true);
-    try {
-      // Insérer l'action dans pacq_strategique_actions
-      const { data: actionData, error: actionError } = await supabase
-        .from('pacq_strategique_actions')
-        .insert({
-          objectif_id: pacqDialog.objectifId,
-          titre: d.description.slice(0, 100),
-          description: d.action_proposee || d.description,
-          statut: 'en_cours',
-        })
-        .select('id')
-        .single();
-
-      if (actionError) throw actionError;
-
-      // Mettre à jour la demande CVS
-      const error = await marquerAjoutPacq(d.id, (actionData as { id: string }).id);
-      if (error) throw error;
-
-      toast.success('Action créée dans le PACQ Stratégique ✅');
-      setPacqDialog(null);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Erreur inconnue';
-      toast.error('Erreur : ' + msg);
-    } finally {
-      setSavingPacq(false);
     }
   };
 
@@ -190,14 +147,6 @@ export function CvsDemandesTab() {
     refusees: demandes.filter(d => d.statut === 'refusee').length,
     pacq: demandes.filter(d => d.ajoute_au_pacq).length,
   };
-
-  // ── Groupement par thématique pour le select PACQ ────────────────────────
-
-  const objectifsParThematique = objectifs.reduce<Record<string, typeof objectifs>>((acc, o) => {
-    if (!acc[o.thematique]) acc[o.thematique] = [];
-    acc[o.thematique].push(o);
-    return acc;
-  }, {});
 
   return (
     <div className="space-y-6 p-4">
@@ -288,8 +237,8 @@ export function CvsDemandesTab() {
                             <Badge variant="outline" className="text-xs">{cat?.label}</Badge>
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statut.color}`}>{statut.label}</span>
                             {d.ajoute_au_pacq && (
-                              <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full">
-                                ✅ Action PACQ créée
+                              <span className="text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full">
+                                ✅ Dans le PACQ Opérationnel
                               </span>
                             )}
                           </div>
@@ -315,6 +264,23 @@ export function CvsDemandesTab() {
 
                         <div className="flex flex-col gap-2 min-w-fit">
                           <Button size="sm" variant="outline" onClick={() => handleOpen(d)}>Modifier</Button>
+                          {!d.ajoute_au_pacq && (d.statut === 'acceptee' || d.statut === 'partiellement_acceptee') && (
+                            <Button
+                              size="sm"
+                              className="gap-1 text-xs w-full"
+                              disabled={!peutAllerPacq}
+                              onClick={async () => {
+                                const error = await ajouterAuPacqOperationnel(d);
+                                if (error) toast.error('Erreur PACQ : ' + (error as Error)?.message);
+                                else toast.success('✅ Action créée dans le PACQ Opérationnel !');
+                              }}
+                            >
+                              <ArrowRight className="w-3 h-3" /> Créer action PACQ
+                            </Button>
+                          )}
+                          {d.ajoute_au_pacq && (
+                            <span className="text-xs text-green-600 font-medium text-center">✅ Dans le PACQ</span>
+                          )}
                           <Button
                             size="sm"
                             variant="ghost"
@@ -326,31 +292,16 @@ export function CvsDemandesTab() {
                         </div>
                       </div>
 
-                      {/* ── Section PACQ ───────────────────────────────── */}
-                      <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-between gap-2">
-                        {d.ajoute_au_pacq ? (
-                          <span className="text-xs text-blue-600 font-medium flex items-center gap-1">
-                            ✅ Action intégrée dans le PACQ Stratégique
+                      {/* ── Section PACQ bas de card ────────────────────── */}
+                      {!d.ajoute_au_pacq && (
+                        <div className="mt-3 pt-2.5 border-t border-gray-100">
+                          <span className="text-xs text-gray-400 italic">
+                            {d.statut === 'en_analyse' && "Acceptez la demande pour pouvoir créer une action PACQ"}
+                            {d.statut === 'refusee' && "Demande refusée — pas d'action PACQ"}
+                            {(d.statut === 'acceptee' || d.statut === 'partiellement_acceptee') && !d.action_proposee && "Ajoutez une action proposée pour créer une action PACQ Opérationnel"}
                           </span>
-                        ) : (
-                          <>
-                            <span className="text-xs text-gray-400 italic">
-                              {d.statut === 'en_analyse' && "Acceptez la demande pour pouvoir créer une action PACQ"}
-                              {d.statut === 'refusee' && "Demande refusée — pas d'action PACQ"}
-                              {(d.statut === 'acceptee' || d.statut === 'partiellement_acceptee') && !d.action_proposee && "Ajoutez une action proposée pour créer une action PACQ"}
-                            </span>
-                            <Button
-                              size="sm"
-                              variant={peutAllerPacq ? 'default' : 'outline'}
-                              className="gap-1 text-xs shrink-0"
-                              disabled={!peutAllerPacq}
-                              onClick={() => setPacqDialog({ demande: d, objectifId: '' })}
-                            >
-                              <ArrowRight className="w-3 h-3" /> Créer action PACQ
-                            </Button>
-                          </>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 );
@@ -472,70 +423,6 @@ export function CvsDemandesTab() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
             <Button onClick={handleSubmit}>{editItem ? 'Mettre à jour' : 'Ajouter'}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Dialog PACQ ─────────────────────────────────────────────────── */}
-      <Dialog open={!!pacqDialog} onOpenChange={open => { if (!open) setPacqDialog(null); }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ArrowRight className="w-4 h-4 text-primary" />
-              Créer une action dans le PACQ Stratégique
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-3 space-y-4">
-            {pacqDialog && (
-              <div className="bg-gray-50 rounded-lg px-3 py-2 text-sm text-gray-700">
-                <p className="font-medium text-xs text-gray-500 mb-1">Demande CVS</p>
-                <p>{pacqDialog.demande.description}</p>
-                {pacqDialog.demande.action_proposee && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    <span className="font-medium">Action proposée :</span> {pacqDialog.demande.action_proposee}
-                  </p>
-                )}
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label>Objectif PACQ Stratégique *</Label>
-              {objectifs.length === 0 ? (
-                <p className="text-sm text-gray-400 italic">Chargement des objectifs...</p>
-              ) : (
-                <Select
-                  value={pacqDialog?.objectifId || ''}
-                  onValueChange={v => setPacqDialog(p => p ? { ...p, objectifId: v } : p)}
-                >
-                  <SelectTrigger><SelectValue placeholder="Choisir un objectif..." /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(objectifsParThematique).map(([thematique, items]) => (
-                      <div key={thematique}>
-                        <div className="px-2 py-1 text-xs font-bold text-gray-400 uppercase tracking-wider">{thematique}</div>
-                        {items.map(o => (
-                          <SelectItem key={o.id} value={o.id} className="pl-4">{o.titre}</SelectItem>
-                        ))}
-                      </div>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              <p className="text-xs text-gray-400">
-                L'action sera créée avec le titre de la demande et l'action proposée comme description.
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPacqDialog(null)} disabled={savingPacq}>
-              Annuler
-            </Button>
-            <Button
-              onClick={handleCreerActionPacq}
-              disabled={savingPacq || !pacqDialog?.objectifId}
-              className="gap-1.5"
-            >
-              {savingPacq ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
-              Créer l'action PACQ
-            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
