@@ -63,7 +63,8 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         audio_url: uploadResult.upload_url,
-        language_code: 'fr',
+        language_detection: true,
+        speech_model: 'nano',
       }),
     })
 
