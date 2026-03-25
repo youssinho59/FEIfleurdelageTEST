@@ -24,6 +24,20 @@ export interface CvsDemande {
   updated_at?: string;
 }
 
+function cleanPayload(d: Partial<CvsDemande>) {
+  return {
+    ...d,
+    motif_refus: d.motif_refus || null,
+    action_proposee: d.action_proposee || null,
+    delai_prevu: d.delai_prevu || null,
+    responsable: d.responsable || null,
+    pacq_action_id: d.pacq_action_id || null,
+    date_reponse_cvs: d.date_reponse_cvs || null,
+    compte_rendu_reunion: d.compte_rendu_reunion || null,
+    suivi_instance_id: d.suivi_instance_id || null,
+  };
+}
+
 export function useCvsDemandes() {
   const [demandes, setDemandes] = useState<CvsDemande[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,7 +55,7 @@ export function useCvsDemandes() {
   useEffect(() => { fetchDemandes(); }, []);
 
   const addDemande = async (d: Omit<CvsDemande, 'id' | 'created_at' | 'updated_at'>) => {
-    const { error } = await supabase.from('cvs_demandes').insert([d]);
+    const { error } = await supabase.from('cvs_demandes').insert([cleanPayload(d)]);
     if (!error) fetchDemandes();
     return error;
   };
@@ -49,7 +63,7 @@ export function useCvsDemandes() {
   const updateDemande = async (id: string, updates: Partial<CvsDemande>) => {
     const { error } = await supabase
       .from('cvs_demandes')
-      .update({ ...updates, updated_at: new Date().toISOString() })
+      .update({ ...cleanPayload(updates), updated_at: new Date().toISOString() })
       .eq('id', id);
     if (!error) fetchDemandes();
     return error;
@@ -61,13 +75,14 @@ export function useCvsDemandes() {
     return error;
   };
 
-  // Note : pacq_strategique_actions nécessite un objectif_id obligatoire.
-  // On marque simplement la demande comme à intégrer dans le PACQ.
-  // L'utilisateur pourra ensuite rattacher manuellement à un objectif dans le PACQ.
-  const marquerAjoutPacq = async (id: string) => {
+  const marquerAjoutPacq = async (id: string, pacq_action_id?: string) => {
     const { error } = await supabase
       .from('cvs_demandes')
-      .update({ ajoute_au_pacq: true, updated_at: new Date().toISOString() })
+      .update({
+        ajoute_au_pacq: true,
+        pacq_action_id: pacq_action_id || null,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id);
     if (!error) fetchDemandes();
     return error;

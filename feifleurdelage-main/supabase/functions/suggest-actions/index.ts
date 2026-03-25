@@ -184,9 +184,37 @@ Réponds avec ce JSON exact :
       const parsed = JSON.parse(anthropicData.content[0].text.trim());
       return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+    // ── Suggestion action CVS ────────────────────────────────────────────────
+
+    } else if (context_type === "cvs_demande") {
+      const system = "Tu es un expert qualité en EHPAD. Réponds UNIQUEMENT en JSON valide, sans markdown ni backticks.";
+      const prompt = `Une demande a été formulée lors d'une réunion du Conseil de la Vie Sociale (CVS) d'un EHPAD.
+
+Catégorie : ${data.categorie}
+Description : ${data.description}
+
+Propose une action corrective concrète et réaliste (2-3 phrases maximum) pour répondre à cette demande.
+Réponds UNIQUEMENT avec ce JSON exact :
+{
+  "suggestion": "texte de l'action proposée"
+}`;
+      const response = await callAnthropic(apiKey, system, prompt, 300);
+      if (!response.ok) {
+        const errText = await response.text();
+        return new Response(
+          JSON.stringify({ error: `Erreur API Anthropic ${response.status}: ${errText}` }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      const anthropicData = await response.json();
+      const parsed = JSON.parse(anthropicData.content[0].text.trim());
+      return new Response(JSON.stringify(parsed), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+
     } else {
       return new Response(
-        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte | duerp_complete | duerp_propositions" }),
+        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte | duerp_complete | duerp_propositions | cvs_demande" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

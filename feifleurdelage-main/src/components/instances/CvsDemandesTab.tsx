@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { useCvsDemandes, CvsDemande, CvsDemandeCategorie, CvsDemandeStatut } from '@/hooks/useCvsDemandes';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,9 +7,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Plus, FileText, CheckCircle, XCircle, Clock, ArrowRight } from 'lucide-react';
+import { Plus, FileText, CheckCircle, XCircle, Clock, ArrowRight, Sparkles, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const CATEGORIES: { value: CvsDemandeCategorie; label: string }[] = [
@@ -42,13 +43,47 @@ const emptyForm = {
   date_reponse_cvs: '',
 };
 
+type PacqDialogState = { demande: CvsDemande; objectifId: string } | null;
+
 export function CvsDemandesTab() {
   const { demandes, loading, addDemande, updateDemande, deleteDemande, marquerAjoutPacq } = useCvsDemandes();
+
+  // Form dialog
   const [open, setOpen] = useState(false);
   const [editItem, setEditItem] = useState<CvsDemande | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [loadingIA, setLoadingIA] = useState(false);
+
+  // Agents (responsable select)
+  const [agents, setAgents] = useState<{ id: string; full_name: string }[]>([]);
+  useEffect(() => {
+    supabase
+      .from('profiles')
+      .select('id, full_name')
+      .order('full_name')
+      .then(({ data }) => setAgents((data || []) as { id: string; full_name: string }[]));
+  }, []);
+
+  // Filtres
   const [filterDate, setFilterDate] = useState('');
   const [filterStatut, setFilterStatut] = useState('tous');
+
+  // Dialog PACQ
+  const [pacqDialog, setPacqDialog] = useState<PacqDialogState>(null);
+  const [objectifs, setObjectifs] = useState<{ id: string; titre: string; thematique: string }[]>([]);
+  const [savingPacq, setSavingPacq] = useState(false);
+
+  useEffect(() => {
+    if (pacqDialog) {
+      supabase
+        .from('pacq_strategique_objectifs')
+        .select('id, titre, thematique')
+        .order('thematique')
+        .then(({ data }) => setObjectifs((data || []) as { id: string; titre: string; thematique: string }[]));
+    }
+  }, [pacqDialog]);
+
+  // ── Filtrage & groupement ────────────────────────────────────────────────
 
   const demandesFiltrees = demandes.filter(d => {
     const dateOk = filterDate ? d.date_reunion === filterDate : true;
@@ -57,6 +92,8 @@ export function CvsDemandesTab() {
   });
 
   const reunions = [...new Set(demandesFiltrees.map(d => d.date_reunion))].sort((a, b) => b.localeCompare(a));
+
+  // ── Dialog form ──────────────────────────────────────────────────────────
 
   const handleOpen = (item?: CvsDemande) => {
     if (item) { setEditItem(item); setForm({ ...emptyForm, ...item }); }
@@ -76,13 +113,75 @@ export function CvsDemandesTab() {
     else { toast.success(editItem ? 'Demande mise à jour' : 'Demande ajoutée'); setOpen(false); }
   };
 
-  const handlePacq = async (d: CvsDemande) => {
-    if (d.ajoute_au_pacq) { toast.info('Déjà marquée pour le PACQ'); return; }
-    if (!d.action_proposee) { toast.error("Saisissez d'abord une action proposée"); return; }
-    const error = await marquerAjoutPacq(d.id);
-    if (error) toast.error('Erreur');
-    else toast.success('Marquée à intégrer dans le PACQ opérationnel ✅ — pensez à créer l\'action manuellement dans le PACQ');
+  // ── Suggestion IA ────────────────────────────────────────────────────────
+
+  const suggestActionIA = async () => {
+    if (!form.description) {
+      toast.error("Saisissez d'abord la description de la demande");
+      return;
+    }
+    setLoadingIA(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('suggest-actions', {
+        body: {
+          context_type: 'cvs_demande',
+          data: { categorie: form.categorie, description: form.description },
+        },
+      });
+      if (error) throw error;
+      const suggestion = data?.suggestion || '';
+      if (suggestion) {
+        setForm(f => ({ ...f, action_proposee: suggestion }));
+        toast.success('Suggestion IA générée ✨');
+      } else {
+        toast.error("L'IA n'a pas pu générer de suggestion");
+      }
+    } catch {
+      toast.error('Erreur lors de la suggestion IA');
+    } finally {
+      setLoadingIA(false);
+    }
   };
+
+  // ── PACQ ─────────────────────────────────────────────────────────────────
+
+  const handleCreerActionPacq = async () => {
+    if (!pacqDialog || !pacqDialog.objectifId) {
+      toast.error('Sélectionnez un objectif PACQ');
+      return;
+    }
+    const d = pacqDialog.demande;
+    setSavingPacq(true);
+    try {
+      // Insérer l'action dans pacq_strategique_actions
+      const { data: actionData, error: actionError } = await supabase
+        .from('pacq_strategique_actions')
+        .insert({
+          objectif_id: pacqDialog.objectifId,
+          titre: d.description.slice(0, 100),
+          description: d.action_proposee || d.description,
+          statut: 'en_cours',
+        })
+        .select('id')
+        .single();
+
+      if (actionError) throw actionError;
+
+      // Mettre à jour la demande CVS
+      const error = await marquerAjoutPacq(d.id, (actionData as { id: string }).id);
+      if (error) throw error;
+
+      toast.success('Action créée dans le PACQ Stratégique ✅');
+      setPacqDialog(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erreur inconnue';
+      toast.error('Erreur : ' + msg);
+    } finally {
+      setSavingPacq(false);
+    }
+  };
+
+  // ── Stats ────────────────────────────────────────────────────────────────
 
   const stats = {
     total: demandes.length,
@@ -92,9 +191,17 @@ export function CvsDemandesTab() {
     pacq: demandes.filter(d => d.ajoute_au_pacq).length,
   };
 
+  // ── Groupement par thématique pour le select PACQ ────────────────────────
+
+  const objectifsParThematique = objectifs.reduce<Record<string, typeof objectifs>>((acc, o) => {
+    if (!acc[o.thematique]) acc[o.thematique] = [];
+    acc[o.thematique].push(o);
+    return acc;
+  }, {});
+
   return (
     <div className="space-y-6 p-4">
-      {/* Header */}
+      {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row justify-between gap-3 items-start md:items-center">
         <div>
           <h2 className="text-xl font-semibold text-gray-800">Demandes du CVS</h2>
@@ -105,14 +212,14 @@ export function CvsDemandesTab() {
         </Button>
       </div>
 
-      {/* Stats */}
+      {/* ── Stats ───────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
           { label: 'Total', value: stats.total, icon: FileText, color: 'text-gray-600' },
           { label: 'En analyse', value: stats.enAnalyse, icon: Clock, color: 'text-yellow-600' },
           { label: 'Acceptées', value: stats.acceptees, icon: CheckCircle, color: 'text-green-600' },
           { label: 'Refusées', value: stats.refusees, icon: XCircle, color: 'text-red-600' },
-          { label: 'À intégrer PACQ', value: stats.pacq, icon: ArrowRight, color: 'text-blue-600' },
+          { label: 'Dans le PACQ', value: stats.pacq, icon: ArrowRight, color: 'text-blue-600' },
         ].map(({ label, value, icon: Icon, color }) => (
           <Card key={label}>
             <CardContent className="pt-3 pb-2 px-3 text-center">
@@ -124,7 +231,7 @@ export function CvsDemandesTab() {
         ))}
       </div>
 
-      {/* Filtres */}
+      {/* ── Filtres ─────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-3 items-center">
         <div className="flex items-center gap-2">
           <Label className="text-sm whitespace-nowrap">Réunion :</Label>
@@ -143,9 +250,11 @@ export function CvsDemandesTab() {
         </div>
       </div>
 
-      {/* Liste groupée par réunion */}
+      {/* ── Liste ───────────────────────────────────────────────────────── */}
       {loading ? (
-        <p className="text-center text-gray-400 py-8">Chargement...</p>
+        <div className="flex justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        </div>
       ) : reunions.length === 0 ? (
         <div className="text-center py-12 text-gray-400">
           <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
@@ -165,9 +274,11 @@ export function CvsDemandesTab() {
                 </span>
                 <div className="h-px flex-1 bg-gray-200" />
               </div>
+
               {items.map(d => {
                 const statut = STATUTS.find(s => s.value === d.statut)!;
                 const cat = CATEGORIES.find(c => c.value === d.categorie);
+                const peutAllerPacq = (d.statut === 'acceptee' || d.statut === 'partiellement_acceptee') && !!d.action_proposee;
                 return (
                   <Card key={d.id} className="border-l-4" style={{ borderLeftColor: statut.border }}>
                     <CardContent className="pt-4 pb-3 px-4">
@@ -178,7 +289,7 @@ export function CvsDemandesTab() {
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statut.color}`}>{statut.label}</span>
                             {d.ajoute_au_pacq && (
                               <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full">
-                                ✅ À intégrer dans le PACQ
+                                ✅ Action PACQ créée
                               </span>
                             )}
                           </div>
@@ -201,28 +312,44 @@ export function CvsDemandesTab() {
                             </p>
                           )}
                         </div>
+
                         <div className="flex flex-col gap-2 min-w-fit">
                           <Button size="sm" variant="outline" onClick={() => handleOpen(d)}>Modifier</Button>
-                          {!d.ajoute_au_pacq && (d.statut === 'acceptee' || d.statut === 'partiellement_acceptee') && (
-                            <Button
-                              size="sm"
-                              className="gap-1 text-xs bg-blue-600 hover:bg-blue-700"
-                              onClick={() => handlePacq(d)}
-                            >
-                              <ArrowRight className="w-3 h-3" /> Vers PACQ
-                            </Button>
-                          )}
                           <Button
                             size="sm"
                             variant="ghost"
                             className="text-red-500 hover:text-red-700 text-xs"
-                            onClick={async () => {
-                              if (confirm('Supprimer cette demande ?')) await deleteDemande(d.id);
-                            }}
+                            onClick={async () => { if (confirm('Supprimer cette demande ?')) await deleteDemande(d.id); }}
                           >
                             Supprimer
                           </Button>
                         </div>
+                      </div>
+
+                      {/* ── Section PACQ ───────────────────────────────── */}
+                      <div className="mt-3 pt-2.5 border-t border-gray-100 flex items-center justify-between gap-2">
+                        {d.ajoute_au_pacq ? (
+                          <span className="text-xs text-blue-600 font-medium flex items-center gap-1">
+                            ✅ Action intégrée dans le PACQ Stratégique
+                          </span>
+                        ) : (
+                          <>
+                            <span className="text-xs text-gray-400 italic">
+                              {d.statut === 'en_analyse' && "Acceptez la demande pour pouvoir créer une action PACQ"}
+                              {d.statut === 'refusee' && "Demande refusée — pas d'action PACQ"}
+                              {(d.statut === 'acceptee' || d.statut === 'partiellement_acceptee') && !d.action_proposee && "Ajoutez une action proposée pour créer une action PACQ"}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant={peutAllerPacq ? 'default' : 'outline'}
+                              className="gap-1 text-xs shrink-0"
+                              disabled={!peutAllerPacq}
+                              onClick={() => setPacqDialog({ demande: d, objectifId: '' })}
+                            >
+                              <ArrowRight className="w-3 h-3" /> Créer action PACQ
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -233,7 +360,7 @@ export function CvsDemandesTab() {
         })
       )}
 
-      {/* Dialog ajout/modification */}
+      {/* ── Dialog ajout / modification ─────────────────────────────────── */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -242,11 +369,7 @@ export function CvsDemandesTab() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
             <div className="space-y-1">
               <Label>Date de réunion *</Label>
-              <Input
-                type="date"
-                value={form.date_reunion}
-                onChange={e => setForm(f => ({ ...f, date_reunion: e.target.value }))}
-              />
+              <Input type="date" value={form.date_reunion} onChange={e => setForm(f => ({ ...f, date_reunion: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <Label>Auteur *</Label>
@@ -260,18 +383,14 @@ export function CvsDemandesTab() {
               <Label>Catégorie</Label>
               <Select value={form.categorie} onValueChange={v => setForm(f => ({ ...f, categorie: v as CvsDemandeCategorie }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
-                </SelectContent>
+                <SelectContent>{CATEGORIES.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1">
               <Label>Statut</Label>
               <Select value={form.statut} onValueChange={v => setForm(f => ({ ...f, statut: v as CvsDemandeStatut }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {STATUTS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                </SelectContent>
+                <SelectContent>{STATUTS.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="md:col-span-2 space-y-1">
@@ -284,12 +403,27 @@ export function CvsDemandesTab() {
               />
             </div>
             <div className="md:col-span-2 space-y-1">
-              <Label>Action proposée en réponse</Label>
+              <div className="flex items-center justify-between mb-1">
+                <Label>Action proposée en réponse</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs h-7"
+                  onClick={suggestActionIA}
+                  disabled={loadingIA || !form.description}
+                >
+                  {loadingIA
+                    ? <><Loader2 className="w-3 h-3 animate-spin" /> Génération...</>
+                    : <><Sparkles className="w-3 h-3" /> Suggérer avec l'IA</>
+                  }
+                </Button>
+              </div>
               <Textarea
                 placeholder="Quelle action est prévue pour répondre à cette demande ?"
                 value={form.action_proposee || ''}
                 onChange={e => setForm(f => ({ ...f, action_proposee: e.target.value }))}
-                rows={2}
+                rows={3}
               />
             </div>
             {form.statut === 'refusee' && (
@@ -305,27 +439,25 @@ export function CvsDemandesTab() {
             )}
             <div className="space-y-1">
               <Label>Responsable</Label>
-              <Input
-                placeholder="Nom ou fonction"
+              <Select
                 value={form.responsable || ''}
-                onChange={e => setForm(f => ({ ...f, responsable: e.target.value }))}
-              />
+                onValueChange={v => setForm(f => ({ ...f, responsable: v }))}
+              >
+                <SelectTrigger><SelectValue placeholder="Sélectionner un agent..." /></SelectTrigger>
+                <SelectContent>
+                  {agents.map(a => (
+                    <SelectItem key={a.id} value={a.full_name}>{a.full_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
               <Label>Délai prévu</Label>
-              <Input
-                type="date"
-                value={form.delai_prevu || ''}
-                onChange={e => setForm(f => ({ ...f, delai_prevu: e.target.value }))}
-              />
+              <Input type="date" value={form.delai_prevu || ''} onChange={e => setForm(f => ({ ...f, delai_prevu: e.target.value }))} />
             </div>
             <div className="space-y-1">
               <Label>Date de réponse au CVS</Label>
-              <Input
-                type="date"
-                value={form.date_reponse_cvs || ''}
-                onChange={e => setForm(f => ({ ...f, date_reponse_cvs: e.target.value }))}
-              />
+              <Input type="date" value={form.date_reponse_cvs || ''} onChange={e => setForm(f => ({ ...f, date_reponse_cvs: e.target.value }))} />
             </div>
             <div className="md:col-span-2 space-y-1">
               <Label>Compte-rendu de la réunion (optionnel)</Label>
@@ -337,10 +469,74 @@ export function CvsDemandesTab() {
               />
             </div>
           </div>
-          <div className="flex justify-end gap-3 pt-2">
+          <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
             <Button onClick={handleSubmit}>{editItem ? 'Mettre à jour' : 'Ajouter'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog PACQ ─────────────────────────────────────────────────── */}
+      <Dialog open={!!pacqDialog} onOpenChange={open => { if (!open) setPacqDialog(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRight className="w-4 h-4 text-primary" />
+              Créer une action dans le PACQ Stratégique
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-3 space-y-4">
+            {pacqDialog && (
+              <div className="bg-gray-50 rounded-lg px-3 py-2 text-sm text-gray-700">
+                <p className="font-medium text-xs text-gray-500 mb-1">Demande CVS</p>
+                <p>{pacqDialog.demande.description}</p>
+                {pacqDialog.demande.action_proposee && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    <span className="font-medium">Action proposée :</span> {pacqDialog.demande.action_proposee}
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>Objectif PACQ Stratégique *</Label>
+              {objectifs.length === 0 ? (
+                <p className="text-sm text-gray-400 italic">Chargement des objectifs...</p>
+              ) : (
+                <Select
+                  value={pacqDialog?.objectifId || ''}
+                  onValueChange={v => setPacqDialog(p => p ? { ...p, objectifId: v } : p)}
+                >
+                  <SelectTrigger><SelectValue placeholder="Choisir un objectif..." /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(objectifsParThematique).map(([thematique, items]) => (
+                      <div key={thematique}>
+                        <div className="px-2 py-1 text-xs font-bold text-gray-400 uppercase tracking-wider">{thematique}</div>
+                        {items.map(o => (
+                          <SelectItem key={o.id} value={o.id} className="pl-4">{o.titre}</SelectItem>
+                        ))}
+                      </div>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <p className="text-xs text-gray-400">
+                L'action sera créée avec le titre de la demande et l'action proposée comme description.
+              </p>
+            </div>
           </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPacqDialog(null)} disabled={savingPacq}>
+              Annuler
+            </Button>
+            <Button
+              onClick={handleCreerActionPacq}
+              disabled={savingPacq || !pacqDialog?.objectifId}
+              className="gap-1.5"
+            >
+              {savingPacq ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
+              Créer l'action PACQ
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
