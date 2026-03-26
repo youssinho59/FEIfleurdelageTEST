@@ -87,21 +87,28 @@ export function AuditTerrain({ auditId, onClose }: Props) {
         .select()
         .single();
 
-      if (!error && obs) {
-        if (criteres.length > 0) {
-          await supabase.from('audit_observations_criteres').insert(
-            criteres.map(c => ({
-              observation_id: (obs as { id: string }).id,
-              critere_id: c.id,
-              valeur: evals[c.id] || 'non_evalue',
-            }))
-          );
-        }
-        await fetchAll();
-        toast.success('Observation ajoutée');
-      } else if (error) {
-        toast.error('Erreur : ' + error.message);
+      if (error) {
+        console.error('[AuditTerrain] Erreur insert audit_observations:', error);
+        toast.error('Erreur création observation : ' + error.message);
+        return;
       }
+
+      if (obs && criteres.length > 0) {
+        const { error: crError } = await supabase.from('audit_observations_criteres').insert(
+          criteres.map(c => ({
+            observation_id: (obs as { id: string }).id,
+            critere_id: c.id,
+            valeur: evals[c.id] || 'non_evalue',
+          }))
+        );
+        if (crError) {
+          console.error('[AuditTerrain] Erreur insert audit_observations_criteres:', crError);
+          toast.error('Observation créée mais erreur critères : ' + crError.message);
+        }
+      }
+
+      await fetchAll();
+      toast.success('Observation ajoutée');
     }
     setObsDialog({ open: false });
   };
