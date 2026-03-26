@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Plus, Trash2, ClipboardList, BarChart3, FileText, Sparkles, ArrowRight, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
@@ -27,7 +28,7 @@ export function AuditTerrain({ auditId, onClose }: Props) {
     criteres, observations, loading, stats, pourcentageGlobal, totalConformes, totalEvalue,
     addCritere, updateCritere, deleteCritere,
     addObservation, updateObservation, deleteObservation,
-    setValeur,
+    setValeur, fetchAll,
   } = useAuditTerrain(auditId);
 
   const { audit, saveAudit } = useAuditComplet(auditId);
@@ -35,6 +36,7 @@ export function AuditTerrain({ auditId, onClose }: Props) {
   const [nouveauCritere, setNouveauCritere] = useState('');
   const [obsDialog, setObsDialog] = useState<{
     open: boolean; id?: string; nom?: string; service?: string; heure?: string; commentaire?: string;
+    evaluations?: Record<string, AuditValeur>;
   }>({ open: false });
   const [obsSelectee, setObsSelectee] = useState<string | null>(null);
   const [loadingIA, setLoadingIA] = useState(false);
@@ -47,22 +49,59 @@ export function AuditTerrain({ auditId, onClose }: Props) {
   };
 
   const handleSaveObs = async () => {
+    const evals = obsDialog.evaluations || {};
+
     if (obsDialog.id) {
+      // Mise à jour : champs généraux + évaluations en batch
       await updateObservation(obsDialog.id, {
         nom_agent: obsDialog.nom,
         service: obsDialog.service,
         heure_observation: obsDialog.heure,
         commentaire_global: obsDialog.commentaire,
       });
+      const evalEntries = Object.entries(evals);
+      if (evalEntries.length > 0) {
+        await supabase.from('audit_observations_criteres').upsert(
+          evalEntries.map(([critereId, valeur]) => ({
+            observation_id: obsDialog.id,
+            critere_id: critereId,
+            valeur,
+          })),
+          { onConflict: 'observation_id,critere_id' }
+        );
+      }
+      await fetchAll();
       toast.success('Observation mise à jour');
     } else {
-      const error = await addObservation({
-        nom_agent: obsDialog.nom,
-        service: obsDialog.service,
-        heure_observation: obsDialog.heure,
-        commentaire_global: obsDialog.commentaire,
-      });
-      if (!error) toast.success('Observation ajoutée');
+      // Création : insert obs, puis insert toutes les évaluations d'un coup
+      const { data: obs, error } = await supabase
+        .from('audit_observations')
+        .insert([{
+          audit_id: auditId,
+          nom_agent: obsDialog.nom || null,
+          service: obsDialog.service || null,
+          heure_observation: obsDialog.heure || null,
+          commentaire_global: obsDialog.commentaire || null,
+          ordre: observations.length,
+        }])
+        .select()
+        .single();
+
+      if (!error && obs) {
+        if (criteres.length > 0) {
+          await supabase.from('audit_observations_criteres').insert(
+            criteres.map(c => ({
+              observation_id: (obs as { id: string }).id,
+              critere_id: c.id,
+              valeur: evals[c.id] || 'non_evalue',
+            }))
+          );
+        }
+        await fetchAll();
+        toast.success('Observation ajoutée');
+      } else if (error) {
+        toast.error('Erreur : ' + error.message);
+      }
     }
     setObsDialog({ open: false });
   };
@@ -283,7 +322,11 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                         variant="ghost" size="sm"
                         onClick={e => {
                           e.stopPropagation();
-                          setObsDialog({ open: true, id: obs.id, nom: obs.nom_agent || '', service: obs.service || '', heure: obs.heure_observation || '', commentaire: obs.commentaire_global || '' });
+                          const existingEvals: Record<string, AuditValeur> = {};
+                          (obs.resultats || []).forEach(r => {
+                            existingEvals[r.critere_id] = r.valeur as AuditValeur;
+                          });
+                          setObsDialog({ open: true, id: obs.id, nom: obs.nom_agent || '', service: obs.service || '', heure: obs.heure_observation || '', commentaire: obs.commentaire_global || '', evaluations: existingEvals });
                         }}
                       >✏️</Button>
                       <Button
@@ -561,49 +604,114 @@ export function AuditTerrain({ auditId, onClose }: Props) {
 
       {/* Dialog ajout/édition observation */}
       <Dialog open={obsDialog.open} onOpenChange={v => !v && setObsDialog({ open: false })}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{obsDialog.id ? "Modifier l'observation" : 'Nouvelle observation'}</DialogTitle>
           </DialogHeader>
-          <p className="text-xs text-gray-500">Tous les champs sont optionnels</p>
-          <div className="space-y-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Nom de l'agent / personne observée</Label>
-              <Input
-                placeholder="ex: Dupont Marie"
-                value={obsDialog.nom || ''}
-                onChange={e => setObsDialog(d => ({ ...d, nom: e.target.value }))}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Service / Unité</Label>
-                <Input
-                  placeholder="ex: Soins, Cuisine..."
-                  value={obsDialog.service || ''}
-                  onChange={e => setObsDialog(d => ({ ...d, service: e.target.value }))}
-                />
+          <ScrollArea className="max-h-[70vh] pr-3">
+            <div className="space-y-4 pb-2">
+              <p className="text-xs text-gray-500">Tous les champs sont optionnels</p>
+
+              {/* Champs généraux */}
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Nom de l'agent / personne observée</Label>
+                  <Input
+                    placeholder="ex: Dupont Marie"
+                    value={obsDialog.nom || ''}
+                    onChange={e => setObsDialog(d => ({ ...d, nom: e.target.value }))}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Service / Unité</Label>
+                    <Input
+                      placeholder="ex: Soins, Cuisine..."
+                      value={obsDialog.service || ''}
+                      onChange={e => setObsDialog(d => ({ ...d, service: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Heure d'observation</Label>
+                    <Input
+                      type="time"
+                      value={obsDialog.heure || ''}
+                      onChange={e => setObsDialog(d => ({ ...d, heure: e.target.value }))}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Commentaire global</Label>
+                  <Textarea
+                    placeholder="Notes générales sur cette observation..."
+                    rows={2}
+                    value={obsDialog.commentaire || ''}
+                    onChange={e => setObsDialog(d => ({ ...d, commentaire: e.target.value }))}
+                  />
+                </div>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Heure d'observation</Label>
-                <Input
-                  type="time"
-                  value={obsDialog.heure || ''}
-                  onChange={e => setObsDialog(d => ({ ...d, heure: e.target.value }))}
-                />
-              </div>
+
+              {/* Évaluation des critères */}
+              {criteres.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-px flex-1 bg-gray-200" />
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide shrink-0">
+                      Évaluation des critères
+                    </p>
+                    <div className="h-px flex-1 bg-gray-200" />
+                  </div>
+                  {criteres.map((critere, i) => {
+                    const valeur = (obsDialog.evaluations || {})[critere.id] || 'non_evalue';
+                    // On affiche seulement les 4 options significatives (pas non_evalue)
+                    const options = AUDIT_VALEURS.filter(v => v.value !== 'non_evalue');
+                    return (
+                      <div key={critere.id} className="space-y-1.5">
+                        <p className="text-xs font-medium text-gray-700">
+                          <span className="text-gray-400 mr-1">{i + 1}.</span>{critere.intitule}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {options.map(v => (
+                            <button
+                              key={v.value}
+                              type="button"
+                              onClick={() => setObsDialog(d => ({
+                                ...d,
+                                evaluations: {
+                                  ...(d.evaluations || {}),
+                                  [critere.id]: valeur === v.value ? 'non_evalue' : v.value,
+                                },
+                              }))}
+                              className={`text-xs px-2.5 py-1 rounded-full border transition-all ${
+                                valeur === v.value
+                                  ? v.couleur + ' border-current font-semibold shadow-sm'
+                                  : 'bg-white text-gray-400 border-gray-200 hover:border-gray-400 hover:text-gray-600'
+                              }`}
+                            >
+                              {v.emoji} {v.label}
+                            </button>
+                          ))}
+                          {valeur !== 'non_evalue' && (
+                            <button
+                              type="button"
+                              onClick={() => setObsDialog(d => ({
+                                ...d,
+                                evaluations: { ...(d.evaluations || {}), [critere.id]: 'non_evalue' },
+                              }))}
+                              className="text-xs px-2 py-1 rounded-full border border-dashed border-gray-300 text-gray-400 hover:text-gray-600"
+                            >
+                              ✕ Effacer
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Commentaire global</Label>
-              <Textarea
-                placeholder="Notes générales sur cette observation..."
-                rows={2}
-                value={obsDialog.commentaire || ''}
-                onChange={e => setObsDialog(d => ({ ...d, commentaire: e.target.value }))}
-              />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-1">
+          </ScrollArea>
+          <div className="flex justify-end gap-2 pt-2 border-t">
             <Button variant="outline" onClick={() => setObsDialog({ open: false })}>Annuler</Button>
             <Button onClick={handleSaveObs}>{obsDialog.id ? 'Mettre à jour' : 'Créer la fiche'}</Button>
           </div>
