@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgents } from "@/hooks/useAgents";
-import { AuditGrille } from "@/components/audits/AuditGrille";
+import { AuditTerrain } from "@/components/audits/AuditTerrain";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -353,7 +353,7 @@ export default function AuditsPage() {
   // ── Render ───────────────────────────────────────────────────────────────────
 
   if (selectedAuditId) {
-    return <AuditGrille auditId={selectedAuditId} onClose={() => setSelectedAuditId(null)} />;
+    return <AuditTerrain auditId={selectedAuditId} onClose={() => setSelectedAuditId(null)} />;
   }
 
   return (
