@@ -212,9 +212,77 @@ Réponds UNIQUEMENT avec ce JSON exact :
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
 
+    } else if (context_type === 'audit_analyse') {
+      const system = "Tu es un expert qualité en EHPAD. Réponds UNIQUEMENT en JSON valide sans markdown ni backticks.";
+      const prompt = `Un audit a été réalisé dans un EHPAD.
+Titre : ${data.titre}
+Thème : ${data.theme}
+Service : ${data.service}
+Conformité globale : ${data.pourcentage_global}% (${data.total_conformes}/${data.total_audite})
+
+Critères détaillés :
+${data.criteres}
+
+Analyse ces résultats et réponds UNIQUEMENT avec ce JSON exact :
+{
+  "constat": "Constat qualitatif en 3-4 phrases sur les résultats de l'audit",
+  "propositions": [
+    {
+      "titre": "Titre court de l'action",
+      "description": "Description concrète de l'action corrective à mener",
+      "priorite": "haute|moyenne|faible"
+    }
+  ]
+}
+Propose 3 actions maximum, ciblées sur les critères en non-conformité.`;
+      const response = await callAnthropic(apiKey, system, prompt, 800);
+      if (!response.ok) {
+        const errText = await response.text();
+        return new Response(JSON.stringify({ error: `Erreur API Anthropic ${response.status}: ${errText}` }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const anthropicData = await response.json();
+      const parsed = JSON.parse(anthropicData.content[0].text.trim());
+      return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+    } else if (context_type === 'audit_rapport') {
+      const system = "Tu es un expert qualité en EHPAD. Rédige un rapport d'audit professionnel, structuré et complet.";
+      const prompt = `Rédige un rapport d'audit complet pour un EHPAD.
+
+DONNÉES DE L'AUDIT :
+- Intitulé : ${data.intitule}
+- Auditeur : ${data.qui}
+- Thème : ${data.theme}
+- Service : ${data.service}
+- Période : ${data.date_debut} au ${data.date_fin}
+- Référentiels : ${data.referentiels}
+- Modalités : ${data.modalites}
+- Échantillon : ${data.echantillon}
+
+RÉSULTATS :
+- Conformité globale : ${data.pourcentage_global}% (${data.total_conformes}/${data.total_audite})
+
+Critères :
+${data.criteres}
+
+Points forts : ${data.points_forts || 'Non renseigné'}
+Axes d'amélioration : ${data.points_amelioration || 'Non renseigné'}
+Constat : ${data.constat || 'Non renseigné'}
+Propositions d'actions : ${data.propositions}
+Rédacteur : ${data.redacteur}
+
+Rédige un rapport structuré avec introduction, résultats, analyse, conclusion et recommandations. Ton professionnel, adapté à un EHPAD.`;
+      const response = await callAnthropic(apiKey, system, prompt, 1500);
+      if (!response.ok) {
+        const errText = await response.text();
+        return new Response(JSON.stringify({ error: `Erreur API Anthropic ${response.status}: ${errText}` }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const anthropicData = await response.json();
+      const rapport = anthropicData.content[0].text.trim();
+      return new Response(JSON.stringify({ rapport }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
     } else {
       return new Response(
-        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte | duerp_complete | duerp_propositions | cvs_demande" }),
+        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte | duerp_complete | duerp_propositions | cvs_demande | audit_analyse | audit_rapport" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

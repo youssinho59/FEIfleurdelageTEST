@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAgents } from "@/hooks/useAgents";
+import { AuditGrille } from "@/components/audits/AuditGrille";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,6 +97,7 @@ export default function AuditsPage() {
   const { user } = useAuth();
   const agents = useAgents();
 
+  const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);
   const [tab, setTab] = useState<"audits" | "nc">("audits");
   const [audits, setAudits] = useState<Audit[]>([]);
   const [ncs, setNcs] = useState<NonConformite[]>([]);
@@ -350,6 +352,10 @@ export default function AuditsPage() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
+  if (selectedAuditId) {
+    return <AuditGrille auditId={selectedAuditId} onClose={() => setSelectedAuditId(null)} />;
+  }
+
   return (
     <div className="space-y-6">
 
@@ -473,6 +479,14 @@ export default function AuditsPage() {
                               )}
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs h-8 gap-1.5"
+                                onClick={() => setSelectedAuditId(audit.id)}
+                              >
+                                📋 Grille
+                              </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
