@@ -9,17 +9,15 @@ export const THEMATIQUES_ESSMS = [
 
 // ─── Thèmes réels Ageval / HAS (PACQ Stratégique) ─────────────────────────────
 
-// Les valeurs `id` doivent correspondre EXACTEMENT aux valeurs stockées dans la colonne `theme`
-// de la table pacq_strategique_objectifs (casse, accents, tirets, apostrophes).
 export const THEMES_AGEVAL = [
-  { id: "Chapitre 1 \u2014 La personne accompagn\u00e9e",    label: "Chap.\u00a01 \u2014 La personne",        color: "indigo" },
-  { id: "Chapitre 2 \u2014 Les professionnels",              label: "Chap.\u00a02 \u2014 Les professionnels", color: "rose"   },
-  { id: "Droits et participation des personnes",             label: "Droits et participation",                color: "blue"   },
-  { id: "Parcours et accompagnement",                        label: "Parcours et accompagnement",             color: "green"  },
-  { id: "Qualit\u00e9 de vie et conditions d\u0027accueil",  label: "Qualit\u00e9 de vie",                    color: "purple" },
-  { id: "Sant\u00e9, soins et pr\u00e9vention des risques",  label: "Sant\u00e9\u00a0/ Soins",                color: "red"    },
-  { id: "Ressources humaines et management",                 label: "RH & Management",                        color: "orange" },
-  { id: "D\u00e9marche qualit\u00e9 et gestion des risques", label: "D\u00e9marche qualit\u00e9",             color: "teal"   },
+  { id: "Chapitre 1",               label: "Chap. 1 — La personne",        color: "indigo" },
+  { id: "Chapitre 2",               label: "Chap. 2 — Les professionnels", color: "rose"   },
+  { id: "Droits et participation",  label: "Droits et participation",       color: "blue"   },
+  { id: "Parcours et accompagnement", label: "Parcours et accompagnement", color: "green"  },
+  { id: "Qualite de vie",           label: "Qualité de vie",                color: "purple" },
+  { id: "Sante et soins",           label: "Santé / Soins",                 color: "red"    },
+  { id: "RH et Management",         label: "RH & Management",               color: "orange" },
+  { id: "Demarche qualite",         label: "Démarche qualité",              color: "teal"   },
 ] as const;
 
 export type ThemeAgevalId = (typeof THEMES_AGEVAL)[number]["id"];
