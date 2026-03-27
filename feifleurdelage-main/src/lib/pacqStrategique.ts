@@ -10,6 +10,8 @@ export const THEMATIQUES_ESSMS = [
 // ─── Thèmes réels Ageval / HAS (PACQ Stratégique) ─────────────────────────────
 
 export const THEMES_AGEVAL = [
+  { id: "Chapitre 1 — La personne accompagnée",         label: "Chap. 1 — La personne",     color: "indigo" },
+  { id: "Chapitre 2 — Les professionnels",              label: "Chap. 2 — Les professionnels", color: "rose" },
   { id: "Droits et participation des personnes",        label: "Droits et participation",   color: "blue"   },
   { id: "Parcours et accompagnement",                   label: "Parcours et accompagnement", color: "green"  },
   { id: "Qualité de vie et conditions d'accueil",       label: "Qualité de vie",            color: "purple" },

@@ -72,6 +72,8 @@ const PRIORITE_CONFIG: Record<string, { color: string }> = {
 const THEME_COLORS: Record<string, {
   tabActive: string; tabInactive: string; badge: string; border: string; dot: string;
 }> = {
+  indigo: { tabActive: "bg-indigo-600 text-white shadow", tabInactive: "text-indigo-700 hover:bg-indigo-50 border border-indigo-200", badge: "bg-indigo-100 text-indigo-700", border: "border-l-indigo-400", dot: "bg-indigo-500" },
+  rose:   { tabActive: "bg-rose-600 text-white shadow",   tabInactive: "text-rose-700 hover:bg-rose-50 border border-rose-200",   badge: "bg-rose-100 text-rose-700",   border: "border-l-rose-400",   dot: "bg-rose-500"   },
   blue:   { tabActive: "bg-blue-600 text-white shadow",   tabInactive: "text-blue-700 hover:bg-blue-50 border border-blue-200",   badge: "bg-blue-100 text-blue-700",   border: "border-l-blue-400",   dot: "bg-blue-500"   },
   green:  { tabActive: "bg-green-600 text-white shadow",  tabInactive: "text-green-700 hover:bg-green-50 border border-green-200",  badge: "bg-green-100 text-green-700",  border: "border-l-green-400",  dot: "bg-green-500"  },
   purple: { tabActive: "bg-purple-600 text-white shadow", tabInactive: "text-purple-700 hover:bg-purple-50 border border-purple-200", badge: "bg-purple-100 text-purple-700", border: "border-l-purple-400", dot: "bg-purple-500" },
