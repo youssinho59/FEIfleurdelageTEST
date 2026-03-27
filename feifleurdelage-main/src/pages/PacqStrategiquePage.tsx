@@ -143,6 +143,7 @@ export default function PacqStrategiquePage() {
         .select("id, action_id, annee, commentaire"),
     ]);
 
+    console.log("[PACQ] objectifs bruts :", objs);
     setAllObjectifs((objs as Objectif[]) || []);
     setActions((acts as Action[]) || []);
     setIndicateurs((inds as Indicateur[]) || []);
