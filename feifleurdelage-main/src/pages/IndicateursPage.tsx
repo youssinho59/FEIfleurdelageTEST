@@ -390,7 +390,7 @@ const KpiCard = ({
 // ── IndicateursPage ───────────────────────────────────────────────────────────
 
 const IndicateursPage = () => {
-  const { isAdmin, userServices, user } = useAuth();
+  const { isAdmin, userServices } = useAuth();
 
   // ── Access filtering ───────────────────────────────────────────────────────
 
@@ -553,7 +553,6 @@ const IndicateursPage = () => {
       indicateur: string;
       date_mois: string;
       valeur: number | null;
-      created_by: string | undefined;
     }[] = Object.entries(saisieValues).map(([indicateur, val]) => {
       const theme = activeDomaine.themes.find((t) =>
         t.indicateurs.some((i) => i.label === indicateur)
@@ -564,7 +563,6 @@ const IndicateursPage = () => {
         indicateur,
         date_mois: selectedDateStr,
         valeur: val === "" ? null : parseFloat(val.replace(",", ".")),
-        created_by: user?.id,
       };
     });
 
@@ -576,7 +574,6 @@ const IndicateursPage = () => {
         indicateur: "Ratio prévu/effectués (%)",
         date_mois: selectedDateStr,
         valeur: locauxRatio,
-        created_by: user?.id,
       });
     }
 
