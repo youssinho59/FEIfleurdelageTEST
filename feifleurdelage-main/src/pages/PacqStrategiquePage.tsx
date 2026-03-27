@@ -153,7 +153,13 @@ export default function PacqStrategiquePage() {
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
-  const objectifsForTheme = allObjectifs.filter(o => o.theme === selectedTheme);
+  // Normalise : trim + remplace apostrophes curly (U+2018/2019) par droite (U+27)
+  const normalise = (s: string | null) =>
+    (s || "").trim().replace(/[\u2018\u2019]/g, "\u0027");
+
+  const objectifsForTheme = allObjectifs.filter(
+    o => normalise(o.theme) === normalise(selectedTheme)
+  );
 
   const visibleObjectifs = objectifsForTheme.filter(o => {
     const objActions = actions.filter(a => a.objectif_id === o.id);
@@ -536,7 +542,7 @@ export default function PacqStrategiquePage() {
         {THEMES_AGEVAL.map(t => {
           const c = THEME_COLORS[t.color];
           const active = t.id === selectedTheme;
-          const count = allObjectifs.filter(o => o.theme === t.id).length;
+          const count = allObjectifs.filter(o => normalise(o.theme) === normalise(t.id)).length;
           return (
             <button
               key={t.id}
