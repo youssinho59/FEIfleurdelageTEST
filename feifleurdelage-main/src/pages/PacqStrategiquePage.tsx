@@ -2,12 +2,10 @@ import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useAgents } from "@/hooks/useAgents";
-import { THEMATIQUES_ESSMS, ANNEES_INDICATEURS, OBJECTIFS_PAR_THEMATIQUE, ThematiqueId } from "@/lib/pacqStrategique";
+import { THEMES_AGEVAL, ANNEES_INDICATEURS } from "@/lib/pacqStrategique";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -15,7 +13,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { toast } from "sonner";
 import {
   Target, Plus, Pencil, Trash2, ChevronDown, ChevronUp,
-  Calendar, User, CheckCircle2, BarChart3, Sparkles,
+  Calendar, User, CheckCircle2, BarChart3,
   Download, FileSpreadsheet, Loader2, UserCheck,
 } from "lucide-react";
 import jsPDF from "jspdf";
@@ -25,30 +23,24 @@ import * as XLSX from "xlsx";
 
 type Objectif = {
   id: string;
-  thematique: string;
-  titre: string;
-  ordre: number;
-  created_at: string;
-  created_by: string | null;
+  reference: string | null;
+  intitule: string | null;
+  theme: string | null;
+  responsable: string | null;
+  priorite: string | null;
+  avancement: string | null;
+  echeance: string | null;
 };
 
 type Action = {
   id: string;
   objectif_id: string;
-  titre: string;
-  description: string | null;
-  pilote_id: string | null;
-  date_echeance: string | null;
-  statut: "en_cours" | "realise" | "abandonne";
-  source: string | null;
-  ordre: number;
+  intitule: string | null;
+  pilote: string | null;
+  priorite: string | null;
+  avancement: string | null;
+  echeance: string | null;
 };
-
-const SOURCES_PACQS = [
-  "Auto-évaluation", "Projet d'établissement 2026-2030", "Réglementation",
-  "Évaluation externe 2027", "DUERP", "Cartographie des risques",
-  "Instance", "Audit interne", "Autre",
-];
 
 type Indicateur = {
   id: string;
@@ -59,29 +51,37 @@ type Indicateur = {
 
 // ─── Configs ──────────────────────────────────────────────────────────────────
 
-const THEMATIQUE_COLORS: Record<string, {
-  tabActive: string;
-  tabInactive: string;
-  badge: string;
-  border: string;
-  dot: string;
+const AVANCEMENT_OPTIONS = ["Non initié", "Planification", "En cours", "Finalisation", "Terminé"];
+const PRIORITE_OPTIONS   = ["Basse", "Normale", "Haute", "Critique"];
+
+const AVANCEMENT_CONFIG: Record<string, { color: string }> = {
+  "Non initié":  { color: "bg-slate-100 text-slate-500"       },
+  "Planification":{ color: "bg-amber-100 text-amber-700"       },
+  "En cours":    { color: "bg-blue-100 text-blue-700"          },
+  "Finalisation":{ color: "bg-violet-100 text-violet-700"      },
+  "Terminé":     { color: "bg-emerald-100 text-emerald-700"    },
+};
+
+const PRIORITE_CONFIG: Record<string, { color: string }> = {
+  "Basse":    { color: "bg-slate-100 text-slate-500"     },
+  "Normale":  { color: "bg-sky-100 text-sky-700"         },
+  "Haute":    { color: "bg-orange-100 text-orange-700"   },
+  "Critique": { color: "bg-red-100 text-red-700"         },
+};
+
+const THEME_COLORS: Record<string, {
+  tabActive: string; tabInactive: string; badge: string; border: string; dot: string;
 }> = {
   blue:   { tabActive: "bg-blue-600 text-white shadow",   tabInactive: "text-blue-700 hover:bg-blue-50 border border-blue-200",   badge: "bg-blue-100 text-blue-700",   border: "border-l-blue-400",   dot: "bg-blue-500"   },
   green:  { tabActive: "bg-green-600 text-white shadow",  tabInactive: "text-green-700 hover:bg-green-50 border border-green-200",  badge: "bg-green-100 text-green-700",  border: "border-l-green-400",  dot: "bg-green-500"  },
-  red:    { tabActive: "bg-red-600 text-white shadow",    tabInactive: "text-red-700 hover:bg-red-50 border border-red-200",    badge: "bg-red-100 text-red-700",    border: "border-l-red-400",    dot: "bg-red-500"    },
   purple: { tabActive: "bg-purple-600 text-white shadow", tabInactive: "text-purple-700 hover:bg-purple-50 border border-purple-200", badge: "bg-purple-100 text-purple-700", border: "border-l-purple-400", dot: "bg-purple-500" },
+  red:    { tabActive: "bg-red-600 text-white shadow",    tabInactive: "text-red-700 hover:bg-red-50 border border-red-200",    badge: "bg-red-100 text-red-700",    border: "border-l-red-400",    dot: "bg-red-500"    },
   orange: { tabActive: "bg-orange-600 text-white shadow", tabInactive: "text-orange-700 hover:bg-orange-50 border border-orange-200", badge: "bg-orange-100 text-orange-700", border: "border-l-orange-400", dot: "bg-orange-500" },
   teal:   { tabActive: "bg-teal-600 text-white shadow",   tabInactive: "text-teal-700 hover:bg-teal-50 border border-teal-200",   badge: "bg-teal-100 text-teal-700",   border: "border-l-teal-400",   dot: "bg-teal-500"   },
 };
 
-const STATUT_CONFIG: Record<Action["statut"], { label: string; color: string }> = {
-  en_cours:  { label: "En cours",  color: "bg-blue-100 text-blue-700"      },
-  realise:   { label: "Réalisé",   color: "bg-emerald-100 text-emerald-700" },
-  abandonne: { label: "Abandonné", color: "bg-slate-100 text-slate-500"    },
-};
-
-const EMPTY_OBJ_FORM  = { titre: "" };
-const EMPTY_ACT_FORM  = { titre: "", description: "", pilote_id: "", date_echeance: "", statut: "en_cours" as Action["statut"], source: "" };
+const EMPTY_OBJ_FORM = { reference: "", intitule: "", theme: "", responsable: "", priorite: "Normale", avancement: "Non initié", echeance: "" };
+const EMPTY_ACT_FORM = { intitule: "", pilote: "", priorite: "Normale", avancement: "Non initié", echeance: "" };
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.04 } } };
 const item      = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, transition: { duration: 0.25 } } };
@@ -89,607 +89,427 @@ const item      = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, tra
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function PacqStrategiquePage() {
-  const { user } = useAuth();
-  const agents = useAgents();
+  const { profile } = useAuth();
 
-  const [selectedThematique, setSelectedThematique] = useState(THEMATIQUES_ESSMS[0].id);
-  const [filterSourceStrat, setFilterSourceStrat] = useState("tous");
+  const [selectedTheme, setSelectedTheme] = useState(THEMES_AGEVAL[0].id);
+  const [filterAvancement, setFilterAvancement] = useState("tous");
   const [filterMesActions, setFilterMesActions] = useState(false);
-  const [allObjectifs, setAllObjectifs]   = useState<Objectif[]>([]);
-  const [actions, setActions]             = useState<Action[]>([]);
-  const [indicateurs, setIndicateurs]     = useState<Indicateur[]>([]);
-  const [indicateursEdit, setIndicateursEdit] = useState<Record<string, Record<number, string>>>({});
-  const [savingInd, setSavingInd]         = useState<string | null>(null);
-  const [loading, setLoading]             = useState(true);
-  const [expandedActions, setExpandedActions] = useState<Set<string>>(new Set());
+  const [allObjectifs, setAllObjectifs] = useState<Objectif[]>([]);
+  const [actions, setActions]           = useState<Action[]>([]);
+  const [indicateurs, setIndicateurs]   = useState<Indicateur[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [expandedObjectifs, setExpandedObjectifs] = useState<Set<string>>(new Set());
   const [expandedIndicateurs, setExpandedIndicateurs] = useState<Set<string>>(new Set());
 
-  // Dialogs objectif
-  const [objDialogOpen, setObjDialogOpen]     = useState(false);
-  const [editingObj, setEditingObj]           = useState<Objectif | null>(null);
-  const [objForm, setObjForm]                 = useState(EMPTY_OBJ_FORM);
-  const [savingObj, setSavingObj]             = useState(false);
-  const [deleteObj, setDeleteObj]             = useState<Objectif | null>(null);
-  const [deletingObj, setDeletingObj]         = useState(false);
+  // Objectif dialog
+  const [objDialog, setObjDialog]   = useState(false);
+  const [objEditing, setObjEditing] = useState<Objectif | null>(null);
+  const [objForm, setObjForm]       = useState({ ...EMPTY_OBJ_FORM });
+  const [objSaving, setObjSaving]   = useState(false);
 
-  // Dialogs action
-  const [actDialogOpen, setActDialogOpen]     = useState(false);
-  const [editingAct, setEditingAct]           = useState<Action | null>(null);
-  const [actForm, setActForm]                 = useState(EMPTY_ACT_FORM);
-  const [actObjectifId, setActObjectifId]     = useState<string>("");
-  const [savingAct, setSavingAct]             = useState(false);
-  const [deleteAct, setDeleteAct]             = useState<Action | null>(null);
-  const [deletingAct, setDeletingAct]         = useState(false);
-  const [initializingPredef, setInitializingPredef] = useState(false);
-  const [exporting, setExporting] = useState<"pdf" | "excel" | null>(null);
+  // Action dialog
+  const [actDialog, setActDialog]     = useState(false);
+  const [actEditing, setActEditing]   = useState<Action | null>(null);
+  const [actParentId, setActParentId] = useState<string>("");
+  const [actForm, setActForm]         = useState({ ...EMPTY_ACT_FORM });
+  const [actSaving, setActSaving]     = useState(false);
+
+  // Delete
+  const [deleteTarget, setDeleteTarget] = useState<{ type: "objectif" | "action"; id: string } | null>(null);
+
+  // Indicateur edit
+  const [indEditing, setIndEditing] = useState<{ actionId: string; annee: number } | null>(null);
+  const [indValue, setIndValue]     = useState("");
+  const [indSaving, setIndSaving]   = useState(false);
+
+  // Export
+  const [exporting, setExporting] = useState<"pdf" | "xlsx" | null>(null);
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
-  const fetchAllObjectifs = useCallback(async () => {
-    const { data } = await supabase
-      .from("pacq_strategique_objectifs")
-      .select("*")
-      .order("ordre");
-    setAllObjectifs((data as Objectif[]) || []);
-  }, []);
+  const load = useCallback(async () => {
+    setLoading(true);
 
-  const fetchActionsAndIndicateurs = useCallback(async (thematique: string, objs: Objectif[]) => {
-    const objIds = objs.filter(o => o.thematique === thematique).map(o => o.id);
-    if (objIds.length === 0) {
-      setActions([]);
-      setIndicateurs([]);
-      setIndicateursEdit({});
-      setLoading(false);
-      return;
-    }
-    const { data: actData } = await supabase
-      .from("pacq_strategique_actions")
-      .select("*")
-      .in("objectif_id", objIds)
-      .order("ordre");
-    const acts = (actData as Action[]) || [];
-    setActions(acts);
+    const [{ data: objs }, { data: acts }, { data: inds }] = await Promise.all([
+      supabase.from("pacq_strategique_objectifs")
+        .select("id, reference, intitule, theme, responsable, priorite, avancement, echeance")
+        .order("reference", { ascending: true }),
+      supabase.from("pacq_strategique_actions")
+        .select("id, objectif_id, intitule, pilote, priorite, avancement, echeance")
+        .order("intitule", { ascending: true }),
+      supabase.from("pacq_strategique_indicateurs")
+        .select("id, action_id, annee, commentaire"),
+    ]);
 
-    const actIds = acts.map(a => a.id);
-    let inds: Indicateur[] = [];
-    if (actIds.length > 0) {
-      const { data: indData } = await supabase
-        .from("pacq_strategique_indicateurs")
-        .select("*")
-        .in("action_id", actIds);
-      inds = (indData as Indicateur[]) || [];
-    }
-    setIndicateurs(inds);
-
-    // Init edit state
-    const editState: Record<string, Record<number, string>> = {};
-    acts.forEach(act => {
-      editState[act.id] = {};
-      ANNEES_INDICATEURS.forEach(annee => {
-        const found = inds.find(i => i.action_id === act.id && i.annee === annee);
-        editState[act.id][annee] = found?.commentaire || "";
-      });
-    });
-    setIndicateursEdit(editState);
+    setAllObjectifs((objs as Objectif[]) || []);
+    setActions((acts as Action[]) || []);
+    setIndicateurs((inds as Indicateur[]) || []);
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      const { data } = await supabase
-        .from("pacq_strategique_objectifs")
-        .select("*")
-        .order("ordre");
-      const objs = (data as Objectif[]) || [];
-      setAllObjectifs(objs);
-      await fetchActionsAndIndicateurs(selectedThematique, objs);
-    };
-    load();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [load]);
 
-  const handleThematiqueChange = async (id: string) => {
-    setSelectedThematique(id);
-    setLoading(true);
-    await fetchActionsAndIndicateurs(id, allObjectifs);
-  };
+  // ── Derived data ─────────────────────────────────────────────────────────────
 
-  const refresh = async () => {
-    setLoading(true);
-    await fetchAllObjectifs();
-    const { data } = await supabase
-      .from("pacq_strategique_objectifs")
-      .select("*")
-      .order("ordre");
-    const objs = (data as Objectif[]) || [];
-    setAllObjectifs(objs);
-    await fetchActionsAndIndicateurs(selectedThematique, objs);
-  };
+  const objectifsForTheme = allObjectifs.filter(o => o.theme === selectedTheme);
 
-  // ── Objectif CRUD ───────────────────────────────────────────────────────────
-
-  const openCreateObj = () => {
-    setEditingObj(null);
-    setObjForm(EMPTY_OBJ_FORM);
-    setObjDialogOpen(true);
-  };
-
-  const openEditObj = (o: Objectif) => {
-    setEditingObj(o);
-    setObjForm({ titre: o.titre });
-    setObjDialogOpen(true);
-  };
-
-  const handleSaveObj = async () => {
-    if (!user || !objForm.titre.trim()) { toast.error("Le titre est obligatoire."); return; }
-    setSavingObj(true);
-    const payload = { titre: objForm.titre.trim(), thematique: selectedThematique };
-    const { error } = editingObj
-      ? await supabase.from("pacq_strategique_objectifs").update(payload).eq("id", editingObj.id)
-      : await supabase.from("pacq_strategique_objectifs").insert({ ...payload, ordre: 0, created_by: user.id });
-    if (error) toast.error("Erreur : " + error.message);
-    else { toast.success(editingObj ? "Objectif mis à jour." : "Objectif créé."); setObjDialogOpen(false); await refresh(); }
-    setSavingObj(false);
-  };
-
-  const handleDeleteObj = async () => {
-    if (!deleteObj) return;
-    setDeletingObj(true);
-    const { error } = await supabase.from("pacq_strategique_objectifs").delete().eq("id", deleteObj.id);
-    if (error) toast.error("Erreur : " + error.message);
-    else { toast.success("Objectif supprimé."); setDeleteObj(null); await refresh(); }
-    setDeletingObj(false);
-  };
-
-  // ── Action CRUD ─────────────────────────────────────────────────────────────
-
-  const openCreateAct = (objectifId: string) => {
-    setEditingAct(null);
-    setActObjectifId(objectifId);
-    setActForm(EMPTY_ACT_FORM);
-    setActDialogOpen(true);
-  };
-
-  const openEditAct = (a: Action) => {
-    setEditingAct(a);
-    setActObjectifId(a.objectif_id);
-    setActForm({
-      titre: a.titre,
-      description: a.description || "",
-      pilote_id: a.pilote_id || "",
-      date_echeance: a.date_echeance || "",
-      statut: a.statut,
-      source: a.source || "",
-    });
-    setActDialogOpen(true);
-  };
-
-  const handleSaveAct = async () => {
-    if (!user || !actForm.titre.trim()) { toast.error("Le titre est obligatoire."); return; }
-    setSavingAct(true);
-    const payload = {
-      titre: actForm.titre.trim(),
-      description: actForm.description.trim() || null,
-      pilote_id: actForm.pilote_id || null,
-      date_echeance: actForm.date_echeance || null,
-      statut: actForm.statut,
-      source: actForm.source || null,
-      objectif_id: actObjectifId,
-    };
-    const { error } = editingAct
-      ? await supabase.from("pacq_strategique_actions").update(payload).eq("id", editingAct.id)
-      : await supabase.from("pacq_strategique_actions").insert({ ...payload, ordre: 0, created_by: user.id });
-    if (error) toast.error("Erreur : " + error.message);
-    else { toast.success(editingAct ? "Action mise à jour." : "Action créée."); setActDialogOpen(false); await refresh(); }
-    setSavingAct(false);
-  };
-
-  const handleDeleteAct = async () => {
-    if (!deleteAct) return;
-    setDeletingAct(true);
-    const { error } = await supabase.from("pacq_strategique_actions").delete().eq("id", deleteAct.id);
-    if (error) toast.error("Erreur : " + error.message);
-    else { toast.success("Action supprimée."); setDeleteAct(null); await refresh(); }
-    setDeletingAct(false);
-  };
-
-  // ── Initialisation prédéfinie ────────────────────────────────────────────────
-
-  const handleInitializePredef = async () => {
-    if (!user) return;
-    const titres = OBJECTIFS_PAR_THEMATIQUE[selectedThematique as ThematiqueId];
-    if (!titres?.length) return;
-    setInitializingPredef(true);
-    const rows = titres.map((titre, i) => ({
-      thematique: selectedThematique,
-      titre,
-      ordre: i,
-      created_by: user.id,
-    }));
-    const { error } = await supabase.from("pacq_strategique_objectifs").insert(rows);
-    if (error) toast.error("Erreur : " + error.message);
-    else { toast.success("Objectifs initialisés avec le référentiel HAS/AVS."); await refresh(); }
-    setInitializingPredef(false);
-  };
-
-  // ── Indicateurs ─────────────────────────────────────────────────────────────
-
-  const handleIndicateurBlur = async (actionId: string, annee: number) => {
-    const commentaire = indicateursEdit[actionId]?.[annee] ?? "";
-    const existing = indicateurs.find(i => i.action_id === actionId && i.annee === annee);
-    if ((existing?.commentaire ?? "") === commentaire) return; // no change
-    const key = `${actionId}-${annee}`;
-    setSavingInd(key);
-    const { error } = await supabase
-      .from("pacq_strategique_indicateurs")
-      .upsert({ action_id: actionId, annee, commentaire: commentaire || null }, { onConflict: "action_id,annee" });
-    if (error) toast.error("Erreur sauvegarde indicateur : " + error.message);
-    else {
-      setIndicateurs(prev => {
-        const next = prev.filter(i => !(i.action_id === actionId && i.annee === annee));
-        next.push({ id: existing?.id || "", action_id: actionId, annee, commentaire: commentaire || null });
-        return next;
-      });
+  const visibleObjectifs = objectifsForTheme.filter(o => {
+    const objActions = actions.filter(a => a.objectif_id === o.id);
+    if (filterMesActions) {
+      if (!objActions.some(a => a.pilote === profile?.full_name)) return false;
     }
-    setSavingInd(null);
+    if (filterAvancement !== "tous") {
+      if (!objActions.some(a => a.avancement === filterAvancement)) return false;
+    }
+    return true;
+  });
+
+  const actionsForObjectif = (objId: string) => {
+    let acts = actions.filter(a => a.objectif_id === objId);
+    if (filterAvancement !== "tous") acts = acts.filter(a => a.avancement === filterAvancement);
+    if (filterMesActions) acts = acts.filter(a => a.pilote === profile?.full_name);
+    return acts;
   };
 
-  // ── Exports ─────────────────────────────────────────────────────────────────
+  const totalActions   = actions.length;
+  const terminees      = actions.filter(a => a.avancement === "Terminé").length;
+  const enCours        = actions.filter(a => a.avancement === "En cours").length;
+  const progressPct    = totalActions > 0 ? Math.round((terminees / totalActions) * 100) : 0;
 
-  const fetchAllForExport = async () => {
-    const [objRes, actRes, indRes, profilesRes] = await Promise.all([
-      supabase.from("pacq_strategique_objectifs").select("*").order("thematique").order("ordre"),
-      supabase.from("pacq_strategique_actions").select("*").order("ordre"),
-      supabase.from("pacq_strategique_indicateurs").select("*"),
-      supabase.from("profiles").select("user_id, full_name"),
-    ]);
-    return {
-      allObjs: (objRes.data || []) as Objectif[],
-      allActs: (actRes.data || []) as Action[],
-      allInds: (indRes.data || []) as Indicateur[],
-      profiles: (profilesRes.data || []) as { user_id: string; full_name: string }[],
+  // ── Toggle helpers ───────────────────────────────────────────────────────────
+
+  const toggleObjectif = (id: string) =>
+    setExpandedObjectifs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const toggleIndicateurs = (id: string) =>
+    setExpandedIndicateurs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // ── Objectif CRUD ────────────────────────────────────────────────────────────
+
+  const openAddObjectif = () => {
+    setObjEditing(null);
+    setObjForm({ ...EMPTY_OBJ_FORM, theme: selectedTheme });
+    setObjDialog(true);
+  };
+
+  const openEditObjectif = (o: Objectif) => {
+    setObjEditing(o);
+    setObjForm({
+      reference:   o.reference   || "",
+      intitule:    o.intitule    || "",
+      theme:       o.theme       || selectedTheme,
+      responsable: o.responsable || "",
+      priorite:    o.priorite    || "Normale",
+      avancement:  o.avancement  || "Non initié",
+      echeance:    o.echeance    || "",
+    });
+    setObjDialog(true);
+  };
+
+  const saveObjectif = async () => {
+    if (!objForm.intitule.trim()) { toast.error("L'intitulé est obligatoire"); return; }
+    setObjSaving(true);
+    const payload: any = {
+      reference:   objForm.reference   || null,
+      intitule:    objForm.intitule.trim(),
+      theme:       objForm.theme        || null,
+      responsable: objForm.responsable  || null,
+      priorite:    objForm.priorite     || "Normale",
+      avancement:  objForm.avancement   || "Non initié",
+      echeance:    objForm.echeance     || null,
     };
+    const { error } = objEditing
+      ? await supabase.from("pacq_strategique_objectifs").update(payload).eq("id", objEditing.id)
+      : await supabase.from("pacq_strategique_objectifs").insert(payload);
+    setObjSaving(false);
+    if (error) { toast.error("Erreur lors de l'enregistrement"); return; }
+    toast.success(objEditing ? "Objectif mis à jour" : "Objectif créé");
+    setObjDialog(false);
+    load();
   };
+
+  // ── Action CRUD ──────────────────────────────────────────────────────────────
+
+  const openAddAction = (objId: string) => {
+    setActEditing(null);
+    setActParentId(objId);
+    setActForm({ ...EMPTY_ACT_FORM });
+    setActDialog(true);
+  };
+
+  const openEditAction = (a: Action) => {
+    setActEditing(a);
+    setActParentId(a.objectif_id);
+    setActForm({
+      intitule:   a.intitule   || "",
+      pilote:     a.pilote     || "",
+      priorite:   a.priorite   || "Normale",
+      avancement: a.avancement || "Non initié",
+      echeance:   a.echeance   || "",
+    });
+    setActDialog(true);
+  };
+
+  const saveAction = async () => {
+    if (!actForm.intitule.trim()) { toast.error("L'intitulé est obligatoire"); return; }
+    setActSaving(true);
+    const payload: any = {
+      objectif_id: actParentId,
+      intitule:    actForm.intitule.trim(),
+      pilote:      actForm.pilote    || null,
+      priorite:    actForm.priorite  || "Normale",
+      avancement:  actForm.avancement || "Non initié",
+      echeance:    actForm.echeance  || null,
+    };
+    const { error } = actEditing
+      ? await supabase.from("pacq_strategique_actions").update(payload).eq("id", actEditing.id)
+      : await supabase.from("pacq_strategique_actions").insert(payload);
+    setActSaving(false);
+    if (error) { toast.error("Erreur lors de l'enregistrement"); return; }
+    toast.success(actEditing ? "Action mise à jour" : "Action créée");
+    setActDialog(false);
+    load();
+  };
+
+  // ── Delete ───────────────────────────────────────────────────────────────────
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const table = deleteTarget.type === "objectif" ? "pacq_strategique_objectifs" : "pacq_strategique_actions";
+    const { error } = await supabase.from(table).delete().eq("id", deleteTarget.id);
+    if (error) { toast.error("Erreur lors de la suppression"); }
+    else { toast.success(deleteTarget.type === "objectif" ? "Objectif supprimé" : "Action supprimée"); load(); }
+    setDeleteTarget(null);
+  };
+
+  // ── Indicateurs ──────────────────────────────────────────────────────────────
+
+  const openEditIndicateur = (actionId: string, annee: number) => {
+    const existing = indicateurs.find(i => i.action_id === actionId && i.annee === annee);
+    setIndEditing({ actionId, annee });
+    setIndValue(existing?.commentaire || "");
+  };
+
+  const saveIndicateur = async () => {
+    if (!indEditing) return;
+    setIndSaving(true);
+    const existing = indicateurs.find(i => i.action_id === indEditing.actionId && i.annee === indEditing.annee);
+    const payload = { action_id: indEditing.actionId, annee: indEditing.annee, commentaire: indValue };
+    const { error } = existing
+      ? await supabase.from("pacq_strategique_indicateurs").update({ commentaire: indValue }).eq("id", existing.id)
+      : await supabase.from("pacq_strategique_indicateurs").insert(payload);
+    setIndSaving(false);
+    if (error) { toast.error("Erreur"); return; }
+    toast.success("Indicateur enregistré");
+    setIndEditing(null);
+    const { data } = await supabase.from("pacq_strategique_indicateurs").select("id, action_id, annee, commentaire");
+    setIndicateurs((data as Indicateur[]) || []);
+  };
+
+  // ── Export PDF ───────────────────────────────────────────────────────────────
 
   const exportPDF = async () => {
     setExporting("pdf");
-    toast("Génération en cours…");
-    const { allObjs, allActs, allInds, profiles } = await fetchAllForExport();
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pageW = doc.internal.pageSize.getWidth();
+    let y = 15;
 
-    const piloteName = (id: string | null) =>
-      id ? (profiles.find((p) => p.user_id === id)?.full_name ?? "Inconnu") : "—";
-
-    const TERRACOTTA: [number, number, number] = [196, 107, 72];
-    const DARK: [number, number, number] = [41, 37, 33];
-    const MUTED: [number, number, number] = [140, 130, 120];
-    const SECTION_BG: [number, number, number] = [245, 240, 235];
-    const BORDER: [number, number, number] = [220, 210, 200];
-    const THEMATIQUE_HEX: Record<string, [number, number, number]> = {
-      blue: [59, 130, 246], green: [34, 197, 94], red: [239, 68, 68],
-      purple: [168, 85, 247], orange: [249, 115, 22], teal: [20, 184, 166],
-    };
-
-    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-    const PAGE_W = 210;
-    const MARGIN = 14;
-    const CONTENT_W = PAGE_W - MARGIN * 2;
-    const dateStr = new Date().toLocaleDateString("fr-FR");
-
-    const STATUT_LABELS: Record<string, string> = { en_cours: "En cours", realise: "Réalisé", abandonne: "Abandonné" };
-
-    // ── Header helper ──
-    const addPageHeader = () => {
-      doc.setFillColor(...TERRACOTTA);
-      doc.roundedRect(0, 0, PAGE_W, 40, 0, 0, "F");
-      doc.setFillColor(220, 140, 100);
-      doc.rect(0, 36, PAGE_W, 4, "F");
-      doc.setFillColor(255, 255, 255);
-      doc.circle(25, 20, 10, "F");
-      doc.setTextColor(...TERRACOTTA);
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("F\u00C2", 21, 23);
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(18);
-      doc.setFont("helvetica", "bold");
-      doc.text("EHPAD La Fleur de l'\u00C2ge", 42, 18);
-      doc.setFontSize(11);
-      doc.setFont("helvetica", "normal");
-      doc.text("PACQS Strat\u00E9gique \u2014 Plan d\u2019am\u00E9lioration continue de la qualit\u00E9 et de la s\u00E9curit\u00E9", 42, 28);
-      doc.setTextColor(...DARK);
-    };
-
-    addPageHeader();
-    let y = 48;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("PACQS Stratégique — Plan d'amélioration continue de la qualité", pageW / 2, y, { align: "center" });
+    y += 8;
     doc.setFontSize(9);
-    doc.setTextColor(...MUTED);
-    doc.text(`G\u00E9n\u00E9r\u00E9 le ${dateStr}`, PAGE_W - MARGIN, y - 2, { align: "right" });
+    doc.setFont("helvetica", "normal");
+    doc.text(`Exporté le ${new Date().toLocaleDateString("fr-FR")}`, pageW / 2, y, { align: "center" });
+    y += 10;
 
-    const checkPageBreak = (needed: number) => {
-      if (y + needed > 278) {
-        doc.addPage();
-        addPageHeader();
-        y = 48;
-      }
-    };
+    for (const theme of THEMES_AGEVAL) {
+      const objs = allObjectifs.filter(o => o.theme === theme.id);
+      if (objs.length === 0) continue;
 
-    for (const t of THEMATIQUES_ESSMS) {
-      const tColor = THEMATIQUE_HEX[t.color] ?? TERRACOTTA;
-      const tObjs = allObjs.filter((o) => o.thematique === t.id);
-      if (tObjs.length === 0) continue;
-
-      checkPageBreak(16);
-      // Thématique title band
-      doc.setFillColor(...tColor);
-      doc.roundedRect(MARGIN, y, CONTENT_W, 10, 2, 2, "F");
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(10.5);
+      if (y > 170) { doc.addPage(); y = 15; }
       doc.setFont("helvetica", "bold");
-      doc.text(t.label, MARGIN + 4, y + 7);
-      doc.setTextColor(...DARK);
-      y += 14;
+      doc.setFontSize(11);
+      doc.text(`▸ ${theme.label}`, 10, y);
+      y += 7;
 
-      for (const obj of tObjs) {
-        const objActs = allActs.filter((a) => a.objectif_id === obj.id);
-        checkPageBreak(14);
-
-        // Objectif sub-section
-        doc.setFillColor(...SECTION_BG);
-        doc.setDrawColor(...BORDER);
-        doc.roundedRect(MARGIN, y, CONTENT_W, 9, 2, 2, "FD");
-        doc.setFillColor(...tColor);
-        doc.roundedRect(MARGIN, y, 3, 9, 1, 0, "F");
-        doc.rect(MARGIN + 1, y, 2, 9, "F");
+      for (const obj of objs) {
+        if (y > 170) { doc.addPage(); y = 15; }
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9);
-        doc.setTextColor(...tColor);
-        const objTitleLines = doc.splitTextToSize(obj.titre, CONTENT_W - 12);
-        doc.text(objTitleLines[0], MARGIN + 7, y + 6);
-        doc.setTextColor(...DARK);
-        y += 13;
+        const ref = obj.reference ? `[${obj.reference}] ` : "";
+        const lines = doc.splitTextToSize(`${ref}${obj.intitule || ""}`, pageW - 30);
+        doc.text(lines, 14, y);
+        y += lines.length * 5;
 
-        if (objActs.length === 0) {
-          checkPageBreak(7);
-          doc.setFontSize(8);
-          doc.setTextColor(...MUTED);
+        if (obj.responsable || obj.priorite || obj.avancement) {
           doc.setFont("helvetica", "italic");
-          doc.text("Aucune action renseign\u00E9e.", MARGIN + 4, y + 4);
-          y += 8;
-          continue;
+          doc.setFontSize(8);
+          const meta = [
+            obj.responsable ? `Responsable: ${obj.responsable}` : null,
+            obj.priorite    ? `Priorité: ${obj.priorite}`       : null,
+            obj.avancement  ? `Avancement: ${obj.avancement}`   : null,
+          ].filter(Boolean).join("  |  ");
+          doc.text(meta, 14, y);
+          y += 5;
         }
 
-        // Table header
-        const C = {
-          act: { x: MARGIN, w: 62 },
-          pilote: { x: MARGIN + 62, w: 30 },
-          echeance: { x: MARGIN + 92, w: 24 },
-          statut: { x: MARGIN + 116, w: 22 },
-          ind: { x: MARGIN + 138, w: CONTENT_W - 138 },
-        };
-        checkPageBreak(8);
-        doc.setFillColor(...BORDER);
-        doc.roundedRect(MARGIN, y, CONTENT_W, 6, 1, 1, "F");
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(7.5);
-        doc.setTextColor(...DARK);
-        doc.text("Action", C.act.x + 1, y + 4.3);
-        doc.text("Pilote", C.pilote.x + 1, y + 4.3);
-        doc.text("\u00C9ch\u00E9ance", C.echeance.x + 1, y + 4.3);
-        doc.text("Statut", C.statut.x + 1, y + 4.3);
-        doc.text("Indicateurs", C.ind.x + 1, y + 4.3);
-        y += 7;
-
-        for (const act of objActs) {
-          const actInds = allInds.filter((i) => i.action_id === act.id && i.commentaire);
-          const indText = actInds.map((i) => `${i.annee}: ${i.commentaire}`).join("  |  ") || "\u2014";
-          const actionLines = doc.splitTextToSize(act.titre, C.act.w - 2);
-          const piloteLines = doc.splitTextToSize(piloteName(act.pilote_id), C.pilote.w - 2);
-          const indLines = doc.splitTextToSize(indText, C.ind.w - 2);
-          const rowH = Math.max(actionLines.length, piloteLines.length, indLines.length) * 4 + 4;
-
-          checkPageBreak(rowH);
-          doc.setFillColor(250, 247, 243);
-          doc.rect(MARGIN, y, CONTENT_W, rowH, "F");
-          doc.setDrawColor(...BORDER);
-          doc.setLineWidth(0.2);
-          doc.line(MARGIN, y + rowH, MARGIN + CONTENT_W, y + rowH);
+        const objActions = actions.filter(a => a.objectif_id === obj.id);
+        for (const act of objActions) {
+          if (y > 180) { doc.addPage(); y = 15; }
           doc.setFont("helvetica", "normal");
-          doc.setFontSize(7.5);
-          doc.setTextColor(...DARK);
-          doc.text(actionLines, C.act.x + 1, y + 3.5);
-          doc.text(piloteLines, C.pilote.x + 1, y + 3.5);
-          doc.text(act.date_echeance ? new Date(act.date_echeance + "T00:00:00").toLocaleDateString("fr-FR") : "\u2014", C.echeance.x + 1, y + 3.5);
-          doc.text(STATUT_LABELS[act.statut] ?? act.statut, C.statut.x + 1, y + 3.5);
-          doc.text(indLines, C.ind.x + 1, y + 3.5);
-          y += rowH;
+          doc.setFontSize(8);
+          const actLines = doc.splitTextToSize(`• ${act.intitule || ""}`, pageW - 40);
+          doc.text(actLines, 20, y);
+          y += actLines.length * 4.5;
+
+          const meta2 = [
+            act.pilote     ? `Pilote: ${act.pilote}`          : null,
+            act.avancement ? `Avancement: ${act.avancement}`  : null,
+            act.echeance   ? `Échéance: ${new Date(act.echeance).toLocaleDateString("fr-FR")}` : null,
+          ].filter(Boolean).join("  |  ");
+          if (meta2) {
+            doc.setFontSize(7);
+            doc.setTextColor(120);
+            doc.text(meta2, 22, y);
+            doc.setTextColor(0);
+            y += 4.5;
+          }
         }
-        y += 5;
+        y += 2;
       }
       y += 4;
     }
 
-    // Page numbers
-    const totalPages = doc.getNumberOfPages();
-    for (let i = 1; i <= totalPages; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(...MUTED);
-      doc.text(`Page ${i} / ${totalPages}`, PAGE_W / 2, 290, { align: "center" });
-      doc.text(`G\u00E9n\u00E9r\u00E9 le ${dateStr}`, PAGE_W - MARGIN, 290, { align: "right" });
-    }
-
-    doc.save(`PACQ_Strategique_${dateStr.replace(/\//g, "-")}.pdf`);
-    toast.success("Export PDF g\u00E9n\u00E9r\u00E9 !");
+    doc.save("PACQS_Strategique.pdf");
     setExporting(null);
   };
 
-  const exportExcel = async () => {
-    setExporting("excel");
-    toast("G\u00E9n\u00E9ration en cours\u2026");
-    const { allObjs, allActs, allInds, profiles } = await fetchAllForExport();
+  // ── Export Excel ─────────────────────────────────────────────────────────────
 
-    const piloteName = (id: string | null) =>
-      id ? (profiles.find((p) => p.user_id === id)?.full_name ?? "Inconnu") : "";
-
-    const STATUT_LABELS: Record<string, string> = { en_cours: "En cours", realise: "R\u00E9alis\u00E9", abandonne: "Abandonn\u00E9" };
-
+  const exportExcel = () => {
+    setExporting("xlsx");
+    const rows: any[] = [];
+    for (const theme of THEMES_AGEVAL) {
+      const objs = allObjectifs.filter(o => o.theme === theme.id);
+      for (const obj of objs) {
+        const objActions = actions.filter(a => a.objectif_id === obj.id);
+        if (objActions.length === 0) {
+          rows.push({
+            Thème: theme.label,
+            Référence: obj.reference || "",
+            Objectif: obj.intitule || "",
+            Responsable: obj.responsable || "",
+            "Priorité objectif": obj.priorite || "",
+            "Avancement objectif": obj.avancement || "",
+            "Échéance objectif": obj.echeance ? new Date(obj.echeance).toLocaleDateString("fr-FR") : "",
+            Action: "",
+            Pilote: "",
+            "Priorité action": "",
+            "Avancement action": "",
+            "Échéance action": "",
+          });
+        } else {
+          for (const act of objActions) {
+            rows.push({
+              Thème: theme.label,
+              Référence: obj.reference || "",
+              Objectif: obj.intitule || "",
+              Responsable: obj.responsable || "",
+              "Priorité objectif": obj.priorite || "",
+              "Avancement objectif": obj.avancement || "",
+              "Échéance objectif": obj.echeance ? new Date(obj.echeance).toLocaleDateString("fr-FR") : "",
+              Action: act.intitule || "",
+              Pilote: act.pilote || "",
+              "Priorité action": act.priorite || "",
+              "Avancement action": act.avancement || "",
+              "Échéance action": act.echeance ? new Date(act.echeance).toLocaleDateString("fr-FR") : "",
+            });
+          }
+        }
+      }
+    }
+    const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
-
-    // ── Onglet Synthèse ──
-    const syntheseRows = THEMATIQUES_ESSMS.map((t) => {
-      const tObjs = allObjs.filter((o) => o.thematique === t.id);
-      const tActs = allActs.filter((a) => tObjs.some((o) => o.id === a.objectif_id));
-      const realises = tActs.filter((a) => a.statut === "realise").length;
-      return {
-        "Th\u00E9matique": t.label,
-        "Nb objectifs": tObjs.length,
-        "Nb actions total": tActs.length,
-        "Nb actions r\u00E9alis\u00E9es": realises,
-        "% avancement": tActs.length > 0 ? Math.round((realises / tActs.length) * 100) + "%" : "\u2014",
-      };
-    });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(syntheseRows), "Synth\u00E8se");
-
-    // ── Onglet Actions (toutes) ──
-    const actionsRows = allActs.map((a) => {
-      const obj = allObjs.find((o) => o.id === a.objectif_id);
-      const t = THEMATIQUES_ESSMS.find((t) => t.id === obj?.thematique);
-      return {
-        "Th\u00E9matique": t?.label ?? "\u2014",
-        "Objectif": obj?.titre ?? "\u2014",
-        "Action": a.titre,
-        "Description": a.description ?? "",
-        "Pilote": piloteName(a.pilote_id),
-        "Date \u00E9ch\u00E9ance": a.date_echeance ? new Date(a.date_echeance + "T00:00:00").toLocaleDateString("fr-FR") : "",
-        "Statut": STATUT_LABELS[a.statut] ?? a.statut,
-      };
-    });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(actionsRows), "Actions");
-
-    // ── Un onglet par thématique ──
-    for (const t of THEMATIQUES_ESSMS) {
-      const tObjs = allObjs.filter((o) => o.thematique === t.id);
-      const tActs = allActs.filter((a) => tObjs.some((o) => o.id === a.objectif_id));
-      const rows = tActs.map((a) => {
-        const obj = allObjs.find((o) => o.id === a.objectif_id);
-        const row: Record<string, string | number> = {
-          "Objectif": obj?.titre ?? "\u2014",
-          "Action": a.titre,
-          "Description": a.description ?? "",
-          "Pilote": piloteName(a.pilote_id),
-          "Date \u00E9ch\u00E9ance": a.date_echeance ? new Date(a.date_echeance + "T00:00:00").toLocaleDateString("fr-FR") : "",
-          "Statut": STATUT_LABELS[a.statut] ?? a.statut,
-        };
-        ANNEES_INDICATEURS.forEach((annee) => {
-          const ind = allInds.find((i) => i.action_id === a.id && i.annee === annee);
-          row[String(annee)] = ind?.commentaire ?? "";
-        });
-        return row;
-      });
-      const sheetName = t.label.slice(0, 31);
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), sheetName);
-    }
-
-    const dateFile = new Date().toISOString().slice(0, 10);
-    XLSX.writeFile(wb, `PACQ_Strategique_${dateFile}.xlsx`);
-    toast.success("Export Excel g\u00E9n\u00E9r\u00E9 !");
+    XLSX.utils.book_append_sheet(wb, ws, "PACQS Stratégique");
+    XLSX.writeFile(wb, "PACQS_Strategique.xlsx");
     setExporting(null);
   };
-
-  // ── Derived ─────────────────────────────────────────────────────────────────
-
-  const thematique = THEMATIQUES_ESSMS.find(t => t.id === selectedThematique)!;
-  const colors = THEMATIQUE_COLORS[thematique.color];
-  const objectifsCurrent = allObjectifs.filter(o => o.thematique === selectedThematique);
-
-  const countByThematique = (id: string) => allObjectifs.filter(o => o.thematique === id).length;
-
-  // Sources dynamiques pour le filtre
-  const sourcesStrat = Array.from(new Set(actions.map(a => a.source).filter(Boolean) as string[])).sort();
-
-  const toggleActions = (objId: string) =>
-    setExpandedActions(prev => { const n = new Set(prev); n.has(objId) ? n.delete(objId) : n.add(objId); return n; });
-
-  const toggleIndicateurs = (actId: string) =>
-    setExpandedIndicateurs(prev => { const n = new Set(prev); n.has(actId) ? n.delete(actId) : n.add(actId); return n; });
-
-  const agentName = (id: string | null) =>
-    id ? (agents.find(a => a.id === id)?.full_name ?? "Inconnu") : null;
 
   // ── Render ───────────────────────────────────────────────────────────────────
+
+  const currentThemeMeta = THEMES_AGEVAL.find(t => t.id === selectedTheme)!;
+  const themeColors = THEME_COLORS[currentThemeMeta.color];
 
   return (
     <div className="max-w-5xl mx-auto space-y-8">
 
       {/* En-tête */}
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+        className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-xl gradient-primary flex items-center justify-center shadow-warm shrink-0">
             <Target className="w-5 h-5 text-white" />
           </div>
           <div>
             <h1 className="text-xl font-display font-bold text-foreground">PACQS Stratégique</h1>
-            <p className="text-xs text-muted-foreground">Plan d'amélioration continue de la qualité et de la sécurité — Projet d'établissement</p>
+            <p className="text-xs text-muted-foreground">Plan d'amélioration continue — Référentiel HAS / Ageval</p>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={exportPDF}
-            disabled={!!exporting}
-          >
-            {exporting === "pdf" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            Exporter PDF
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={exportPDF} disabled={!!exporting}>
+            {exporting === "pdf" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            PDF
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 text-emerald-700 border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
-            onClick={exportExcel}
-            disabled={!!exporting}
-          >
-            {exporting === "excel" ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
-            Exporter Excel
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={exportExcel} disabled={!!exporting}>
+            {exporting === "xlsx" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileSpreadsheet className="w-3.5 h-3.5" />}
+            Excel
           </Button>
-          <Button onClick={openCreateObj} className="gap-2 shadow-warm">
-            <Plus className="w-4 h-4" /> Ajouter un objectif
+          <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={openAddObjectif}>
+            <Plus className="w-3.5 h-3.5" /> Objectif
           </Button>
         </div>
       </motion.div>
 
-      {/* Navigation thématiques */}
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-        <div className="flex flex-wrap gap-2">
-          {THEMATIQUES_ESSMS.map(t => {
-            const c = THEMATIQUE_COLORS[t.color];
-            const active = t.id === selectedThematique;
-            const count = countByThematique(t.id);
-            return (
-              <button
-                key={t.id}
-                onClick={() => handleThematiqueChange(t.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-150 ${
-                  active ? c.tabActive : c.tabInactive + " bg-background"
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full ${active ? "bg-white/80" : c.dot}`} />
-                <span className="font-body">{t.label}</span>
-                {count > 0 && (
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${active ? "bg-white/20" : c.badge}`}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+      {/* Statistiques globales */}
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+        className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {[
+          { label: "Objectifs",       value: allObjectifs.length,     accent: "border-l-[#c46b48]", numColor: "text-[#c46b48]" },
+          { label: "Actions",         value: totalActions,             accent: "border-l-sky-400",   numColor: "text-sky-600"   },
+          { label: "En cours",        value: enCours,                  accent: "border-l-blue-400",  numColor: "text-blue-600"  },
+          { label: "Terminées",       value: terminees,                accent: "border-l-emerald-400", numColor: "text-emerald-600" },
+        ].map(s => (
+          <div key={s.label} className={`rounded-xl border-l-4 ${s.accent} border border-border/60 bg-card px-5 py-4 flex items-center justify-between shadow-sm`}>
+            <p className="text-sm font-semibold text-foreground">{s.label}</p>
+            <span className={`text-2xl font-display font-bold tabular-nums ${s.numColor}`}>{s.value}</span>
+          </div>
+        ))}
+      </motion.div>
+
+      {/* Barre de progression */}
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }}
+        className="rounded-xl border border-border bg-card p-4 space-y-2">
+        <div className="flex items-center justify-between text-xs">
+          <span className="font-semibold text-foreground">Progression globale</span>
+          <span className="text-muted-foreground">{terminees} / {totalActions} actions terminées — {progressPct}%</span>
+        </div>
+        <div className="h-2 bg-muted rounded-full overflow-hidden">
+          <div className="h-full bg-emerald-500 rounded-full transition-all duration-700" style={{ width: `${progressPct}%` }} />
         </div>
       </motion.div>
 
       {/* Filtres */}
-      <div className="flex flex-wrap items-center gap-2">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.18 }}
+        className="flex flex-wrap gap-2 items-center p-4 rounded-xl border border-border bg-card/50">
+        <Select value={filterAvancement} onValueChange={setFilterAvancement}>
+          <SelectTrigger className="w-44 h-8 text-xs"><SelectValue placeholder="Avancement" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="tous">Tous les avancements</SelectItem>
+            {AVANCEMENT_OPTIONS.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+          </SelectContent>
+        </Select>
+
         <Button
           variant={filterMesActions ? "default" : "outline"}
           size="sm"
@@ -699,178 +519,182 @@ export default function PacqStrategiquePage() {
           <UserCheck className="w-3.5 h-3.5" />
           Mes actions
         </Button>
-        {sourcesStrat.length > 0 && (<>
-          <Select value={filterSourceStrat} onValueChange={setFilterSourceStrat}>
-            <SelectTrigger className="w-56 h-8 text-xs"><SelectValue placeholder="Toutes les sources" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="tous">Toutes les sources</SelectItem>
-              {sourcesStrat.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              <SelectItem value="sans">Sans source</SelectItem>
-            </SelectContent>
-          </Select>
-          {filterSourceStrat !== "tous" && (
-            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground" onClick={() => setFilterSourceStrat("tous")}>
-              × Réinitialiser
-            </Button>
-          )}
-        </>)}
-      </div>
 
-      {/* Contenu de la thématique */}
+        {(filterAvancement !== "tous" || filterMesActions) && (
+          <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground"
+            onClick={() => { setFilterAvancement("tous"); setFilterMesActions(false); }}>
+            Réinitialiser
+          </Button>
+        )}
+      </motion.div>
+
+      {/* Tabs thèmes */}
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
+        className="flex flex-wrap gap-2">
+        {THEMES_AGEVAL.map(t => {
+          const c = THEME_COLORS[t.color];
+          const active = t.id === selectedTheme;
+          const count = allObjectifs.filter(o => o.theme === t.id).length;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setSelectedTheme(t.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-body transition-all duration-150 ${active ? c.tabActive : c.tabInactive}`}
+            >
+              {t.label}
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${active ? "bg-white/25 text-white" : c.badge}`}>{count}</span>
+            </button>
+          );
+        })}
+      </motion.div>
+
+      {/* Contenu du thème */}
       {loading ? (
         <div className="flex justify-center py-16">
           <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
         </div>
+      ) : visibleObjectifs.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground space-y-3">
+          <Target className="w-12 h-12 mx-auto opacity-20" />
+          <p className="font-medium">Aucun objectif dans ce thème</p>
+          <p className="text-sm">Ajoutez un objectif ou modifiez vos filtres.</p>
+        </div>
       ) : (
-        <motion.div variants={container} initial="hidden" animate="show" className="space-y-4">
+        <motion.div variants={container} initial="hidden" animate="show" className="space-y-3">
+          {visibleObjectifs.map(obj => {
+            const expanded = expandedObjectifs.has(obj.id);
+            const objActs  = actionsForObjectif(obj.id);
+            const avCfg    = AVANCEMENT_CONFIG[obj.avancement || "Non initié"] ?? AVANCEMENT_CONFIG["Non initié"];
+            const prCfg    = PRIORITE_CONFIG[obj.priorite || "Normale"]        ?? PRIORITE_CONFIG["Normale"];
 
-          {objectifsCurrent.length === 0 ? (
-            <motion.div variants={item} className="text-center py-16 text-muted-foreground space-y-4">
-              <Target className="w-12 h-12 mx-auto opacity-20" />
-              <p className="font-medium">Aucun objectif pour cette thématique</p>
-              <p className="text-sm">Cliquez sur "Ajouter un objectif" pour commencer,</p>
-              <p className="text-sm -mt-2">ou initialisez avec les objectifs du référentiel HAS/AVS.</p>
-              {OBJECTIFS_PAR_THEMATIQUE[selectedThematique as ThematiqueId]?.length > 0 && (
-                <Button
-                  variant="outline"
-                  className="gap-2 border-dashed"
-                  onClick={handleInitializePredef}
-                  disabled={initializingPredef}
-                >
-                  <Sparkles className="w-4 h-4 text-primary" />
-                  {initializingPredef ? "Initialisation…" : "Initialiser avec les objectifs HAS/AVS"}
-                </Button>
-              )}
-            </motion.div>
-          ) : (
-            objectifsCurrent.map(obj => {
-              const allObjActions = actions.filter(a => a.objectif_id === obj.id);
-              const sourceFiltered = filterSourceStrat === "tous"
-                ? allObjActions
-                : filterSourceStrat === "sans"
-                  ? allObjActions.filter(a => !a.source)
-                  : allObjActions.filter(a => a.source === filterSourceStrat);
-              const objActions = filterMesActions
-                ? sourceFiltered.filter(a => a.pilote_id === user?.id)
-                : sourceFiltered;
-              if ((filterSourceStrat !== "tous" || filterMesActions) && objActions.length === 0) return null;
-              const expanded = expandedActions.has(obj.id);
-              const realise = objActions.filter(a => a.statut === "realise").length;
-
-              return (
-                <motion.div key={obj.id} variants={item}>
-                  <div className={`rounded-xl border-l-4 ${colors.border} border border-border bg-card shadow-sm`}>
-
-                    {/* Objectif header */}
-                    <div className="p-5">
-                      <div className="flex items-start justify-between gap-3">
-                        <button
-                          onClick={() => toggleActions(obj.id)}
-                          className="flex-1 flex items-center gap-3 text-left group"
-                        >
-                          <div>
-                            <h2 className="font-display font-semibold text-foreground text-sm leading-snug group-hover:text-primary transition-colors">
-                              {obj.titre}
-                            </h2>
-                            <div className="flex items-center gap-2 mt-1.5">
-                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${colors.badge}`}>
-                                {thematique.label}
-                              </span>
-                              <span className="text-[11px] text-muted-foreground">
-                                {objActions.length} action{objActions.length > 1 ? "s" : ""}
-                                {objActions.length > 0 && ` · ${realise} réalisée${realise > 1 ? "s" : ""}`}
-                              </span>
-                            </div>
-                          </div>
-                          {expanded
-                            ? <ChevronUp className="w-4 h-4 text-muted-foreground ml-auto shrink-0" />
-                            : <ChevronDown className="w-4 h-4 text-muted-foreground ml-auto shrink-0" />
-                          }
-                        </button>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={() => openCreateAct(obj.id)}>
-                            <Plus className="w-3 h-3" /> Action
-                          </Button>
-                          <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground" onClick={() => openEditObj(obj)}>
-                            <Pencil className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteObj(obj)}>
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
+            return (
+              <motion.div key={obj.id} variants={item}>
+                <div className={`rounded-xl border border-border bg-card shadow-sm border-l-4 ${themeColors.border}`}>
+                  {/* Objectif header */}
+                  <div
+                    className="p-4 cursor-pointer select-none"
+                    onClick={() => toggleObjectif(obj.id)}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                          {obj.reference && (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${themeColors.badge}`}>
+                              {obj.reference}
+                            </span>
+                          )}
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border-0 ${avCfg.color}`}>
+                            {obj.avancement || "Non initié"}
+                          </span>
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border-0 ${prCfg.color}`}>
+                            {obj.priorite || "Normale"}
+                          </span>
+                        </div>
+                        <p className="text-sm font-display font-semibold text-foreground leading-snug">
+                          {obj.intitule || "—"}
+                        </p>
+                        <div className="flex flex-wrap gap-3 mt-1.5">
+                          {obj.responsable && (
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <User className="w-3 h-3" /> {obj.responsable}
+                            </span>
+                          )}
+                          {obj.echeance && (
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Calendar className="w-3 h-3" /> {new Date(obj.echeance).toLocaleDateString("fr-FR")}
+                            </span>
+                          )}
+                          <span className="text-xs text-muted-foreground">
+                            {objActs.length} action{objActs.length !== 1 ? "s" : ""}
+                          </span>
                         </div>
                       </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={e => { e.stopPropagation(); openEditObjectif(obj); }}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={e => { e.stopPropagation(); setDeleteTarget({ type: "objectif", id: obj.id }); }}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                        {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                      </div>
                     </div>
+                  </div>
 
-                    {/* Actions list */}
-                    <AnimatePresence>
-                      {expanded && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.2 }}
-                          className="overflow-hidden"
-                        >
-                          <div className="border-t border-border/60 divide-y divide-border/40">
-                            {objActions.length === 0 ? (
-                              <div className="px-5 py-4 text-xs text-muted-foreground italic">
-                                Aucune action. Cliquez sur "+ Action" pour en ajouter une.
-                              </div>
-                            ) : (
-                              objActions.map(act => {
-                                const stat = STATUT_CONFIG[act.statut];
-                                const pilote = agentName(act.pilote_id);
+                  {/* Actions list */}
+                  <AnimatePresence>
+                    {expanded && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.18 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="px-4 pb-4 pt-1 border-t border-border/60 bg-muted/20 space-y-2">
+                          <div className="flex items-center justify-between py-2">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 font-body">
+                              Actions ({objActs.length})
+                            </p>
+                            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => openAddAction(obj.id)}>
+                              <Plus className="w-3.5 h-3.5" /> Ajouter
+                            </Button>
+                          </div>
+
+                          {objActs.length === 0 ? (
+                            <p className="text-xs text-muted-foreground/60 text-center py-3">Aucune action pour cet objectif</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {objActs.map(act => {
+                                const aAvCfg = AVANCEMENT_CONFIG[act.avancement || "Non initié"] ?? AVANCEMENT_CONFIG["Non initié"];
+                                const aPrCfg = PRIORITE_CONFIG[act.priorite || "Normale"] ?? PRIORITE_CONFIG["Normale"];
                                 const indExpanded = expandedIndicateurs.has(act.id);
+                                const actInds = indicateurs.filter(i => i.action_id === act.id);
+                                const hasInds = actInds.some(i => i.commentaire);
 
                                 return (
-                                  <div key={act.id} className="bg-muted/20">
-                                    <div className="px-5 py-4">
-                                      <div className="flex items-start justify-between gap-3">
-                                        <div className="flex-1 min-w-0">
-                                          <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                                            <Badge variant="outline" className={`text-[11px] border-0 ${stat.color}`}>
-                                              {stat.label}
-                                            </Badge>
-                                            {act.source && (
-                                              <Badge variant="outline" className="text-[11px] bg-violet-50 text-violet-700 border-violet-200">
-                                                {act.source}
-                                              </Badge>
-                                            )}
-                                          </div>
-                                          <p className="text-sm font-semibold text-foreground leading-snug">{act.titre}</p>
-                                          {act.description && (
-                                            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{act.description}</p>
+                                  <div key={act.id} className="rounded-lg border border-border/60 bg-card p-3">
+                                    <div className="flex items-start gap-2">
+                                      <div className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${themeColors.dot}`} />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${aAvCfg.color}`}>
+                                            {act.avancement || "Non initié"}
+                                          </span>
+                                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${aPrCfg.color}`}>
+                                            {act.priorite || "Normale"}
+                                          </span>
+                                        </div>
+                                        <p className="text-xs font-semibold text-foreground leading-snug">{act.intitule || "—"}</p>
+                                        <div className="flex flex-wrap gap-3 mt-1">
+                                          {act.pilote && (
+                                            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                                              <User className="w-3 h-3" /> {act.pilote}
+                                            </span>
                                           )}
-                                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
-                                            {pilote && (
-                                              <span className="flex items-center gap-1.5">
-                                                <User className="w-3 h-3" />{pilote}
-                                              </span>
-                                            )}
-                                            {act.date_echeance && (
-                                              <span className="flex items-center gap-1.5">
-                                                <Calendar className="w-3 h-3" />
-                                                {new Date(act.date_echeance).toLocaleDateString("fr-FR")}
-                                              </span>
-                                            )}
-                                          </div>
+                                          {act.echeance && (
+                                            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                                              <Calendar className="w-3 h-3" /> {new Date(act.echeance).toLocaleDateString("fr-FR")}
+                                            </span>
+                                          )}
                                         </div>
-                                        <div className="flex items-center gap-1 shrink-0">
-                                          <button
-                                            onClick={() => toggleIndicateurs(act.id)}
-                                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-md hover:bg-muted"
-                                          >
-                                            <BarChart3 className="w-3.5 h-3.5" />
-                                            <span>Indicateurs</span>
-                                            {indExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                                          </button>
-                                          <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-foreground" onClick={() => openEditAct(act)}>
-                                            <Pencil className="w-3.5 h-3.5" />
-                                          </Button>
-                                          <Button variant="ghost" size="icon" className="w-8 h-8 text-muted-foreground hover:text-destructive" onClick={() => setDeleteAct(act)}>
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                          </Button>
-                                        </div>
+                                        <button
+                                          onClick={() => toggleIndicateurs(act.id)}
+                                          className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                                        >
+                                          <BarChart3 className="w-3 h-3" />
+                                          Indicateurs annuels
+                                          {hasInds && <span className="text-[10px] bg-primary/10 text-primary px-1.5 rounded-full font-semibold">renseignés</span>}
+                                          {indExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                        </button>
+                                      </div>
+                                      <div className="flex items-center gap-1 shrink-0">
+                                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditAction(act)}>
+                                          <Pencil className="w-3 h-3" />
+                                        </Button>
+                                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => setDeleteTarget({ type: "action", id: act.id })}>
+                                          <Trash2 className="w-3 h-3" />
+                                        </Button>
                                       </div>
                                     </div>
 
@@ -881,33 +705,43 @@ export default function PacqStrategiquePage() {
                                           initial={{ height: 0, opacity: 0 }}
                                           animate={{ height: "auto", opacity: 1 }}
                                           exit={{ height: 0, opacity: 0 }}
-                                          transition={{ duration: 0.18 }}
+                                          transition={{ duration: 0.15 }}
                                           className="overflow-hidden"
                                         >
-                                          <div className="px-5 pb-5 pt-1 border-t border-border/40 bg-background/50">
-                                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-3 font-body">
+                                          <div className="mt-3 pt-3 border-t border-border/50">
+                                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2 font-body">
                                               Indicateurs annuels
                                             </p>
-                                            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+                                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                                               {ANNEES_INDICATEURS.map(annee => {
-                                                const key = `${act.id}-${annee}`;
-                                                const isSaving = savingInd === key;
+                                                const ind = actInds.find(i => i.annee === annee);
+                                                const isEditing = indEditing?.actionId === act.id && indEditing?.annee === annee;
                                                 return (
                                                   <div key={annee} className="space-y-1">
-                                                    <label className="text-[11px] font-semibold text-muted-foreground font-body">{annee}</label>
-                                                    <Textarea
-                                                      value={indicateursEdit[act.id]?.[annee] ?? ""}
-                                                      onChange={e => setIndicateursEdit(prev => ({
-                                                        ...prev,
-                                                        [act.id]: { ...(prev[act.id] || {}), [annee]: e.target.value },
-                                                      }))}
-                                                      onBlur={() => handleIndicateurBlur(act.id, annee)}
-                                                      placeholder="Commentaire…"
-                                                      rows={3}
-                                                      className={`resize-none text-xs ${isSaving ? "opacity-60" : ""}`}
-                                                    />
-                                                    {isSaving && (
-                                                      <p className="text-[10px] text-muted-foreground">Sauvegarde…</p>
+                                                    <p className="text-[11px] font-semibold text-muted-foreground font-body">{annee}</p>
+                                                    {isEditing ? (
+                                                      <div className="space-y-1">
+                                                        <textarea
+                                                          value={indValue}
+                                                          onChange={e => setIndValue(e.target.value)}
+                                                          className="w-full text-xs bg-background border border-border rounded-md px-2 py-1.5 min-h-[56px] resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                                                        />
+                                                        <div className="flex gap-1">
+                                                          <Button size="sm" className="h-6 text-[10px] px-2" onClick={saveIndicateur} disabled={indSaving}>
+                                                            {indSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                                                          </Button>
+                                                          <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2" onClick={() => setIndEditing(null)}>
+                                                            ✕
+                                                          </Button>
+                                                        </div>
+                                                      </div>
+                                                    ) : (
+                                                      <div
+                                                        className="text-xs bg-background border border-border rounded-md px-2 py-1.5 min-h-[56px] cursor-pointer hover:border-primary/50 transition-colors leading-relaxed"
+                                                        onClick={() => openEditIndicateur(act.id, annee)}
+                                                      >
+                                                        {ind?.commentaire || <span className="text-muted-foreground/50 italic text-[11px]">Cliquer pour saisir</span>}
+                                                      </div>
                                                     )}
                                                   </div>
                                                 );
@@ -919,176 +753,154 @@ export default function PacqStrategiquePage() {
                                     </AnimatePresence>
                                   </div>
                                 );
-                              })
-                            )}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </motion.div>
-              );
-            })
-          )}
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </motion.div>
+            );
+          })}
         </motion.div>
       )}
 
-      {/* Dialog Objectif */}
-      <Dialog open={objDialogOpen} onOpenChange={setObjDialogOpen}>
-        <DialogContent className="max-w-md">
+      {/* Dialog — Objectif */}
+      <Dialog open={objDialog} onOpenChange={setObjDialog}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 font-display">
-              {editingObj ? <Pencil className="w-4 h-4 text-primary" /> : <Plus className="w-4 h-4 text-primary" />}
-              {editingObj ? "Modifier l'objectif" : "Nouvel objectif"}
-            </DialogTitle>
+            <DialogTitle>{objEditing ? "Modifier l'objectif" : "Nouvel objectif"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label>Thématique</Label>
-              <div className={`text-xs px-3 py-2 rounded-lg font-semibold ${colors.badge}`}>
-                {thematique.label}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Référence</Label>
+                <Input className="h-8 text-xs" placeholder="ex. 01" value={objForm.reference}
+                  onChange={e => setObjForm(f => ({ ...f, reference: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Thème</Label>
+                <Select value={objForm.theme} onValueChange={v => setObjForm(f => ({ ...f, theme: v }))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {THEMES_AGEVAL.map(t => <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Titre de l'objectif <span className="text-destructive">*</span></Label>
-              <Input
-                value={objForm.titre}
-                onChange={e => setObjForm({ titre: e.target.value })}
-                placeholder="Ex : Renforcer l'expression des droits des résidents"
-              />
+              <Label className="text-xs">Intitulé *</Label>
+              <Input className="h-8 text-xs" placeholder="Intitulé de l'objectif" value={objForm.intitule}
+                onChange={e => setObjForm(f => ({ ...f, intitule: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Responsable</Label>
+              <Input className="h-8 text-xs" placeholder="Nom du responsable" value={objForm.responsable}
+                onChange={e => setObjForm(f => ({ ...f, responsable: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Priorité</Label>
+                <Select value={objForm.priorite} onValueChange={v => setObjForm(f => ({ ...f, priorite: v }))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>{PRIORITE_OPTIONS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Avancement</Label>
+                <Select value={objForm.avancement} onValueChange={v => setObjForm(f => ({ ...f, avancement: v }))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>{AVANCEMENT_OPTIONS.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Échéance</Label>
+              <Input type="date" className="h-8 text-xs" value={objForm.echeance}
+                onChange={e => setObjForm(f => ({ ...f, echeance: e.target.value }))} />
             </div>
           </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setObjDialogOpen(false)} disabled={savingObj}>Annuler</Button>
-            <Button onClick={handleSaveObj} disabled={savingObj} className="gap-2">
-              <CheckCircle2 className="w-4 h-4" />
-              {savingObj ? "Enregistrement…" : editingObj ? "Mettre à jour" : "Créer l'objectif"}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setObjDialog(false)}>Annuler</Button>
+            <Button size="sm" onClick={saveObjectif} disabled={objSaving}>
+              {objSaving && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
+              {objEditing ? "Enregistrer" : "Créer"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Action */}
-      <Dialog open={actDialogOpen} onOpenChange={setActDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      {/* Dialog — Action */}
+      <Dialog open={actDialog} onOpenChange={setActDialog}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 font-display">
-              {editingAct ? <Pencil className="w-4 h-4 text-primary" /> : <Plus className="w-4 h-4 text-primary" />}
-              {editingAct ? "Modifier l'action" : "Nouvelle action"}
-            </DialogTitle>
+            <DialogTitle>{actEditing ? "Modifier l'action" : "Nouvelle action"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label>Titre de l'action <span className="text-destructive">*</span></Label>
-              <Input
-                value={actForm.titre}
-                onChange={e => setActForm({ ...actForm, titre: e.target.value })}
-                placeholder="Intitulé de l'action"
-              />
+              <Label className="text-xs">Intitulé *</Label>
+              <Input className="h-8 text-xs" placeholder="Intitulé de l'action" value={actForm.intitule}
+                onChange={e => setActForm(f => ({ ...f, intitule: e.target.value }))} />
             </div>
             <div className="space-y-1.5">
-              <Label>Description <span className="text-muted-foreground text-xs">(optionnel)</span></Label>
-              <Textarea
-                value={actForm.description}
-                onChange={e => setActForm({ ...actForm, description: e.target.value })}
-                placeholder="Précisions, modalités de mise en œuvre…"
-                rows={3}
-                className="resize-none"
-              />
+              <Label className="text-xs">Pilote</Label>
+              <Input className="h-8 text-xs" placeholder="Nom du pilote" value={actForm.pilote}
+                onChange={e => setActForm(f => ({ ...f, pilote: e.target.value }))} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Pilote <span className="text-muted-foreground text-xs">(optionnel)</span></Label>
-                <Select value={actForm.pilote_id || "none"} onValueChange={v => setActForm({ ...actForm, pilote_id: v === "none" ? "" : v })}>
-                  <SelectTrigger><SelectValue placeholder="Sélectionner…" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Aucun</SelectItem>
-                    {agents.map(a => <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>)}
-                  </SelectContent>
+                <Label className="text-xs">Priorité</Label>
+                <Select value={actForm.priorite} onValueChange={v => setActForm(f => ({ ...f, priorite: v }))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>{PRIORITE_OPTIONS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Date d'échéance <span className="text-muted-foreground text-xs">(optionnel)</span></Label>
-                <Input
-                  type="date"
-                  value={actForm.date_echeance}
-                  onChange={e => setActForm({ ...actForm, date_echeance: e.target.value })}
-                />
+                <Label className="text-xs">Avancement</Label>
+                <Select value={actForm.avancement} onValueChange={v => setActForm(f => ({ ...f, avancement: v }))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>{AVANCEMENT_OPTIONS.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
+                </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>Statut</Label>
-                <Select value={actForm.statut} onValueChange={v => setActForm({ ...actForm, statut: v as Action["statut"] })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="en_cours">En cours</SelectItem>
-                    <SelectItem value="realise">Réalisé</SelectItem>
-                    <SelectItem value="abandonne">Abandonné</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Source <span className="text-muted-foreground text-xs">(optionnel)</span></Label>
-                <Select value={actForm.source || "none"} onValueChange={v => setActForm({ ...actForm, source: v === "none" ? "" : v })}>
-                  <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">— Sans source</SelectItem>
-                    {SOURCES_PACQS.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Échéance</Label>
+              <Input type="date" className="h-8 text-xs" value={actForm.echeance}
+                onChange={e => setActForm(f => ({ ...f, echeance: e.target.value }))} />
             </div>
           </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setActDialogOpen(false)} disabled={savingAct}>Annuler</Button>
-            <Button onClick={handleSaveAct} disabled={savingAct} className="gap-2">
-              <CheckCircle2 className="w-4 h-4" />
-              {savingAct ? "Enregistrement…" : editingAct ? "Mettre à jour" : "Créer l'action"}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setActDialog(false)}>Annuler</Button>
+            <Button size="sm" onClick={saveAction} disabled={actSaving}>
+              {actSaving && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
+              {actEditing ? "Enregistrer" : "Créer"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* AlertDialog suppr objectif */}
-      <AlertDialog open={!!deleteObj} onOpenChange={o => !o && setDeleteObj(null)}>
+      {/* AlertDialog — Suppression */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={o => !o && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
-              <Trash2 className="w-4 h-4" />Supprimer cet objectif ?
-            </AlertDialogTitle>
+            <AlertDialogTitle>Confirmer la suppression</AlertDialogTitle>
             <AlertDialogDescription>
-              <strong>"{deleteObj?.titre}"</strong> sera définitivement supprimé avec toutes ses actions et indicateurs.
+              {deleteTarget?.type === "objectif"
+                ? "Cet objectif et toutes ses actions seront supprimés définitivement."
+                : "Cette action sera supprimée définitivement."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deletingObj}>Annuler</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteObj} disabled={deletingObj} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {deletingObj ? "Suppression…" : "Supprimer"}
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive hover:bg-destructive/90">
+              Supprimer
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* AlertDialog suppr action */}
-      <AlertDialog open={!!deleteAct} onOpenChange={o => !o && setDeleteAct(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
-              <Trash2 className="w-4 h-4" />Supprimer cette action ?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              <strong>"{deleteAct?.titre}"</strong> sera définitivement supprimée avec ses indicateurs.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deletingAct}>Annuler</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteAct} disabled={deletingAct} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {deletingAct ? "Suppression…" : "Supprimer"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

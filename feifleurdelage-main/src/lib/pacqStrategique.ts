@@ -7,6 +7,19 @@ export const THEMATIQUES_ESSMS = [
   { id: "qualite",       label: "La gestion et la qualité",                     color: "teal"   },
 ] as const;
 
+// ─── Thèmes réels Ageval / HAS (PACQ Stratégique) ─────────────────────────────
+
+export const THEMES_AGEVAL = [
+  { id: "Droits et participation des personnes",        label: "Droits et participation",   color: "blue"   },
+  { id: "Parcours et accompagnement",                   label: "Parcours et accompagnement", color: "green"  },
+  { id: "Qualité de vie et conditions d'accueil",       label: "Qualité de vie",            color: "purple" },
+  { id: "Santé, soins et prévention des risques",       label: "Santé / Soins",             color: "red"    },
+  { id: "Ressources humaines et management",            label: "RH & Management",           color: "orange" },
+  { id: "Démarche qualité et gestion des risques",      label: "Démarche qualité",          color: "teal"   },
+] as const;
+
+export type ThemeAgevalId = (typeof THEMES_AGEVAL)[number]["id"];
+
 export const ANNEES_INDICATEURS = [2024, 2025, 2026, 2027, 2028] as const;
 
 export type ThematiqueId = (typeof THEMATIQUES_ESSMS)[number]["id"];

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { THEMATIQUES_ESSMS, ANNEES_INDICATEURS } from "@/lib/pacqStrategique";
+import { THEMES_AGEVAL, ANNEES_INDICATEURS } from "@/lib/pacqStrategique";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Target, Calendar, BarChart3, Filter, ChevronDown, ChevronUp } from "lucide-react";
@@ -13,14 +13,14 @@ import { AnimatePresence } from "framer-motion";
 
 type ActionWithObjectif = {
   id: string;
-  titre: string;
-  description: string | null;
-  pilote_id: string | null;
-  date_echeance: string | null;
-  statut: "en_cours" | "realise" | "abandonne";
+  intitule: string | null;
+  pilote: string | null;
+  priorite: string | null;
+  avancement: string | null;
+  echeance: string | null;
   objectif_id: string;
-  objectif_titre: string;
-  objectif_thematique: string;
+  objectif_intitule: string;
+  objectif_theme: string;
 };
 
 type Indicateur = {
@@ -31,7 +31,15 @@ type Indicateur = {
 
 // ─── Configs ──────────────────────────────────────────────────────────────────
 
-const THEMATIQUE_BADGE: Record<string, string> = {
+const AVANCEMENT_CONFIG: Record<string, { color: string }> = {
+  "Non initié":   { color: "bg-slate-100 text-slate-500"    },
+  "Planification":{ color: "bg-amber-100 text-amber-700"    },
+  "En cours":     { color: "bg-blue-100 text-blue-700"      },
+  "Finalisation": { color: "bg-violet-100 text-violet-700"  },
+  "Terminé":      { color: "bg-emerald-100 text-emerald-700"},
+};
+
+const THEME_BADGE: Record<string, string> = {
   blue:   "bg-blue-100 text-blue-700",
   green:  "bg-green-100 text-green-700",
   red:    "bg-red-100 text-red-700",
@@ -40,56 +48,48 @@ const THEMATIQUE_BADGE: Record<string, string> = {
   teal:   "bg-teal-100 text-teal-700",
 };
 
-const STATUT_CONFIG: Record<ActionWithObjectif["statut"], { label: string; color: string }> = {
-  en_cours:  { label: "En cours",  color: "bg-blue-100 text-blue-700"       },
-  realise:   { label: "Réalisé",   color: "bg-emerald-100 text-emerald-700"  },
-  abandonne: { label: "Abandonné", color: "bg-slate-100 text-slate-500"     },
-};
-
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.05 } } };
 const item      = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, transition: { duration: 0.25 } } };
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function MesPacqStrategiquePage() {
-  const { user } = useAuth();
+  const { profile } = useAuth();
   const [actions, setActions]           = useState<ActionWithObjectif[]>([]);
   const [indicateurs, setIndicateurs]   = useState<Indicateur[]>([]);
   const [loading, setLoading]           = useState(true);
-  const [filterStatut, setFilterStatut] = useState("tous");
+  const [filterAvancement, setFilterAvancement] = useState("tous");
   const [expandedIndicateurs, setExpandedIndicateurs] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!user) return;
+    if (!profile?.full_name) return;
     const load = async () => {
       setLoading(true);
 
-      // Fetch actions where pilote_id = me, with parent objectif
       const { data: actData, error: actErr } = await supabase
         .from("pacq_strategique_actions")
         .select(`
-          id, titre, description, pilote_id, date_echeance, statut, objectif_id,
-          pacq_strategique_objectifs ( titre, thematique )
+          id, intitule, pilote, priorite, avancement, echeance, objectif_id,
+          pacq_strategique_objectifs ( intitule, theme )
         `)
-        .eq("pilote_id", user.id)
-        .order("date_echeance", { ascending: true, nullsFirst: false });
+        .eq("pilote", profile.full_name)
+        .order("echeance", { ascending: true, nullsFirst: false });
 
       if (actErr) { setLoading(false); return; }
 
       const acts: ActionWithObjectif[] = ((actData as any[]) || []).map(a => ({
         id: a.id,
-        titre: a.titre,
-        description: a.description,
-        pilote_id: a.pilote_id,
-        date_echeance: a.date_echeance,
-        statut: a.statut,
+        intitule: a.intitule,
+        pilote: a.pilote,
+        priorite: a.priorite,
+        avancement: a.avancement,
+        echeance: a.echeance,
         objectif_id: a.objectif_id,
-        objectif_titre: a.pacq_strategique_objectifs?.titre ?? "—",
-        objectif_thematique: a.pacq_strategique_objectifs?.thematique ?? "",
+        objectif_intitule: a.pacq_strategique_objectifs?.intitule ?? "—",
+        objectif_theme: a.pacq_strategique_objectifs?.theme ?? "",
       }));
       setActions(acts);
 
-      // Fetch indicateurs for these actions
       const actIds = acts.map(a => a.id);
       if (actIds.length > 0) {
         const { data: indData } = await supabase
@@ -102,17 +102,19 @@ export default function MesPacqStrategiquePage() {
       setLoading(false);
     };
     load();
-  }, [user]);
+  }, [profile?.full_name]);
 
-  const filtered = actions.filter(a => filterStatut === "tous" || a.statut === filterStatut);
+  const filtered = actions.filter(a =>
+    filterAvancement === "tous" || a.avancement === filterAvancement
+  );
 
   const toggleIndicateurs = (id: string) =>
     setExpandedIndicateurs(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-  const thematiqueMeta = (id: string) => THEMATIQUES_ESSMS.find(t => t.id === id);
+  const themeMeta = (themeId: string) => THEMES_AGEVAL.find(t => t.id === themeId);
 
-  const enCours  = actions.filter(a => a.statut === "en_cours").length;
-  const realises = actions.filter(a => a.statut === "realise").length;
+  const enCours  = actions.filter(a => a.avancement === "En cours").length;
+  const termines = actions.filter(a => a.avancement === "Terminé").length;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -132,9 +134,9 @@ export default function MesPacqStrategiquePage() {
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
         className="grid grid-cols-3 gap-4">
         {[
-          { label: "Total",      value: actions.length, accent: "border-l-[#c46b48]", numColor: "text-[#c46b48]" },
-          { label: "En cours",   value: enCours,        accent: "border-l-blue-400",  numColor: "text-blue-600"  },
-          { label: "Réalisées",  value: realises,       accent: "border-l-emerald-400", numColor: "text-emerald-600" },
+          { label: "Total",     value: actions.length, accent: "border-l-[#c46b48]",    numColor: "text-[#c46b48]"    },
+          { label: "En cours",  value: enCours,        accent: "border-l-blue-400",     numColor: "text-blue-600"     },
+          { label: "Terminées", value: termines,       accent: "border-l-emerald-400",  numColor: "text-emerald-600"  },
         ].map(s => (
           <div key={s.label} className={`rounded-xl border-l-4 ${s.accent} border border-border/60 bg-card px-5 py-4 flex items-center justify-between shadow-sm`}>
             <p className="text-sm font-semibold text-foreground">{s.label}</p>
@@ -147,17 +149,17 @@ export default function MesPacqStrategiquePage() {
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }}
         className="flex flex-wrap gap-3 items-center p-4 rounded-xl border border-border bg-card/50">
         <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
-        <Select value={filterStatut} onValueChange={setFilterStatut}>
-          <SelectTrigger className="w-40 h-8 text-xs"><SelectValue /></SelectTrigger>
+        <Select value={filterAvancement} onValueChange={setFilterAvancement}>
+          <SelectTrigger className="w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="tous">Tous les statuts</SelectItem>
-            <SelectItem value="en_cours">En cours</SelectItem>
-            <SelectItem value="realise">Réalisé</SelectItem>
-            <SelectItem value="abandonne">Abandonné</SelectItem>
+            <SelectItem value="tous">Tous les avancements</SelectItem>
+            {["Non initié", "Planification", "En cours", "Finalisation", "Terminé"].map(a => (
+              <SelectItem key={a} value={a}>{a}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
-        {filterStatut !== "tous" && (
-          <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={() => setFilterStatut("tous")}>
+        {filterAvancement !== "tous" && (
+          <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={() => setFilterAvancement("tous")}>
             Réinitialiser
           </Button>
         )}
@@ -178,9 +180,9 @@ export default function MesPacqStrategiquePage() {
       ) : (
         <motion.div variants={container} initial="hidden" animate="show" className="space-y-3">
           {filtered.map(act => {
-            const stat    = STATUT_CONFIG[act.statut];
-            const tmeta   = thematiqueMeta(act.objectif_thematique);
-            const badgeCls = tmeta ? THEMATIQUE_BADGE[tmeta.color] : "bg-slate-100 text-slate-600";
+            const avCfg    = AVANCEMENT_CONFIG[act.avancement || "Non initié"] ?? AVANCEMENT_CONFIG["Non initié"];
+            const tmeta    = themeMeta(act.objectif_theme);
+            const badgeCls = tmeta ? THEME_BADGE[tmeta.color] : "bg-slate-100 text-slate-600";
             const indExpanded = expandedIndicateurs.has(act.id);
             const actInds = indicateurs.filter(i => i.action_id === act.id);
             const hasInds = actInds.some(i => i.commentaire);
@@ -192,8 +194,8 @@ export default function MesPacqStrategiquePage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2 mb-2">
-                          <Badge variant="outline" className={`text-[11px] border-0 ${stat.color}`}>
-                            {stat.label}
+                          <Badge variant="outline" className={`text-[11px] border-0 ${avCfg.color}`}>
+                            {act.avancement || "Non initié"}
                           </Badge>
                           {tmeta && (
                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${badgeCls}`}>
@@ -201,23 +203,21 @@ export default function MesPacqStrategiquePage() {
                             </span>
                           )}
                         </div>
-                        <p className="text-sm font-display font-semibold text-foreground leading-snug mb-1">{act.titre}</p>
-                        {act.description && (
-                          <p className="text-xs text-muted-foreground leading-relaxed mb-2">{act.description}</p>
-                        )}
-                        <p className="text-xs text-muted-foreground mb-2">
-                          Objectif : <span className="text-foreground/70">{act.objectif_titre}</span>
+                        <p className="text-sm font-display font-semibold text-foreground leading-snug mb-1">
+                          {act.intitule || "—"}
                         </p>
-                        {act.date_echeance && (
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Objectif : <span className="text-foreground/70">{act.objectif_intitule}</span>
+                        </p>
+                        {act.echeance && (
                           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                             <Calendar className="w-3 h-3" />
-                            Échéance : {new Date(act.date_echeance).toLocaleDateString("fr-FR")}
+                            Échéance : {new Date(act.echeance).toLocaleDateString("fr-FR")}
                           </span>
                         )}
                       </div>
                     </div>
 
-                    {/* Toggle indicateurs */}
                     <button
                       onClick={() => toggleIndicateurs(act.id)}
                       className="mt-4 flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -229,7 +229,6 @@ export default function MesPacqStrategiquePage() {
                     </button>
                   </div>
 
-                  {/* Indicateurs en lecture seule */}
                   <AnimatePresence>
                     {indExpanded && (
                       <motion.div
