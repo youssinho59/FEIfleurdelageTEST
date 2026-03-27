@@ -22,6 +22,7 @@ import {
   Star,
   Building2,
   ShieldAlert,
+  TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
@@ -179,6 +180,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
       items: [
         ...(isAdmin ? [{ to: "/statistiques", label: "Statistiques", icon: BarChart3 }] : []),
         { to: "/suivi-instances", label: "Suivi des Instances", icon: Building2 },
+        { to: "/indicateurs", label: "Indicateurs", icon: TrendingUp },
       ],
     },
   ];

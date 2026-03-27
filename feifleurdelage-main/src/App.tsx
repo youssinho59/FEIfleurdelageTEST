@@ -23,6 +23,7 @@ import ClasseurAdminPage from "@/pages/ClasseurAdminPage";
 import ClasseurAgentPage from "@/pages/ClasseurAgentPage";
 import PlainteExternePage from "@/pages/PlainteExternePage";
 import AuditsPage from "@/pages/AuditsPage";
+import IndicateursPage from "@/pages/IndicateursPage";
 import QuestionnaireSatisfactionPage from "@/pages/QuestionnaireSatisfactionPage";
 import QuestionnairesAdminPage from "@/pages/QuestionnairesAdminPage";
 import DuerpPage from "./pages/DuerpPage";
@@ -104,6 +105,7 @@ const AppRoutes = () => {
       <Route path="/classeur" element={<ProtectedRoute><ClasseurAgentPage /></ProtectedRoute>} />
       <Route path="/duerp" element={<ProtectedRoute adminOrResponsable><DuerpPage /></ProtectedRoute>} />
       <Route path="/batiment" element={<ProtectedRoute adminOrResponsable><BatimentPage /></ProtectedRoute>} />
+      <Route path="/indicateurs" element={<ProtectedRoute adminOrResponsable><IndicateursPage /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
