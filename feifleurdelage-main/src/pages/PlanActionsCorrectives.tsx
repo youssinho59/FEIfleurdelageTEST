@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import {
   ClipboardCheck, Plus, ListTodo, Clock, CheckCircle2,
   AlertTriangle, User, Calendar, FileText, Pencil, Trash2,
-  Filter, TrendingUp, MessageSquare, Send, ChevronDown, ChevronUp,
+  Filter, TrendingUp, MessageSquare, Send, ChevronDown, ChevronUp, UserCheck,
 } from "lucide-react";
 
 type Priorite = "haute" | "moyenne" | "faible";
@@ -105,6 +105,7 @@ export default function PlanActionsCorrectives() {
   const [filterResponsable, setFilterResponsable] = useState("tous");
   const [filterService, setFilterService] = useState("tous");
   const [filterSource, setFilterSource] = useState("tous");
+  const [filterMesActions, setFilterMesActions] = useState(false);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingAction, setEditingAction] = useState<ActionCorrective | null>(null);
@@ -153,6 +154,7 @@ export default function PlanActionsCorrectives() {
 
   // Filtered
   const filtered = actions.filter(a => {
+    if (filterMesActions && a.responsable_id !== user?.id) return false;
     if (filterStatut !== "tous" && a.statut !== filterStatut) return false;
     if (filterPriorite !== "toutes" && a.priorite !== filterPriorite) return false;
     if (filterResponsable !== "tous" && a.responsable_id !== filterResponsable) return false;
@@ -327,6 +329,15 @@ export default function PlanActionsCorrectives() {
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25 }}
         className="flex flex-wrap gap-3 items-center p-4 rounded-xl border border-border bg-card/50">
         <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
+        <Button
+          variant={filterMesActions ? "default" : "outline"}
+          size="sm"
+          className="h-8 gap-1.5 text-xs shrink-0"
+          onClick={() => setFilterMesActions(v => !v)}
+        >
+          <UserCheck className="w-3.5 h-3.5" />
+          Mes actions
+        </Button>
         <Select value={filterStatut} onValueChange={setFilterStatut}>
           <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>

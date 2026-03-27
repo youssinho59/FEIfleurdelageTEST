@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import {
   Target, Plus, Pencil, Trash2, ChevronDown, ChevronUp,
   Calendar, User, CheckCircle2, BarChart3, Sparkles,
-  Download, FileSpreadsheet, Loader2,
+  Download, FileSpreadsheet, Loader2, UserCheck,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
@@ -94,6 +94,7 @@ export default function PacqStrategiquePage() {
 
   const [selectedThematique, setSelectedThematique] = useState(THEMATIQUES_ESSMS[0].id);
   const [filterSourceStrat, setFilterSourceStrat] = useState("tous");
+  const [filterMesActions, setFilterMesActions] = useState(false);
   const [allObjectifs, setAllObjectifs]   = useState<Objectif[]>([]);
   const [actions, setActions]             = useState<Action[]>([]);
   const [indicateurs, setIndicateurs]     = useState<Indicateur[]>([]);
@@ -687,9 +688,18 @@ export default function PacqStrategiquePage() {
         </div>
       </motion.div>
 
-      {/* Filtre par source */}
-      {sourcesStrat.length > 0 && (
-        <div className="flex items-center gap-2">
+      {/* Filtres */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant={filterMesActions ? "default" : "outline"}
+          size="sm"
+          className="h-8 gap-1.5 text-xs"
+          onClick={() => setFilterMesActions(v => !v)}
+        >
+          <UserCheck className="w-3.5 h-3.5" />
+          Mes actions
+        </Button>
+        {sourcesStrat.length > 0 && (<>
           <Select value={filterSourceStrat} onValueChange={setFilterSourceStrat}>
             <SelectTrigger className="w-56 h-8 text-xs"><SelectValue placeholder="Toutes les sources" /></SelectTrigger>
             <SelectContent>
@@ -703,8 +713,8 @@ export default function PacqStrategiquePage() {
               × Réinitialiser
             </Button>
           )}
-        </div>
-      )}
+        </>)}
+      </div>
 
       {/* Contenu de la thématique */}
       {loading ? (
@@ -735,12 +745,15 @@ export default function PacqStrategiquePage() {
           ) : (
             objectifsCurrent.map(obj => {
               const allObjActions = actions.filter(a => a.objectif_id === obj.id);
-              const objActions = filterSourceStrat === "tous"
+              const sourceFiltered = filterSourceStrat === "tous"
                 ? allObjActions
                 : filterSourceStrat === "sans"
                   ? allObjActions.filter(a => !a.source)
                   : allObjActions.filter(a => a.source === filterSourceStrat);
-              if (filterSourceStrat !== "tous" && objActions.length === 0) return null;
+              const objActions = filterMesActions
+                ? sourceFiltered.filter(a => a.pilote_id === user?.id)
+                : sourceFiltered;
+              if ((filterSourceStrat !== "tous" || filterMesActions) && objActions.length === 0) return null;
               const expanded = expandedActions.has(obj.id);
               const realise = objActions.filter(a => a.statut === "realise").length;
 

@@ -7,8 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import {
-  Loader2, ChevronDown, ChevronUp, Sparkles, CheckCircle2, RotateCcw,
+  Loader2, ChevronDown, ChevronUp, Sparkles, CheckCircle2, RotateCcw, FileDown,
 } from "lucide-react";
+import jsPDF from "jspdf";
 
 type RetexFei = {
   id: string;
@@ -410,13 +411,59 @@ const RetexTab = () => {
                 </div>
 
                 {/* Compte-rendu IA */}
-                {cr && (
-                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
+                {cr !== undefined && (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
                     <p className="text-xs font-semibold text-primary flex items-center gap-1.5">
                       <Sparkles className="w-3.5 h-3.5" />
                       Compte-rendu généré par l'IA
+                      <span className="text-muted-foreground font-normal">(modifiable)</span>
                     </p>
-                    <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">{cr}</p>
+                    <Textarea
+                      value={cr}
+                      onChange={(e) => setCrTexts(prev => ({ ...prev, [fei.id]: e.target.value }))}
+                      rows={12}
+                      className="text-xs leading-relaxed resize-y font-mono bg-background"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => {
+                        const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+                        const margin = 18;
+                        const maxW = 174;
+                        const lineH = 5.5;
+                        let y = 28;
+                        // En-tête
+                        doc.setFillColor(196, 107, 72);
+                        doc.rect(0, 0, 210, 20, "F");
+                        doc.setTextColor(255, 255, 255);
+                        doc.setFontSize(12);
+                        doc.setFont("helvetica", "bold");
+                        doc.text("Compte-rendu RETEX", margin, 10);
+                        doc.setFontSize(9);
+                        doc.setFont("helvetica", "normal");
+                        doc.text(`${fei.type_fei} — ${new Date(fei.date_evenement + "T00:00:00").toLocaleDateString("fr-FR")}`, margin, 16);
+                        doc.setTextColor(30, 30, 30);
+                        // Corps
+                        doc.setFontSize(9.5);
+                        const lines = doc.splitTextToSize(cr, maxW);
+                        lines.forEach((line: string) => {
+                          if (y > 272) { doc.addPage(); y = margin; }
+                          doc.text(line, margin, y);
+                          y += lineH;
+                        });
+                        // Pied de page
+                        doc.setFontSize(8);
+                        doc.setTextColor(160, 150, 140);
+                        doc.text(`EHPAD La Fleur de l'Âge — Document généré le ${new Date().toLocaleDateString("fr-FR")}`, margin, 287);
+                        doc.save(`RETEX_${fei.type_fei.replace(/\s+/g, "_")}_${fei.date_evenement}.pdf`);
+                      }}
+                    >
+                      <FileDown className="w-3.5 h-3.5" />
+                      Télécharger en PDF
+                    </Button>
                   </div>
                 )}
 

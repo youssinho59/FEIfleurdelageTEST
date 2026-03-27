@@ -93,9 +93,9 @@ const AppRoutes = () => {
       <Route path="/gestion-fei" element={<ProtectedRoute adminOrResponsable><FeiManagementPage /></ProtectedRoute>} />
       <Route path="/gestion-reclamations" element={<ProtectedRoute adminOrResponsable><PlaintesManagementPage /></ProtectedRoute>} />
       <Route path="/agents" element={<ProtectedRoute adminOnly><AgentsManagementPage /></ProtectedRoute>} />
-      <Route path="/plan-actions" element={<ProtectedRoute adminOnly><PlanActionsCorrectives /></ProtectedRoute>} />
+      <Route path="/plan-actions" element={<ProtectedRoute adminOrResponsable><PlanActionsCorrectives /></ProtectedRoute>} />
       <Route path="/mes-actions" element={<ProtectedRoute><MesActionsCorrectives /></ProtectedRoute>} />
-      <Route path="/suivi-instances" element={<ProtectedRoute adminOnly><SuiviInstancesPage /></ProtectedRoute>} />
+      <Route path="/suivi-instances" element={<ProtectedRoute adminOrResponsable><SuiviInstancesPage /></ProtectedRoute>} />
       <Route path="/pacq-strategique" element={<ProtectedRoute adminOrResponsable><PacqStrategiquePage /></ProtectedRoute>} />
       <Route path="/mes-pacq-strategique" element={<ProtectedRoute><MesPacqStrategiquePage /></ProtectedRoute>} />
       <Route path="/classeur-admin" element={<ProtectedRoute adminOnly><ClasseurAdminPage /></ProtectedRoute>} />

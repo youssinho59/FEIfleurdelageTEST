@@ -39,6 +39,7 @@ const SuiviInstancesPage = () => {
   const [savingSet, setSavingSet] = useState<Set<string>>(new Set());
   const [retourDialog, setRetourDialog] = useState<{ sourceId: string; text: string } | null>(null);
   const [savingRetour, setSavingRetour] = useState(false);
+  const [retexCount, setRetexCount] = useState<number | null>(null);
 
   const fetchData = useCallback(async (year: number) => {
     setLoading(true);
@@ -119,6 +120,11 @@ const SuiviInstancesPage = () => {
   useEffect(() => {
     fetchData(selectedYear);
   }, [selectedYear, fetchData]);
+
+  useEffect(() => {
+    supabase.from("fei").select("id", { count: "exact", head: true }).eq("retex", true)
+      .then(({ count }) => setRetexCount(count ?? 0));
+  }, []);
 
   const updateLocalDate = (sourceId: string, field: "cse_date" | "cvs_date" | "codir_date", value: string) => {
     setRows((prev) => prev.map((r) => (r.source_id === sourceId ? { ...r, [field]: value } : r)));
@@ -306,6 +312,24 @@ const SuiviInstancesPage = () => {
     printWindow.document.close();
   };
 
+  const handlePrintSection = (sectionId: string) => {
+    const style = document.createElement("style");
+    style.id = "temp-print-style";
+    style.textContent = `@media print { body > * { display:none!important; } #${sectionId} { display:block!important; position:fixed; top:0; left:0; width:100%; padding:20px; } }`;
+    document.head.appendChild(style);
+    window.addEventListener("afterprint", () => {
+      const s = document.getElementById("temp-print-style");
+      if (s) document.head.removeChild(s);
+    }, { once: true });
+    window.print();
+  };
+
+  const handlePrintActive = () => {
+    if (activeTab === "suivi") handlePrint();
+    else if (activeTab === "demandes-cvs") handlePrintSection("print-cvs");
+    else if (activeTab === "retex") handlePrintSection("print-retex");
+  };
+
   // Utilitaire d'échappement HTML pour l'impression
   function escapeHtml(text: string): string {
     return text
@@ -330,14 +354,16 @@ const SuiviInstancesPage = () => {
           <div>
             <h1 className="text-2xl font-display font-bold text-foreground">Suivi des Instances</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Dates de présentation des FEI et Plaintes en <strong>CSE</strong>, <strong>CVS</strong> et <strong>CODIR</strong>
+              {activeTab === "suivi" && <>Dates de présentation des FEI et Plaintes en <strong>CSE</strong>, <strong>CVS</strong> et <strong>CODIR</strong></>}
+              {activeTab === "demandes-cvs" && "Les demandes CVS recensent les requêtes et suggestions exprimées par les résidents et familles en Conseil de la Vie Sociale."}
+              {activeTab === "retex" && <>Le <strong>RETEX</strong> (Retour d'EXpérience) analyse en profondeur les événements indésirables pour en tirer des enseignements.{retexCount !== null && <> <strong>{retexCount}</strong> FEI marquée{retexCount > 1 ? "s" : ""} pour RETEX.</>}</>}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {/* Sélecteur d'année */}
-          <div className="flex items-center gap-1.5">
+          {/* Sélecteur d'année — affiché uniquement sur l'onglet suivi */}
+          {activeTab === "suivi" && <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground font-medium">Année</span>
             <select
               value={selectedYear}
@@ -348,9 +374,9 @@ const SuiviInstancesPage = () => {
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
-          </div>
+          </div>}
 
-          <Button onClick={handlePrint} variant="outline" size="sm" className="gap-2 h-9">
+          <Button onClick={handlePrintActive} variant="outline" size="sm" className="gap-2 h-9">
             <Printer className="w-4 h-4" />
             Imprimer
           </Button>
@@ -395,10 +421,10 @@ const SuiviInstancesPage = () => {
       </div>
 
       {/* ── Contenu de l'onglet Demandes CVS ─────────────────────── */}
-      {activeTab === "demandes-cvs" && <CvsDemandesTab />}
+      {activeTab === "demandes-cvs" && <div id="print-cvs"><CvsDemandesTab /></div>}
 
       {/* ── Contenu de l'onglet RETEX ─────────────────────────────── */}
-      {activeTab === "retex" && <RetexTab />}
+      {activeTab === "retex" && <div id="print-retex"><RetexTab /></div>}
 
       {/* ── Contenu de l'onglet Tableau de suivi ─────────────────── */}
       {activeTab === "suivi" && <>
