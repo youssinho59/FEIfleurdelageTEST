@@ -6,8 +6,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Printer, CalendarRange, FileText, MessageSquareWarning, Loader2, Info, MessageSquare, Users } from "lucide-react";
+import { Printer, CalendarRange, FileText, MessageSquareWarning, Loader2, Info, MessageSquare, Users, RotateCcw } from "lucide-react";
 import { CvsDemandesTab } from "@/components/instances/CvsDemandesTab";
+import RetexTab from "@/components/instances/RetexTab";
 
 type InstanceRow = {
   source_id: string;
@@ -31,7 +32,7 @@ const INSTANCE_COLS = [
 
 const SuiviInstancesPage = () => {
   const currentYear = new Date().getFullYear();
-  const [activeTab, setActiveTab] = useState<"suivi" | "demandes-cvs">("suivi");
+  const [activeTab, setActiveTab] = useState<"suivi" | "demandes-cvs" | "retex">("suivi");
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [rows, setRows] = useState<InstanceRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -380,10 +381,24 @@ const SuiviInstancesPage = () => {
           <Users className="w-4 h-4" />
           Demandes CVS
         </button>
+        <button
+          onClick={() => setActiveTab("retex")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "retex"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <RotateCcw className="w-4 h-4" />
+          RETEX
+        </button>
       </div>
 
       {/* ── Contenu de l'onglet Demandes CVS ─────────────────────── */}
       {activeTab === "demandes-cvs" && <CvsDemandesTab />}
+
+      {/* ── Contenu de l'onglet RETEX ─────────────────────────────── */}
+      {activeTab === "retex" && <RetexTab />}
 
       {/* ── Contenu de l'onglet Tableau de suivi ─────────────────── */}
       {activeTab === "suivi" && <>

@@ -17,6 +17,8 @@ import {
   Building2, AlertTriangle, CheckCircle2, FileDown, Sparkles, Loader2,
 } from "lucide-react";
 import { generateFeiPdf } from "@/lib/pdfGenerator";
+import DeclarationArsDialog from "@/components/fei/DeclarationArsDialog";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -115,6 +117,7 @@ type FeiRecord = {
   mesures_prises_ars: string | null;
   date_envoi_ars: string | null;
   statut_ars: string | null;
+  retex: boolean;
 };
 
 const FeiManagementPage = () => {
@@ -136,6 +139,12 @@ const FeiManagementPage = () => {
   const [editPlanAction, setEditPlanAction] = useState("");
   const [editRetour, setEditRetour] = useState("");
   const [editActions, setEditActions] = useState("");
+
+  // RETEX
+  const [editRetex, setEditRetex] = useState(false);
+
+  // ARS dialog
+  const [arsDialogOpen, setArsDialogOpen] = useState(false);
 
   // Section ARS (FEIGS)
   const [editDateEnvoiArs, setEditDateEnvoiArs] = useState("");
@@ -198,6 +207,7 @@ const FeiManagementPage = () => {
     setEditPlanAction(fei.plan_action || "");
     setEditRetour(fei.retour_declarant || "");
     setEditActions("");
+    setEditRetex(fei.retex || false);
     // ARS
     setEditDateEnvoiArs(fei.date_envoi_ars || "");
     setEditNatureArs(fei.nature_evenement_ars || "");
@@ -227,6 +237,7 @@ const FeiManagementPage = () => {
       actions_correctives: editActions || null,
       managed_by: user.id,
       managed_at: new Date().toISOString(),
+      retex: editRetex,
     };
 
     if (editStatut === "cloture" || editStatut === "archive") {
@@ -519,7 +530,7 @@ const FeiManagementPage = () => {
       </AlertDialog>
 
       {/* Detail / Management Dialog */}
-      <Dialog open={!!selectedFei} onOpenChange={(open) => !open && setSelectedFei(null)}>
+      <Dialog open={!!selectedFei} onOpenChange={(open) => { if (!open) { setSelectedFei(null); setArsDialogOpen(false); } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {selectedFei && (
             <>
@@ -572,7 +583,13 @@ const FeiManagementPage = () => {
                 </CardContent>
               </Card>
 
-              {/* Management Form */}
+              {/* Management Form — Admin uniquement */}
+              {!isAdmin && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-amber-700 mt-2">
+                  La gestion, le traitement et le retour au déclarant sont réservés aux administrateurs.
+                </div>
+              )}
+              {isAdmin && (
               <div className="space-y-4 mt-2">
                 <div className="space-y-2">
                   <Label>Statut</Label>
@@ -599,6 +616,19 @@ const FeiManagementPage = () => {
                       <SelectItem value="feigs">FEIGS — Événement grave sériel (ARS)</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                {/* Champ RETEX */}
+                <div className="flex items-center gap-2 py-1">
+                  <Checkbox
+                    id="retex-toggle"
+                    checked={editRetex}
+                    onCheckedChange={(v) => setEditRetex(!!v)}
+                  />
+                  <label htmlFor="retex-toggle" className="text-sm font-medium cursor-pointer">
+                    Faire l'objet d'un RETEX
+                  </label>
+                  <span className="text-xs text-muted-foreground">(Retour d'EXpérience)</span>
                 </div>
 
                 <div className="space-y-2">
@@ -745,6 +775,26 @@ const FeiManagementPage = () => {
                   </div>
                 )}
 
+                {/* ── Déclaration ARS officielle — toute catégorie ── */}
+                <div className="rounded-lg border border-red-100 bg-red-50/30 p-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-red-800">Déclaration ARS officielle</p>
+                    <p className="text-xs text-red-600 mt-0.5">
+                      Formulaire complet selon le Décret 2016-1813 — disponible pour toute FEI
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setArsDialogOpen(true)}
+                    className="gap-1.5 shrink-0 border-red-200 text-red-700 hover:bg-red-50"
+                  >
+                    <Building2 className="w-3.5 h-3.5" />
+                    Ouvrir la déclaration
+                  </Button>
+                </div>
+
                 {/* ── Section PACQ ── */}
                 <div className="rounded-xl border-l-4 border-l-emerald-400 border border-emerald-100 bg-emerald-50/50 p-4 space-y-3">
                   <div className="flex items-center gap-2">
@@ -806,10 +856,28 @@ const FeiManagementPage = () => {
                   </p>
                 )}
               </div>
+              )}
             </>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ── Dialog Déclaration ARS officielle ── */}
+      {selectedFei && (
+        <DeclarationArsDialog
+          open={arsDialogOpen}
+          onOpenChange={setArsDialogOpen}
+          feiId={selectedFei.id}
+          feiData={{
+            description: selectedFei.description,
+            date_evenement: selectedFei.date_evenement,
+            lieu: selectedFei.lieu,
+            declarant_nom: selectedFei.declarant_nom,
+            service: selectedFei.service,
+            type_fei: selectedFei.type_fei,
+          }}
+        />
+      )}
 
       {/* ── Dialog IA → PACQ ── */}
       <Dialog open={!!iaPacqTarget} onOpenChange={(o) => !o && setIaPacqTarget(null)}>
