@@ -141,10 +141,7 @@ export default function PacqStrategiquePage() {
         .select("id, action_id, annee, commentaire"),
     ]);
 
-    const objectifs = (objs as Objectif[]) || [];
-    console.log("[PACQ] Valeurs distinctes de 'theme' en base :",
-      [...new Set(objectifs.map(o => o.theme))]);
-    setAllObjectifs(objectifs);
+    setAllObjectifs((objs as Objectif[]) || []);
     setActions((acts as Action[]) || []);
     setIndicateurs((inds as Indicateur[]) || []);
     setLoading(false);
