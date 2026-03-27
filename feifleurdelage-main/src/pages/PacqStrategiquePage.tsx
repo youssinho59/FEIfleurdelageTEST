@@ -143,10 +143,7 @@ export default function PacqStrategiquePage() {
         .select("id, action_id, annee, commentaire"),
     ]);
 
-    const raw = (objs as any[]) || [];
-    console.log("[PACQ] premier objectif brut :", JSON.stringify(raw[0]));
-    console.log("[PACQ] themes distincts :", JSON.stringify([...new Set(raw.map((o:any) => o.theme))]));
-    setAllObjectifs(raw as Objectif[]);
+    setAllObjectifs((objs as Objectif[]) || []);
     setActions((acts as Action[]) || []);
     setIndicateurs((inds as Indicateur[]) || []);
     setLoading(false);
@@ -156,8 +153,7 @@ export default function PacqStrategiquePage() {
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
-  // TEMP : theme null en base — affiche tout pour valider l'affichage
-  const objectifsForTheme = allObjectifs;
+  const objectifsForTheme = allObjectifs.filter(o => o.theme === selectedTheme);
 
   const visibleObjectifs = objectifsForTheme.filter(o => {
     const objActions = actions.filter(a => a.objectif_id === o.id);
