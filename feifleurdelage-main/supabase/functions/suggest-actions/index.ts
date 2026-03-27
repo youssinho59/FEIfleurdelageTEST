@@ -280,9 +280,51 @@ Rédige un rapport structuré avec introduction, résultats, analyse, conclusion
       const rapport = anthropicData.content[0].text.trim();
       return new Response(JSON.stringify({ rapport }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+    } else if (context_type === "retex") {
+      const system = "Tu es un expert qualité et gestion des risques dans un EHPAD français. Tu rédiges des comptes-rendus de RETEX (Retour d'EXpérience) structurés, professionnels et exploitables. Réponds en texte structuré clair, sans JSON.";
+      const prompt = `Rédige un compte-rendu de RETEX structuré pour l'événement suivant dans un EHPAD.
+
+ÉVÉNEMENT :
+- Type : ${data.type_fei || "Non précisé"}
+- Date : ${data.date_evenement || "Non précisée"}
+- Lieu : ${data.lieu || "Non précisé"}
+- Description : ${data.description || "Non précisée"}
+- Actions correctives initiales : ${data.actions_correctives || "Aucune"}
+
+ANALYSE RETEX SAISIE :
+- Causes immédiates : ${data.causes_immediates || "Non renseigné"}
+- Causes profondes : ${data.causes_profondes || "Non renseigné"}
+- Facteurs contributifs : ${data.facteurs_contributifs || "Non renseigné"}
+- Enseignements tirés : ${data.enseignements || "Non renseigné"}
+- Actions préventives envisagées : ${data.actions_preventives || "Non renseigné"}
+- Personnes impliquées : ${data.personnes_impliquees || "Non renseigné"}
+
+Sur la base de ces éléments, rédige un compte-rendu RETEX complet avec les sections suivantes :
+1. Résumé de l'événement
+2. Analyse causale (causes immédiates, profondes, facteurs contributifs)
+3. Enseignements tirés
+4. Plan d'actions préventives recommandées
+5. Conclusion
+
+Adopte un ton professionnel adapté à un rapport qualité d'EHPAD.`;
+
+      const response = await callAnthropic(apiKey, system, prompt, 1200);
+      if (!response.ok) {
+        const errText = await response.text();
+        return new Response(
+          JSON.stringify({ error: `Erreur API Anthropic ${response.status}: ${errText}` }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      const anthropicData = await response.json();
+      const compte_rendu = anthropicData.content[0].text.trim();
+      return new Response(JSON.stringify({ compte_rendu }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+
     } else {
       return new Response(
-        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte | duerp_complete | duerp_propositions | cvs_demande | audit_analyse | audit_rapport" }),
+        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte | duerp_complete | duerp_propositions | cvs_demande | audit_analyse | audit_rapport | retex" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

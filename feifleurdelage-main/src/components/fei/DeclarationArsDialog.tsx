@@ -89,6 +89,51 @@ const DEFAULT_DATA: DeclarationData = {
   communication_precision: "",
 };
 
+// Mapper type_fei / categorie_fei vers la nature ARS correspondante
+const mapTypeFeiToNatureArs = (type_fei: string, categorie_fei: string): string[] => {
+  const t = type_fei.toLowerCase();
+  const mapped: string[] = [];
+  if (t.includes("chute") || t.includes("accident")) {
+    mapped.push("Accident/incident lié à une erreur ou à un défaut de soin ou de surveillance");
+  }
+  if (t.includes("médicament") || t.includes("medicament") || t.includes("erreur") || t.includes("soin")) {
+    mapped.push("Accident/incident lié à une erreur ou à un défaut de soin ou de surveillance");
+  }
+  if (t.includes("fugue") || t.includes("disparition")) {
+    mapped.push("Disparition inquiétante");
+  }
+  if (t.includes("agress") || t.includes("violen")) {
+    mapped.push("Comportement violent d'usagers envers d'autres usagers ou envers le personnel / manquement grave au règlement");
+  }
+  if (t.includes("maltraitance")) {
+    mapped.push("Situation de maltraitance envers les usagers");
+  }
+  if (t.includes("infect") || t.includes("épidémie") || t.includes("epidemie") || t.includes("technique") || t.includes("incendie") || t.includes("sinistre")) {
+    mapped.push("Accident/incident lié à une défaillance technique ou un événement de santé environnementale");
+  }
+  if (t.includes("suicide") || t.includes("tentative")) {
+    mapped.push("Suicide ou tentative de suicide");
+  }
+  if (t.includes("décès") || t.includes("deces") || t.includes("mort")) {
+    mapped.push("Décès accidentel ou consécutif à un défaut de surveillance");
+  }
+  if (t.includes("famille") || t.includes("proches") || t.includes("relat")) {
+    mapped.push("Perturbation liée à des difficultés relationnelles avec la famille/les proches/des personnes extérieures");
+  }
+  if (t.includes("rh") || t.includes("ressources humaines") || t.includes("travail") || t.includes("personnel")) {
+    mapped.push("Perturbation de l'organisation du travail / des ressources humaines");
+  }
+  if (t.includes("malveillance") || t.includes("vol") || t.includes("intrusion")) {
+    mapped.push("Actes de malveillance au sein de la structure");
+  }
+  // Si feigs/feig et aucun match, ajouter la catégorie générale soin
+  if (mapped.length === 0 && (categorie_fei === "feigs" || categorie_fei === "feig")) {
+    mapped.push("Accident/incident lié à une erreur ou à un défaut de soin ou de surveillance");
+  }
+  // Dédoublonner
+  return [...new Set(mapped)];
+};
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -100,6 +145,10 @@ type Props = {
     declarant_nom: string;
     service: string | null;
     type_fei: string;
+    created_at?: string;
+    actions_correctives?: string | null;
+    categorie_fei?: string;
+    consequences_resident_ars?: string | null;
   };
 };
 
@@ -115,6 +164,26 @@ const DeclarationArsDialog = ({ open, onOpenChange, feiId, feiData }: Props) => 
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, feiId]);
+
+  // Pré-remplissage à partir des données FEI (uniquement si nouvelle déclaration)
+  useEffect(() => {
+    if (!loading && declarationId === null && open) {
+      const natureMapped = mapTypeFeiToNatureArs(
+        feiData.type_fei,
+        feiData.categorie_fei || "standard"
+      );
+      setData((prev) => ({
+        ...prev,
+        nature_faits: natureMapped.length > 0 ? natureMapped : prev.nature_faits,
+        circonstances: feiData.description
+          ? `${new Date(feiData.date_evenement + "T00:00:00").toLocaleDateString("fr-FR")} — ${feiData.lieu}\n\n${feiData.description}`
+          : prev.circonstances,
+        consequences_personnes: feiData.consequences_resident_ars || prev.consequences_personnes,
+        mesures_victimes: feiData.actions_correctives || prev.mesures_victimes,
+      }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, declarationId, open]);
 
   const loadDeclaration = async () => {
     setLoading(true);

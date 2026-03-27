@@ -583,13 +583,7 @@ const FeiManagementPage = () => {
                 </CardContent>
               </Card>
 
-              {/* Management Form — Admin uniquement */}
-              {!isAdmin && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 text-sm text-amber-700 mt-2">
-                  La gestion, le traitement et le retour au déclarant sont réservés aux administrateurs.
-                </div>
-              )}
-              {isAdmin && (
+              {/* Management Form */}
               <div className="space-y-4 mt-2">
                 <div className="space-y-2">
                   <Label>Statut</Label>
@@ -725,6 +719,7 @@ const FeiManagementPage = () => {
                   />
                 </div>
 
+                {isAdmin && (
                 <div className="space-y-2">
                   <Label htmlFor="retour">Retour au déclarant</Label>
                   <Textarea
@@ -735,6 +730,7 @@ const FeiManagementPage = () => {
                     rows={2}
                   />
                 </div>
+                )}
 
                 {/* ── Section ARS (FEIGS uniquement) ── */}
                 {editCategorie === "feigs" && (
@@ -856,7 +852,6 @@ const FeiManagementPage = () => {
                   </p>
                 )}
               </div>
-              )}
             </>
           )}
         </DialogContent>
@@ -875,6 +870,10 @@ const FeiManagementPage = () => {
             declarant_nom: selectedFei.declarant_nom,
             service: selectedFei.service,
             type_fei: selectedFei.type_fei,
+            created_at: selectedFei.created_at,
+            actions_correctives: selectedFei.actions_correctives,
+            categorie_fei: selectedFei.categorie_fei,
+            consequences_resident_ars: selectedFei.consequences_resident_ars,
           }}
         />
       )}
