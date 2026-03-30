@@ -280,6 +280,18 @@ Rédige un rapport structuré avec introduction, résultats, analyse, conclusion
       const rapport = anthropicData.content[0].text.trim();
       return new Response(JSON.stringify({ rapport }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+    } else if (context_type === "cartographie_risque") {
+      const system = "Tu es expert en gestion des risques en EHPAD. Réponds UNIQUEMENT en JSON valide, sans markdown ni backticks.";
+      const prompt = `Tu es expert en gestion des risques en EHPAD. Pour la catégorie de risques '${data.categorie}' dans un EHPAD, génère entre 3 et 6 risques typiques avec pour chacun : intitulé, descriptif, facteurs favorisants, mesures en place habituelles, une note de probabilité (1-5), une note de gravité (1-5), une note de niveau de maîtrise (1-5), et une proposition d'amélioration concrète. Réponds uniquement en JSON valide avec la clé 'risques' contenant un tableau.`;
+      const response = await callAnthropic(apiKey, system, prompt, 2500);
+      if (!response.ok) {
+        const errText = await response.text();
+        return new Response(JSON.stringify({ error: `Erreur API Anthropic ${response.status}: ${errText}` }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const anthropicData = await response.json();
+      const parsed = JSON.parse(anthropicData.content[0].text.trim());
+      return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
     } else if (context_type === "retex") {
       const system = "Tu es un expert qualité et gestion des risques dans un EHPAD français. Tu rédiges des comptes-rendus de RETEX (Retour d'EXpérience) structurés, professionnels et exploitables. Réponds en texte structuré clair, sans JSON.";
       const prompt = `Rédige un compte-rendu de RETEX structuré pour l'événement suivant dans un EHPAD.
@@ -324,7 +336,7 @@ Adopte un ton professionnel adapté à un rapport qualité d'EHPAD.`;
 
     } else {
       return new Response(
-        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte | duerp_complete | duerp_propositions | cvs_demande | audit_analyse | audit_rapport | retex" }),
+        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte | duerp_complete | duerp_propositions | cvs_demande | audit_analyse | audit_rapport | retex | cartographie_risque" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

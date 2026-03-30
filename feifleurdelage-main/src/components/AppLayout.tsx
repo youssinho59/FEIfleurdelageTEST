@@ -23,6 +23,7 @@ import {
   Building2,
   ShieldAlert,
   TrendingUp,
+  Map,
 } from "lucide-react";
 import { useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
@@ -152,6 +153,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         { to: "/audits", label: "Audits & NC", icon: ClipboardCheck },
         { to: "/questionnaires-admin", label: "Questionnaires", icon: Star },
         { to: "/duerp", label: "DUERP", icon: ShieldAlert },
+        ...(isAdmin ? [{ to: "/cartographie-risques", label: "Cartographie risques", icon: Map }] : []),
       ],
     },
     {

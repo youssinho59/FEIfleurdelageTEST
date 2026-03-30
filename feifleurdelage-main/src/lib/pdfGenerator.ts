@@ -410,3 +410,139 @@ export function generateStatsPdf(
   addFooter(doc);
   return doc;
 }
+
+// ─── Cartographie des risques PDF ─────────────────────────────────────────────
+
+type RisquePdf = {
+  id: string;
+  categorie: string;
+  intitule_risque: string;
+  descriptif: string | null;
+  facteurs_favorisants: string | null;
+  mesures_en_place: string | null;
+  probabilite: number;
+  gravite: number;
+  criticite_brute: number;
+  niveau_maitrise: number;
+  criticite_residuelle: number;
+  proposition_amelioration: string | null;
+  date_evaluation: string;
+};
+
+function getCriticiteLabel(cr: number): string {
+  if (cr <= 24) return "Maîtrisé";
+  if (cr <= 74) return "Modéré";
+  return "Critique";
+}
+
+export function generateCartographiePdf(risques: RisquePdf[], categories: string[]): void {
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const GREEN: [number, number, number] = [16, 185, 129];
+  const ORANGE_C: [number, number, number] = [249, 115, 22];
+  const RED_C: [number, number, number] = [239, 68, 68];
+
+  function getCriticiteColor(cr: number): [number, number, number] {
+    if (cr <= 24) return GREEN;
+    if (cr <= 74) return ORANGE_C;
+    return RED_C;
+  }
+
+  let isFirstPage = true;
+
+  categories.forEach((cat) => {
+    const catRisques = risques.filter((r) => r.categorie === cat);
+    if (catRisques.length === 0) return;
+
+    if (!isFirstPage) doc.addPage();
+    isFirstPage = false;
+
+    addHeader(doc, `Cartographie des risques — ${cat}`);
+    let y = 50;
+
+    catRisques.forEach((r, idx) => {
+      // Check if we need a new page
+      if (y > 220) {
+        doc.addPage();
+        addHeader(doc, `Cartographie des risques — ${cat} (suite)`);
+        y = 50;
+      }
+
+      const crColor = getCriticiteColor(r.criticite_residuelle);
+      const crLabel = getCriticiteLabel(r.criticite_residuelle);
+
+      // Risk entry box header
+      doc.setFillColor(...crColor);
+      doc.roundedRect(12, y, 186, 7, 2, 0, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text(`${idx + 1}. ${r.intitule_risque}`, 17, y + 4.8);
+      doc.text(`${crLabel} — CR résiduelle: ${r.criticite_residuelle}`, 190, y + 4.8, { align: "right" });
+      y += 7;
+
+      // Scores row
+      doc.setFillColor(250, 247, 243);
+      doc.setDrawColor(...BORDER);
+      doc.rect(12, y, 186, 8, "FD");
+      doc.setTextColor(...MUTED);
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.text(
+        `Probabilité: ${r.probabilite}/5   Gravité: ${r.gravite}/5   Niveau de maîtrise: ${r.niveau_maitrise}/5   CR brute: ${r.criticite_brute}   CR résiduelle: ${r.criticite_residuelle}`,
+        17,
+        y + 5
+      );
+      y += 8;
+
+      // Details
+      const fields: { key: string; value: string }[] = [];
+      if (r.descriptif) fields.push({ key: "Descriptif", value: r.descriptif });
+      if (r.facteurs_favorisants) fields.push({ key: "Facteurs favorisants", value: r.facteurs_favorisants });
+      if (r.mesures_en_place) fields.push({ key: "Mesures en place", value: r.mesures_en_place });
+      if (r.proposition_amelioration) fields.push({ key: "Proposition d'amélioration", value: r.proposition_amelioration });
+
+      if (fields.length > 0) {
+        y = addSectionBox(doc, "", fields, y, crColor);
+      } else {
+        y += 4;
+      }
+
+      y += 2;
+    });
+
+    addFooter(doc);
+  });
+
+  // Summary page
+  doc.addPage();
+  addHeader(doc, "Cartographie des risques — Synthèse");
+  let y = 50;
+
+  const total = risques.length;
+  const maitrise = risques.filter((r) => r.criticite_residuelle <= 24).length;
+  const modere = risques.filter((r) => r.criticite_residuelle > 24 && r.criticite_residuelle <= 74).length;
+  const critique = risques.filter((r) => r.criticite_residuelle > 74).length;
+
+  y = addSectionBox(
+    doc,
+    "Synthèse globale",
+    [
+      { key: "Total des risques identifiés", value: String(total) },
+      { key: "Risques maîtrisés (CR ≤ 24)", value: `${maitrise} risque${maitrise > 1 ? "s" : ""}` },
+      { key: "Risques modérés (CR 25-74)", value: `${modere} risque${modere > 1 ? "s" : ""}` },
+      { key: "Risques critiques (CR ≥ 75)", value: `${critique} risque${critique > 1 ? "s" : ""}` },
+    ],
+    y
+  );
+
+  const catSummary = categories
+    .map((cat) => ({ key: cat, value: `${risques.filter((r) => r.categorie === cat).length} risque(s)` }))
+    .filter((c) => c.value !== "0 risque(s)");
+
+  if (catSummary.length > 0) {
+    y = addSectionBox(doc, "Répartition par catégorie", catSummary, y);
+  }
+
+  addFooter(doc);
+  doc.save(`cartographie-risques-${new Date().toISOString().split("T")[0]}.pdf`);
+}

@@ -28,6 +28,7 @@ import QuestionnaireSatisfactionPage from "@/pages/QuestionnaireSatisfactionPage
 import QuestionnairesAdminPage from "@/pages/QuestionnairesAdminPage";
 import DuerpPage from "./pages/DuerpPage";
 import BatimentPage from "./pages/BatimentPage";
+import CartographieRisquesPage from "./pages/CartographieRisquesPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -106,6 +107,7 @@ const AppRoutes = () => {
       <Route path="/duerp" element={<ProtectedRoute adminOrResponsable><DuerpPage /></ProtectedRoute>} />
       <Route path="/batiment" element={<ProtectedRoute adminOrResponsable><BatimentPage /></ProtectedRoute>} />
       <Route path="/indicateurs" element={<ProtectedRoute adminOrResponsable><IndicateursPage /></ProtectedRoute>} />
+      <Route path="/cartographie-risques" element={<ProtectedRoute adminOnly><CartographieRisquesPage /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
