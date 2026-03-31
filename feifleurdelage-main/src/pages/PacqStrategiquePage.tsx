@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
@@ -37,9 +37,17 @@ type Action = {
   objectif_id: string;
   intitule: string | null;
   pilote: string | null;
+  pilote_id: string | null;
   priorite: string | null;
   avancement: string | null;
   echeance: string | null;
+};
+
+type Agent = {
+  id: string;
+  full_name: string;
+  user_id: string;
+  role: string;
 };
 
 type Indicateur = {
@@ -83,7 +91,7 @@ const THEME_COLORS: Record<string, {
 };
 
 const EMPTY_OBJ_FORM = { reference: "", intitule: "", theme: "", responsable: "", priorite: "Normale", avancement: "Non initié", echeance: "" };
-const EMPTY_ACT_FORM = { intitule: "", pilote: "", priorite: "Normale", avancement: "Non initié", echeance: "" };
+const EMPTY_ACT_FORM = { intitule: "", pilote: "", pilote_id: "", priorite: "Normale", avancement: "Non initié", echeance: "" };
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.04 } } };
 const item      = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, transition: { duration: 0.25 } } };
@@ -91,7 +99,7 @@ const item      = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, tra
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function PacqStrategiquePage() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
 
   const [selectedTheme, setSelectedTheme] = useState(THEMES_AGEVAL[0].id);
   const [filterAvancement, setFilterAvancement] = useState("tous");
@@ -99,6 +107,7 @@ export default function PacqStrategiquePage() {
   const [allObjectifs, setAllObjectifs] = useState<Objectif[]>([]);
   const [actions, setActions]           = useState<Action[]>([]);
   const [indicateurs, setIndicateurs]   = useState<Indicateur[]>([]);
+  const [agents, setAgents]             = useState<Agent[]>([]);
   const [loading, setLoading]           = useState(true);
   const [expandedObjectifs, setExpandedObjectifs] = useState<Set<string>>(new Set());
   const [expandedIndicateurs, setExpandedIndicateurs] = useState<Set<string>>(new Set());
@@ -132,20 +141,31 @@ export default function PacqStrategiquePage() {
   const load = useCallback(async () => {
     setLoading(true);
 
-    const [{ data: objs }, { data: acts }, { data: inds }] = await Promise.all([
+    const [{ data: objs }, { data: acts }, { data: inds }, { data: profilesData }, { data: rolesData }] = await Promise.all([
       supabase.from("pacq_strategique_objectifs")
         .select("id, reference, intitule, theme, responsable, priorite, avancement, echeance")
         .order("reference", { ascending: true }),
       supabase.from("pacq_strategique_actions")
-        .select("id, objectif_id, intitule, pilote, priorite, avancement, echeance")
+        .select("id, objectif_id, intitule, pilote, pilote_id, priorite, avancement, echeance")
         .order("intitule", { ascending: true }),
       supabase.from("pacq_strategique_indicateurs")
         .select("id, action_id, annee, commentaire"),
+      supabase.from("profiles").select("id, full_name, user_id").order("full_name"),
+      supabase.from("user_roles").select("user_id, role"),
     ]);
 
     setAllObjectifs((objs as Objectif[]) || []);
     setActions((acts as Action[]) || []);
     setIndicateurs((inds as Indicateur[]) || []);
+
+    const agentsList: Agent[] = ((profilesData as any[]) || []).map(p => ({
+      id: p.id,
+      full_name: p.full_name || "",
+      user_id: p.user_id,
+      role: (rolesData as any[])?.find(r => r.user_id === p.user_id)?.role || "user",
+    }));
+    setAgents(agentsList);
+
     setLoading(false);
   }, []);
 
@@ -153,12 +173,14 @@ export default function PacqStrategiquePage() {
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
+  const myProfileId = agents.find(a => a.user_id === user?.id)?.id;
+
   const objectifsForTheme = allObjectifs.filter(o => o.theme === selectedTheme);
 
   const visibleObjectifs = objectifsForTheme.filter(o => {
     const objActions = actions.filter(a => a.objectif_id === o.id);
     if (filterMesActions) {
-      if (!objActions.some(a => a.pilote === profile?.full_name)) return false;
+      if (!objActions.some(a => a.pilote_id === myProfileId)) return false;
     }
     if (filterAvancement !== "tous") {
       if (!objActions.some(a => a.avancement === filterAvancement)) return false;
@@ -169,7 +191,7 @@ export default function PacqStrategiquePage() {
   const actionsForObjectif = (objId: string) => {
     let acts = actions.filter(a => a.objectif_id === objId);
     if (filterAvancement !== "tous") acts = acts.filter(a => a.avancement === filterAvancement);
-    if (filterMesActions) acts = acts.filter(a => a.pilote === profile?.full_name);
+    if (filterMesActions) acts = acts.filter(a => a.pilote_id === myProfileId);
     return acts;
   };
 
@@ -245,6 +267,7 @@ export default function PacqStrategiquePage() {
     setActForm({
       intitule:   a.intitule   || "",
       pilote:     a.pilote     || "",
+      pilote_id:  a.pilote_id  || "",
       priorite:   a.priorite   || "Normale",
       avancement: a.avancement || "Non initié",
       echeance:   a.echeance   || "",
@@ -255,10 +278,12 @@ export default function PacqStrategiquePage() {
   const saveAction = async () => {
     if (!actForm.intitule.trim()) { toast.error("L'intitulé est obligatoire"); return; }
     setActSaving(true);
+    const selectedAgent = agents.find(a => a.id === actForm.pilote_id);
     const payload: any = {
       objectif_id: actParentId,
       intitule:    actForm.intitule.trim(),
-      pilote:      actForm.pilote    || null,
+      pilote:      selectedAgent?.full_name || null,
+      pilote_id:   actForm.pilote_id || null,
       priorite:    actForm.priorite  || "Normale",
       avancement:  actForm.avancement || "Non initié",
       echeance:    actForm.echeance  || null,
@@ -848,8 +873,24 @@ export default function PacqStrategiquePage() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Pilote</Label>
-              <Input className="h-8 text-xs" placeholder="Nom du pilote" value={actForm.pilote}
-                onChange={e => setActForm(f => ({ ...f, pilote: e.target.value }))} />
+              <Select value={actForm.pilote_id} onValueChange={v => setActForm(f => ({ ...f, pilote_id: v }))}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Sélectionner un pilote" /></SelectTrigger>
+                <SelectContent>
+                  {(["admin", "responsable", "user"] as const).map(roleGroup => {
+                    const roleAgents = agents.filter(a => a.role === roleGroup);
+                    if (roleAgents.length === 0) return null;
+                    const roleLabel = roleGroup === "admin" ? "Administrateurs" : roleGroup === "responsable" ? "Responsables" : "Agents";
+                    return (
+                      <SelectGroup key={roleGroup}>
+                        <SelectLabel className="text-[10px] uppercase tracking-widest text-muted-foreground">{roleLabel}</SelectLabel>
+                        {roleAgents.map(a => (
+                          <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">

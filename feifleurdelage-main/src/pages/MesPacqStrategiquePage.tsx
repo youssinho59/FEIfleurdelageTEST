@@ -15,6 +15,7 @@ type ActionWithObjectif = {
   id: string;
   intitule: string | null;
   pilote: string | null;
+  pilote_id: string | null;
   priorite: string | null;
   avancement: string | null;
   echeance: string | null;
@@ -56,7 +57,7 @@ const item      = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, tra
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function MesPacqStrategiquePage() {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const [actions, setActions]           = useState<ActionWithObjectif[]>([]);
   const [indicateurs, setIndicateurs]   = useState<Indicateur[]>([]);
   const [loading, setLoading]           = useState(true);
@@ -64,17 +65,26 @@ export default function MesPacqStrategiquePage() {
   const [expandedIndicateurs, setExpandedIndicateurs] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!profile?.full_name) return;
+    if (!user?.id) return;
     const load = async () => {
       setLoading(true);
+
+      // Récupérer l'id de profil de l'utilisateur courant
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (!profileData?.id) { setLoading(false); return; }
 
       const { data: actData, error: actErr } = await supabase
         .from("pacq_strategique_actions")
         .select(`
-          id, intitule, pilote, priorite, avancement, echeance, objectif_id,
+          id, intitule, pilote, pilote_id, priorite, avancement, echeance, objectif_id,
           pacq_strategique_objectifs ( intitule, theme )
         `)
-        .eq("pilote", profile.full_name)
+        .eq("pilote_id", profileData.id)
         .order("echeance", { ascending: true, nullsFirst: false });
 
       if (actErr) { setLoading(false); return; }
@@ -83,6 +93,7 @@ export default function MesPacqStrategiquePage() {
         id: a.id,
         intitule: a.intitule,
         pilote: a.pilote,
+        pilote_id: a.pilote_id,
         priorite: a.priorite,
         avancement: a.avancement,
         echeance: a.echeance,
@@ -104,7 +115,7 @@ export default function MesPacqStrategiquePage() {
       setLoading(false);
     };
     load();
-  }, [profile?.full_name]);
+  }, [user?.id]);
 
   const filtered = actions.filter(a =>
     filterAvancement === "tous" || a.avancement === filterAvancement
