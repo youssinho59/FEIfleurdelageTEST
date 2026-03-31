@@ -183,6 +183,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         ...(isAdmin ? [{ to: "/statistiques", label: "Statistiques", icon: BarChart3 }] : []),
         { to: "/suivi-instances", label: "Suivi des Instances", icon: Building2 },
         { to: "/indicateurs", label: "Indicateurs", icon: TrendingUp },
+        ...(isAdmin ? [{ to: "/pilotage-financier", label: "Pilotage Financier", icon: TrendingUp }] : []),
       ],
     },
   ];

@@ -280,6 +280,44 @@ Rédige un rapport structuré avec introduction, résultats, analyse, conclusion
       const rapport = anthropicData.content[0].text.trim();
       return new Response(JSON.stringify({ rapport }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+    } else if (context_type === "analyse_financiere") {
+      const { periode, gf_courant, gf_precedent, top5_fournisseurs, nb_mandats } = data;
+      const system = "Tu es un expert en gestion financière d'EHPAD public (établissement d'hébergement pour personnes âgées dépendantes). Tu analyses les dépenses de mandatement et proposes des commentaires de gestion pertinents. Réponds en texte structuré clair, en français, sans JSON ni markdown.";
+      const prompt = `Analyse les dépenses de mandatement de l'EHPAD La Fleur de l'Âge pour la période ${periode}.
+
+Données de la période :
+- Total TTC : ${gf_courant.total.toFixed(2)} €
+- GF1 (soins & hébergement) : ${gf_courant.GF1.toFixed(2)} €
+- GF2 (personnel) : ${gf_courant.GF2.toFixed(2)} €
+- GF3 (gestion courante) : ${gf_courant.GF3.toFixed(2)} €
+- Nombre de mandats : ${nb_mandats}
+
+Comparaison avec le mois précédent :
+- Total TTC M-1 : ${gf_precedent.total.toFixed(2)} €
+- GF1 M-1 : ${gf_precedent.GF1.toFixed(2)} €
+- GF2 M-1 : ${gf_precedent.GF2.toFixed(2)} €
+- GF3 M-1 : ${gf_precedent.GF3.toFixed(2)} €
+
+Top 5 fournisseurs :
+${top5_fournisseurs.map((f: any, i: number) => `${i + 1}. ${f.tiers} — ${f.montant_ttc.toFixed(2)} €`).join('\n')}
+
+Rédige une analyse de gestion structurée avec :
+1. Synthèse globale du mois
+2. Analyse par groupe fonctionnel (évolutions notables vs mois précédent)
+3. Observations sur les principaux fournisseurs
+4. Points de vigilance éventuels
+5. Recommandations concrètes pour la direction
+
+Sois concis, factuel et orienté gestion publique hospitalière.`;
+      const response = await callAnthropic(apiKey, system, prompt, 1500);
+      if (!response.ok) {
+        const errText = await response.text();
+        return new Response(JSON.stringify({ error: `Erreur API Anthropic ${response.status}: ${errText}` }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const anthropicData = await response.json();
+      const analyse = anthropicData.content[0].text.trim();
+      return new Response(JSON.stringify({ analyse }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
     } else if (context_type === "cartographie_risque") {
       const system = "Tu es expert en gestion des risques en EHPAD. Réponds UNIQUEMENT en JSON valide, sans markdown ni backticks.";
       const prompt = `Tu es expert en gestion des risques en EHPAD. Pour la catégorie de risques '${data.categorie}' dans un EHPAD, génère entre 3 et 6 risques typiques avec pour chacun : intitulé, descriptif, facteurs favorisants, mesures en place habituelles, une note de probabilité (1-5), une note de gravité (1-5), une note de niveau de maîtrise (1-5), et une proposition d'amélioration concrète. Réponds uniquement en JSON valide avec la clé 'risques' contenant un tableau.`;
@@ -336,7 +374,7 @@ Adopte un ton professionnel adapté à un rapport qualité d'EHPAD.`;
 
     } else {
       return new Response(
-        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte | duerp_complete | duerp_propositions | cvs_demande | audit_analyse | audit_rapport | retex | cartographie_risque" }),
+        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte | duerp_complete | duerp_propositions | cvs_demande | audit_analyse | audit_rapport | retex | cartographie_risque | analyse_financiere" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
