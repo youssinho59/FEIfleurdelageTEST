@@ -67,6 +67,7 @@ type ParsedRow = {
   date_emission: string | null;
   retour_tresorerie: string | null;
   isDuplicate?: boolean;
+  isInvalid?: boolean;   // montant aberrant ou compte vide
 };
 
 type MonthlyPoint = {
@@ -82,6 +83,7 @@ type MonthlyPoint = {
 const GF_COLORS = { GF1: "#3b82f6", GF2: "#22c55e", GF3: "#f97316" };
 const GF_LABELS = { GF1: "GF1 — Soins & hébergement", GF2: "GF2 — Personnel", GF3: "GF3 — Gestion courante" };
 const PAGE_SIZE = 25;
+const MONTANT_MAX = 9_999_999; // au-delà = colonnes fusionnées lors du parsing
 const HEADER_KEYWORDS = ["bordereau", "piece", "pièce", "tiers", "objet", "compte", "montant", "emission", "retour", "total", "sous-total", "report"];
 
 // ── Utilitaires PDF ───────────────────────────────────────────────────────────
@@ -187,7 +189,8 @@ function parseMandatLine(line: string): ParsedRow | null {
     compte = tokens[compteIdx];
     tiersObjet = tokens.slice(0, compteIdx).join(" ");
   } else {
-    tiersObjet = beforeAmounts;
+    // Pas de code compte reconnu → ligne de total/virement, ignorer
+    return null;
   }
 
   // Séparer tiers et objet (objet commence souvent par "Facture", "Virement", etc.)
@@ -206,6 +209,10 @@ function parseMandatLine(line: string): ParsedRow | null {
   // Ignorer les lignes qui ressemblent à des totaux
   if (isHeaderOrTotal(tiers + " " + objet)) return null;
 
+  const isInvalid =
+    (htEntry.value !== null && htEntry.value > MONTANT_MAX) ||
+    (ttcEntry.value !== null && ttcEntry.value > MONTANT_MAX);
+
   return {
     n_bordereau, n_piece,
     tiers: tiers || tiersObjet,
@@ -215,6 +222,7 @@ function parseMandatLine(line: string): ParsedRow | null {
     montant_ttc: ttcEntry.value,
     date_emission,
     retour_tresorerie,
+    isInvalid,
   };
 }
 
@@ -283,7 +291,7 @@ export default function PilotageFinancierPage() {
   const [anneeImport, setAnneeImport] = useState(new Date().getFullYear().toString());
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
   const [importLoading, setImportLoading] = useState(false);
-  const [importStats, setImportStats] = useState<{ new: number; dup: number } | null>(null);
+  const [importStats, setImportStats] = useState<{ new: number; dup: number; invalid: number } | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
   // ── Dashboard ────────────────────────────────────────────────────────────────
@@ -350,17 +358,24 @@ export default function PilotageFinancierPage() {
   const filteredMandats = useMemo(() => {
     return mandats.filter(m => {
       if (filterAnnees !== "tous" && m.annee !== parseInt(filterAnnees)) return false;
-      if (filterGF !== "tous" && m.groupe_fonctionnel !== filterGF) return false;
+      if (filterGF !== "tous") {
+        if (filterGF === "Non classé") {
+          if (m.groupe_fonctionnel && m.groupe_fonctionnel !== "Non classé") return false;
+        } else if (m.groupe_fonctionnel !== filterGF) {
+          return false;
+        }
+      }
       return true;
     });
   }, [mandats, filterAnnees, filterGF]);
 
   const kpis = useMemo(() => {
-    const total   = filteredMandats.reduce((s, m) => s + (m.montant_ttc ?? 0), 0);
-    const gf1     = filteredMandats.filter(m => m.groupe_fonctionnel === "GF1").reduce((s, m) => s + (m.montant_ttc ?? 0), 0);
-    const gf2     = filteredMandats.filter(m => m.groupe_fonctionnel === "GF2").reduce((s, m) => s + (m.montant_ttc ?? 0), 0);
-    const gf3     = filteredMandats.filter(m => m.groupe_fonctionnel === "GF3").reduce((s, m) => s + (m.montant_ttc ?? 0), 0);
-    return { total, gf1, gf2, gf3 };
+    const total      = filteredMandats.reduce((s, m) => s + (m.montant_ttc ?? 0), 0);
+    const gf1        = filteredMandats.filter(m => m.groupe_fonctionnel === "GF1").reduce((s, m) => s + (m.montant_ttc ?? 0), 0);
+    const gf2        = filteredMandats.filter(m => m.groupe_fonctionnel === "GF2").reduce((s, m) => s + (m.montant_ttc ?? 0), 0);
+    const gf3        = filteredMandats.filter(m => m.groupe_fonctionnel === "GF3").reduce((s, m) => s + (m.montant_ttc ?? 0), 0);
+    const nonclasse  = filteredMandats.filter(m => !m.groupe_fonctionnel || m.groupe_fonctionnel === "Non classé").reduce((s, m) => s + (m.montant_ttc ?? 0), 0);
+    return { total, gf1, gf2, gf3, nonclasse };
   }, [filteredMandats]);
 
   const monthlyData = useMemo((): MonthlyPoint[] => {
@@ -421,9 +436,10 @@ export default function PilotageFinancierPage() {
         isDuplicate: existingSet.has(`${r.n_bordereau}_${r.n_piece}`),
       }));
       setParsedRows(marked);
-      const newCount = marked.filter(r => !r.isDuplicate).length;
-      const dupCount = marked.filter(r => r.isDuplicate).length;
-      setImportStats({ new: newCount, dup: dupCount });
+      const invalidCount = marked.filter(r => r.isInvalid).length;
+      const dupCount = marked.filter(r => r.isDuplicate && !r.isInvalid).length;
+      const newCount = marked.filter(r => !r.isDuplicate && !r.isInvalid).length;
+      setImportStats({ new: newCount, dup: dupCount, invalid: invalidCount });
       toast.success(`${rows.length} lignes détectées dans le PDF`);
     } catch (e: any) {
       toast.error("Erreur parsing PDF : " + e.message);
@@ -435,17 +451,30 @@ export default function PilotageFinancierPage() {
     if (!parsedRows.length) return;
     setImportLoading(true);
 
-    // Charger le référentiel comptes pour enrichissement
-    const { data: refData } = await supabase.from("comptes_referentiel").select("*");
+    // Charger tout le référentiel comptes en mémoire (un seul SELECT)
+    const { data: refData, error: refError } = await supabase.from("comptes_referentiel").select("*");
+    if (refError) { toast.error("Erreur chargement référentiel : " + refError.message); setImportLoading(false); return; }
     const refMap = new Map<string, CompteRef>(
-      ((refData as CompteRef[]) ?? []).map(r => [r.compte, r])
+      ((refData as CompteRef[]) ?? []).map(r => [r.compte.trim(), r])
     );
+
+    // Lookup avec fallback : match exact → préfixe décroissant → 'Non classé'
+    const findRef = (compte: string): CompteRef | undefined => {
+      const c = compte.trim();
+      const exact = refMap.get(c);
+      if (exact) return exact;
+      for (let len = c.length - 1; len >= 3; len--) {
+        const partial = refMap.get(c.substring(0, len));
+        if (partial) return partial;
+      }
+      return undefined;
+    };
 
     const annee = parseInt(anneeImport);
     const payload = parsedRows
-      .filter(r => !r.isDuplicate)
+      .filter(r => !r.isDuplicate && !r.isInvalid)
       .map(r => {
-        const ref = refMap.get(r.compte);
+        const ref = findRef(r.compte);
         return {
           annee,
           n_bordereau: r.n_bordereau,
@@ -457,7 +486,7 @@ export default function PilotageFinancierPage() {
           montant_ttc: r.montant_ttc,
           date_emission: r.date_emission,
           retour_tresorerie: r.retour_tresorerie,
-          groupe_fonctionnel: ref?.groupe_fonctionnel ?? null,
+          groupe_fonctionnel: ref?.groupe_fonctionnel ?? "Non classé",
           libelle_compte: ref?.libelle ?? null,
           categorie: ref?.categorie ?? null,
         };
@@ -612,6 +641,11 @@ export default function PilotageFinancierPage() {
               <Badge className="bg-amber-100 text-amber-700 border-0 text-xs">
                 {importStats.dup} doublon{importStats.dup !== 1 ? "s" : ""} ignoré{importStats.dup !== 1 ? "s" : ""}
               </Badge>
+              {importStats.invalid > 0 && (
+                <Badge className="bg-red-100 text-red-700 border-0 text-xs">
+                  {importStats.invalid} ligne{importStats.invalid !== 1 ? "s" : ""} invalide{importStats.invalid !== 1 ? "s" : ""} (montant aberrant)
+                </Badge>
+              )}
               <Button
                 size="sm" className="ml-auto h-8 gap-1.5 text-xs"
                 onClick={importMandats}
@@ -635,7 +669,7 @@ export default function PilotageFinancierPage() {
                 <Table>
                   <TableHeader>
                     <TableRow className="text-[11px]">
-                      <TableHead>Bordeeau</TableHead>
+                      <TableHead>Bordereau</TableHead>
                       <TableHead>Pièce</TableHead>
                       <TableHead>Tiers</TableHead>
                       <TableHead>Objet</TableHead>
@@ -648,7 +682,7 @@ export default function PilotageFinancierPage() {
                   </TableHeader>
                   <TableBody>
                     {parsedRows.slice(0, 50).map((r, i) => (
-                      <TableRow key={i} className={r.isDuplicate ? "opacity-40 text-[11px]" : "text-[11px]"}>
+                      <TableRow key={i} className={r.isDuplicate || r.isInvalid ? "opacity-40 text-[11px]" : "text-[11px]"}>
                         <TableCell>{r.n_bordereau}</TableCell>
                         <TableCell>{r.n_piece}</TableCell>
                         <TableCell className="max-w-[120px] truncate">{r.tiers}</TableCell>
@@ -659,6 +693,7 @@ export default function PilotageFinancierPage() {
                         <TableCell>{r.date_emission}</TableCell>
                         <TableCell>
                           {r.isDuplicate && <Badge className="bg-amber-100 text-amber-700 border-0 text-[10px]">doublon</Badge>}
+                          {r.isInvalid && <Badge className="bg-red-100 text-red-700 border-0 text-[10px]">invalide</Badge>}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -690,7 +725,10 @@ export default function PilotageFinancierPage() {
               <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="tous">Tous les GF</SelectItem>
-                {(["GF1","GF2","GF3"] as const).map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                <SelectItem value="GF1">GF1</SelectItem>
+                <SelectItem value="GF2">GF2</SelectItem>
+                <SelectItem value="GF3">GF3</SelectItem>
+                <SelectItem value="Non classé">Non classé</SelectItem>
               </SelectContent>
             </Select>
             {dashLoading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
@@ -713,6 +751,15 @@ export default function PilotageFinancierPage() {
               </div>
             ))}
           </div>
+          {kpis.nonclasse > 0 && (
+            <div className="flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-400">
+              <ArrowUpDown className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                <strong>{fmtEuro(kpis.nonclasse)}</strong> non rattachés à un GF (compte non référencé).
+                Exécutez la migration <code>20260331140000</code> dans le SQL Editor Supabase pour corriger les lignes existantes.
+              </span>
+            </div>
+          )}
 
           {monthlyData.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground">
