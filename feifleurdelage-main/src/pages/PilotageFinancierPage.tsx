@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as pdfjsLib from "pdfjs-dist";
+import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { supabase } from "@/integrations/supabase/client";
 import { motion } from "framer-motion";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,8 +27,8 @@ import {
 } from "recharts";
 
 // ── Worker pdfjs ──────────────────────────────────────────────────────────────
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
+// Worker servi localement via Vite (?url) — élimine le CORS en production
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
