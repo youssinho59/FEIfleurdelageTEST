@@ -69,22 +69,14 @@ export default function MesPacqStrategiquePage() {
     const load = async () => {
       setLoading(true);
 
-      // Récupérer l'id de profil de l'utilisateur courant
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (!profileData?.id) { setLoading(false); return; }
-
+      // pilote_id stocke auth.uid() (REFERENCES auth.users(id))
       const { data: actData, error: actErr } = await supabase
         .from("pacq_strategique_actions")
         .select(`
           id, intitule, pilote, pilote_id, priorite, avancement, echeance, objectif_id,
           pacq_strategique_objectifs ( intitule, theme )
         `)
-        .eq("pilote_id", profileData.id)
+        .eq("pilote_id", user.id)
         .order("echeance", { ascending: true, nullsFirst: false });
 
       if (actErr) { setLoading(false); return; }

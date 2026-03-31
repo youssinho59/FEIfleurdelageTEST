@@ -173,14 +173,12 @@ export default function PacqStrategiquePage() {
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
-  const myProfileId = agents.find(a => a.user_id === user?.id)?.id;
-
   const objectifsForTheme = allObjectifs.filter(o => o.theme === selectedTheme);
 
   const visibleObjectifs = objectifsForTheme.filter(o => {
     const objActions = actions.filter(a => a.objectif_id === o.id);
     if (filterMesActions) {
-      if (!objActions.some(a => a.pilote_id === myProfileId)) return false;
+      if (!objActions.some(a => a.pilote_id === user?.id)) return false;
     }
     if (filterAvancement !== "tous") {
       if (!objActions.some(a => a.avancement === filterAvancement)) return false;
@@ -191,7 +189,7 @@ export default function PacqStrategiquePage() {
   const actionsForObjectif = (objId: string) => {
     let acts = actions.filter(a => a.objectif_id === objId);
     if (filterAvancement !== "tous") acts = acts.filter(a => a.avancement === filterAvancement);
-    if (filterMesActions) acts = acts.filter(a => a.pilote_id === myProfileId);
+    if (filterMesActions) acts = acts.filter(a => a.pilote_id === user?.id);
     return acts;
   };
 
@@ -884,7 +882,7 @@ export default function PacqStrategiquePage() {
                       <SelectGroup key={roleGroup}>
                         <SelectLabel className="text-[10px] uppercase tracking-widest text-muted-foreground">{roleLabel}</SelectLabel>
                         {roleAgents.map(a => (
-                          <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>
+                          <SelectItem key={a.user_id} value={a.user_id}>{a.full_name}</SelectItem>
                         ))}
                       </SelectGroup>
                     );
