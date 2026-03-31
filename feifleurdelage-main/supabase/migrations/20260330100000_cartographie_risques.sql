@@ -19,6 +19,5 @@ CREATE TABLE IF NOT EXISTS cartographie_risques (
 
 ALTER TABLE cartographie_risques ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "admin_full" ON cartographie_risques FOR ALL USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
-);
+CREATE POLICY "admin_full" ON cartographie_risques FOR ALL TO authenticated
+  USING (EXISTS (SELECT 1 FROM user_roles WHERE user_id = auth.uid() AND role = 'admin'));
