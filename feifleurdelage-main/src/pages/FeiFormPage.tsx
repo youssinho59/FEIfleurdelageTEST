@@ -8,9 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { generateFeiPdf } from "@/lib/pdfGenerator";
-import { FileText, Save, MapPin, AlertTriangle, Calendar, ClipboardList, Shield, ChevronRight, ChevronLeft, Check, ArrowRight, MessageSquareWarning, Mic, Square, Loader2 } from "lucide-react";
+import { FileText, Save, MapPin, AlertTriangle, Calendar, ClipboardList, Shield, ChevronRight, ChevronLeft, Check, ArrowRight, MessageSquareWarning, Mic, Square, Loader2, CheckCircle2, Download, Mail, X } from "lucide-react";
 import { useWhisperDictation } from "@/hooks/useWhisperDictation";
 
 const FEI_TYPES = ["Chute", "Erreur médicamenteuse", "Fugue", "Agressivité", "Maltraitance", "Infection", "Autre"];
@@ -46,6 +47,8 @@ const FeiFormPage = () => {
   const serviceOptions = userServices.length > 0 ? userServices : SERVICES;
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState(1);
+  const [savedFei, setSavedFei] = useState<Record<string, unknown> | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [form, setForm] = useState({
     date_evenement: new Date().toISOString().split("T")[0],
     lieu: "",
@@ -138,7 +141,6 @@ const FeiFormPage = () => {
 
     const pdf = generateFeiPdf(data);
     const fileName = `FEI_${data.id.slice(0, 8)}_${form.date_evenement}.pdf`;
-    pdf.save(fileName);
 
     try {
       const pdfBytes = new Uint8Array(pdf.output("arraybuffer") as ArrayBuffer);
@@ -175,12 +177,14 @@ const FeiFormPage = () => {
       if (emailError) {
         toast.error("FEI enregistrée, mais l'email n'a pas pu être envoyé : " + emailError.message);
       } else {
-        toast.success("FEI enregistrée, PDF généré et email envoyé !");
+        toast.success("FEI enregistrée et email envoyé !");
       }
     } catch {
       toast.error("FEI enregistrée, mais erreur lors de l'envoi email.");
     }
 
+    setSavedFei(data);
+    setShowSuccessModal(true);
     setForm({
       date_evenement: new Date().toISOString().split("T")[0],
       lieu: "", description: "", gravite: 0, type_fei: "", actions_correctives: "",
@@ -189,6 +193,22 @@ const FeiFormPage = () => {
     });
     setStep(1);
     setLoading(false);
+  };
+
+  const handleDownloadPdf = () => {
+    if (!savedFei) return;
+    const pdf = generateFeiPdf(savedFei as Parameters<typeof generateFeiPdf>[0]);
+    const fileName = `FEI_${(savedFei.id as string).slice(0, 8)}_${savedFei.date_evenement}.pdf`;
+    pdf.save(fileName);
+  };
+
+  const handleOpenOutlook = () => {
+    const today = new Date().toLocaleDateString("fr-FR");
+    const subject = encodeURIComponent(`Déclaration d'événement indésirable — EHPAD La Fleur de l'Âge — ${today}`);
+    const body = encodeURIComponent(
+      `Madame, Monsieur,\n\nVeuillez trouver ci-joint la déclaration d'événement indésirable de l'EHPAD La Fleur de l'Âge.\n\nMerci de bien vouloir joindre le PDF téléchargé à ce message avant envoi.\n\nCordialement,\nL'équipe qualité — EHPAD La Fleur de l'Âge`
+    );
+    window.location.href = `mailto:ars-hdf-signal@ars.sante.fr?subject=${subject}&body=${body}`;
   };
 
   const selectedGravite = GRAVITE_CONFIG.find((g) => g.level === form.gravite);
@@ -608,10 +628,58 @@ const FeiFormPage = () => {
         ) : (
           <Button onClick={handleSubmit} disabled={loading || !canNext()} className="gap-2 shadow-warm">
             <Save className="w-4 h-4" />
-            {loading ? "Enregistrement..." : "Enregistrer et générer le PDF"}
+            {loading ? "Enregistrement..." : "Enregistrer la déclaration"}
           </Button>
         )}
       </div>
+
+      {/* Modale de confirmation post-enregistrement */}
+      <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex flex-col items-center gap-3 pt-2 pb-1">
+              <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
+                <CheckCircle2 className="w-8 h-8 text-green-600" />
+              </div>
+              <DialogTitle className="text-center text-lg font-display font-bold text-foreground">
+                Déclaration enregistrée
+              </DialogTitle>
+              <p className="text-sm text-muted-foreground text-center">
+                Souhaitez-vous envoyer cette déclaration à l'ARS ?
+              </p>
+            </div>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-3 pt-2 pb-2">
+            <Button
+              onClick={() => { handleDownloadPdf(); }}
+              variant="outline"
+              className="w-full gap-2 h-11 justify-start px-4 border-primary/30 text-primary hover:bg-primary/5 hover:border-primary/50"
+            >
+              <Download className="w-4 h-4 shrink-0" />
+              <span className="font-semibold">Télécharger le PDF</span>
+            </Button>
+
+            <Button
+              onClick={() => { handleOpenOutlook(); }}
+              className="w-full gap-2 h-11 justify-start px-4 shadow-warm"
+            >
+              <Mail className="w-4 h-4 shrink-0" />
+              <span className="font-semibold">Ouvrir Outlook</span>
+              <span className="ml-auto text-xs font-normal opacity-75 truncate">ars-hdf-signal@ars.sante.fr</span>
+            </Button>
+
+            <Button
+              onClick={() => setShowSuccessModal(false)}
+              variant="ghost"
+              className="w-full gap-2 h-10 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-4 h-4 shrink-0" />
+              Fermer
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
