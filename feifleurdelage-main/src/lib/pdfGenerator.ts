@@ -28,10 +28,13 @@ function addHeader(doc: jsPDF, title: string) {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(18);
   doc.setFont("helvetica", "bold");
-  doc.text("EHPAD La Fleur de l'Âge", 42, 18);
-  doc.setFontSize(11);
+  doc.text("EHPAD La Fleur de l'Âge", 42, 15);
+  doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
-  doc.text(title, 42, 28);
+  doc.text(title, 42, 23);
+  doc.setFontSize(7.5);
+  doc.setTextColor(255, 220, 200);
+  doc.text("Tél : 03 20 94 09 28  ·  courrier@ehpad-lafleurdelage.fr  ·  20 bis Allée des Sports — 59960 Neuville-en-Ferrain", 42, 31);
 
   doc.setTextColor(...DARK);
 }
@@ -152,6 +155,10 @@ export function generateFeiPdf(data: {
   analyse?: string | null;
   plan_action?: string | null;
   retour_declarant?: string | null;
+  retour_traitement?: string | null;
+  date_retour_traitement?: string | null;
+  retour_cloture?: string | null;
+  date_retour_cloture?: string | null;
   date_cloture?: string | null;
   managed_at?: string | null;
   gestionnaire_nom?: string;
@@ -163,12 +170,12 @@ export function generateFeiPdf(data: {
     ? "Fiche d'Événement Indésirable Grave (FEIG)"
     : "Fiche d'Événement Indésirable (FEI)";
   const catLabel = categorie === "feigs"
-    ? "FEIGS — Événement Indésirable Grave et Significatif"
+    ? "FEIGS — Événement Indésirable Grave et Sanitaire"
     : categorie === "feig"
     ? "FEIG — Événement Indésirable Grave"
     : "FEI Standard";
 
-  const hasAdminContent = !!(data.analyse || data.plan_action || data.retour_declarant || data.date_cloture);
+  const hasAdminContent = !!(data.analyse || data.plan_action || data.retour_declarant || data.retour_traitement || data.retour_cloture || data.date_cloture);
 
   const doc = new jsPDF();
   addHeader(doc, docTitle);
@@ -232,17 +239,32 @@ export function generateFeiPdf(data: {
         { key: "Actions planifiées", value: data.plan_action },
       ], adminY, [180, 140, 40]);
     }
-    if (data.retour_declarant) {
+    if (data.retour_traitement) {
+      const labelTraitement = data.date_retour_traitement
+        ? `Retour au traitement — ${new Date(data.date_retour_traitement).toLocaleDateString("fr-FR")}`
+        : "Retour au traitement";
+      adminY = addSectionBox(doc, labelTraitement, [
+        { key: "Message", value: data.retour_traitement },
+      ], adminY, [30, 140, 80]);
+    } else if (data.retour_declarant) {
       adminY = addSectionBox(doc, "Retour au déclarant", [
         { key: "Message", value: data.retour_declarant },
       ], adminY, [30, 140, 80]);
+    }
+    if (data.retour_cloture) {
+      const labelCloture = data.date_retour_cloture
+        ? `Retour à la clôture — ${new Date(data.date_retour_cloture).toLocaleDateString("fr-FR")}`
+        : "Retour à la clôture";
+      adminY = addSectionBox(doc, labelCloture, [
+        { key: "Message", value: data.retour_cloture },
+      ], adminY, [20, 100, 60]);
     }
 
     addFooter(doc);
   }
 
-  // ── Page ARS : Déclaration ARS (FEIGS uniquement) ──
-  if (categorie === "feigs") {
+  // ── Page ARS : Déclaration ARS (FEIGS ou FEIG) ──
+  if (categorie === "feigs" || categorie === "feig") {
     if (!hasAdminContent) addFooter(doc);
     const ARS_RED: [number, number, number] = [185, 28, 28];
     const arsStatutLabel = data.statut_ars === "declare"
@@ -254,7 +276,7 @@ export function generateFeiPdf(data: {
     let arsY = 48;
     arsY = addRefBadge(doc, data.id, arsY);
 
-    addSectionBox(doc, "Déclaration ARS — FEIGS", [
+    addSectionBox(doc, categorie === "feigs" ? "Déclaration ARS — FEIGS" : "Déclaration ARS — FEIG", [
       { key: "Statut de la déclaration", value: arsStatutLabel },
       { key: "Nature de l'événement", value: data.nature_evenement_ars || "Non renseigné" },
       { key: "Circonstances", value: data.circonstances_ars || "Non renseigné" },
@@ -285,11 +307,15 @@ export function generatePlaintePdf(data: {
   plan_action?: string | null;
   actions_correctives?: string | null;
   retour_declarant?: string | null;
+  retour_traitement?: string | null;
+  date_retour_traitement?: string | null;
+  retour_cloture?: string | null;
+  date_retour_cloture?: string | null;
   date_cloture?: string | null;
   managed_at?: string | null;
   gestionnaire_nom?: string;
 }) {
-  const hasAdminContent = !!(data.analyse || data.plan_action || data.actions_correctives || data.retour_declarant || data.date_cloture);
+  const hasAdminContent = !!(data.analyse || data.plan_action || data.actions_correctives || data.retour_declarant || data.retour_traitement || data.retour_cloture || data.date_cloture);
 
   const doc = new jsPDF();
   addHeader(doc, "Fiche Plainte / Réclamation");
@@ -350,10 +376,25 @@ export function generatePlaintePdf(data: {
         { key: "Mesures concrètes", value: data.actions_correctives },
       ], adminY, [80, 140, 100]);
     }
-    if (data.retour_declarant) {
+    if (data.retour_traitement) {
+      const labelTraitement = data.date_retour_traitement
+        ? `Retour au traitement — ${new Date(data.date_retour_traitement).toLocaleDateString("fr-FR")}`
+        : "Retour au traitement";
+      adminY = addSectionBox(doc, labelTraitement, [
+        { key: "Message", value: data.retour_traitement },
+      ], adminY, [30, 140, 80]);
+    } else if (data.retour_declarant) {
       adminY = addSectionBox(doc, "Retour au déclarant", [
         { key: "Message", value: data.retour_declarant },
       ], adminY, [30, 140, 80]);
+    }
+    if (data.retour_cloture) {
+      const labelCloture = data.date_retour_cloture
+        ? `Retour à la clôture — ${new Date(data.date_retour_cloture).toLocaleDateString("fr-FR")}`
+        : "Retour à la clôture";
+      adminY = addSectionBox(doc, labelCloture, [
+        { key: "Message", value: data.retour_cloture },
+      ], adminY, [20, 100, 60]);
     }
 
     addFooter(doc);

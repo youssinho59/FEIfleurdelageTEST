@@ -151,7 +151,7 @@ const AppLayout = ({ children }: { children: React.ReactNode }) => {
         { to: "/gestion-fei", label: "Gestion des FEI", icon: ClipboardList },
         { to: "/gestion-reclamations", label: "Gestion Réclamations", icon: MessageSquareWarning },
         { to: "/audits", label: "Audits & NC", icon: ClipboardCheck },
-        { to: "/questionnaires-admin", label: "Questionnaires", icon: Star },
+        { to: "/questionnaires-admin", label: "Avis", icon: Star },
         { to: "/duerp", label: "DUERP", icon: ShieldAlert },
         ...(isAdmin ? [{ to: "/cartographie-risques", label: "Cartographie risques", icon: Map }] : []),
       ],

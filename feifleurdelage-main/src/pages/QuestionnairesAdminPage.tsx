@@ -397,7 +397,7 @@ export default function QuestionnairesAdminPage() {
             <StarIcon className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-display font-bold text-foreground">Questionnaires de satisfaction</h1>
+            <h1 className="text-xl font-display font-bold text-foreground">Avis — Satisfaction résidents</h1>
             <p className="text-xs text-muted-foreground">Analyse des retours et suivi de la qualité perçue</p>
           </div>
         </div>

@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Printer, CalendarRange, FileText, MessageSquareWarning, Loader2, Info, MessageSquare, Users, RotateCcw } from "lucide-react";
+import { Printer, CalendarRange, FileText, MessageSquareWarning, Loader2, Info, MessageSquare, Users, RotateCcw, Target, Plus, Pencil, Trash2 } from "lucide-react";
 import { CvsDemandesTab } from "@/components/instances/CvsDemandesTab";
 import RetexTab from "@/components/instances/RetexTab";
 
@@ -32,7 +32,7 @@ const INSTANCE_COLS = [
 
 const SuiviInstancesPage = () => {
   const currentYear = new Date().getFullYear();
-  const [activeTab, setActiveTab] = useState<"suivi" | "demandes-cvs" | "retex">("suivi");
+  const [activeTab, setActiveTab] = useState<"suivi" | "demandes-cvs" | "retex" | "pacq">("suivi");
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [rows, setRows] = useState<InstanceRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,6 +40,22 @@ const SuiviInstancesPage = () => {
   const [retourDialog, setRetourDialog] = useState<{ sourceId: string; text: string } | null>(null);
   const [savingRetour, setSavingRetour] = useState(false);
   const [retexCount, setRetexCount] = useState<number | null>(null);
+
+  // ── Suivi PACQ instances ──────────────────────────────────────────────────
+  type PacqRow = {
+    id: string;
+    instance: string;
+    date: string;
+    points_presentes: string | null;
+    decisions: string | null;
+    prochaine_echeance: string | null;
+  };
+  const [pacqRows, setPacqRows] = useState<PacqRow[]>([]);
+  const [pacqLoading, setPacqLoading] = useState(false);
+  const [pacqDialogOpen, setPacqDialogOpen] = useState(false);
+  const [editingPacq, setEditingPacq] = useState<PacqRow | null>(null);
+  const [pacqForm, setPacqForm] = useState({ instance: "CSE", date: "", points_presentes: "", decisions: "", prochaine_echeance: "" });
+  const [savingPacq, setSavingPacq] = useState(false);
 
   const fetchData = useCallback(async (year: number) => {
     setLoading(true);
@@ -125,6 +141,57 @@ const SuiviInstancesPage = () => {
     supabase.from("fei").select("id", { count: "exact", head: true }).eq("retex", true)
       .then(({ count }) => setRetexCount(count ?? 0));
   }, []);
+
+  const fetchPacq = async () => {
+    setPacqLoading(true);
+    const { data } = await supabase.from("suivi_pacq_instances").select("*").order("date", { ascending: false });
+    setPacqRows((data as PacqRow[]) || []);
+    setPacqLoading(false);
+  };
+
+  useEffect(() => {
+    if (activeTab === "pacq") fetchPacq();
+  }, [activeTab]);
+
+  const openPacqDialog = (row?: PacqRow) => {
+    if (row) {
+      setEditingPacq(row);
+      setPacqForm({ instance: row.instance, date: row.date, points_presentes: row.points_presentes || "", decisions: row.decisions || "", prochaine_echeance: row.prochaine_echeance || "" });
+    } else {
+      setEditingPacq(null);
+      setPacqForm({ instance: "CSE", date: new Date().toISOString().split("T")[0], points_presentes: "", decisions: "", prochaine_echeance: "" });
+    }
+    setPacqDialogOpen(true);
+  };
+
+  const savePacqRow = async () => {
+    if (!pacqForm.instance || !pacqForm.date) { toast.error("Instance et date sont obligatoires."); return; }
+    setSavingPacq(true);
+    const payload = {
+      instance: pacqForm.instance,
+      date: pacqForm.date,
+      points_presentes: pacqForm.points_presentes || null,
+      decisions: pacqForm.decisions || null,
+      prochaine_echeance: pacqForm.prochaine_echeance || null,
+      updated_at: new Date().toISOString(),
+    };
+    if (editingPacq) {
+      const { error } = await supabase.from("suivi_pacq_instances").update(payload).eq("id", editingPacq.id);
+      if (error) toast.error("Erreur : " + error.message);
+      else { toast.success("Ligne mise à jour"); setPacqDialogOpen(false); fetchPacq(); }
+    } else {
+      const { error } = await supabase.from("suivi_pacq_instances").insert(payload);
+      if (error) toast.error("Erreur : " + error.message);
+      else { toast.success("Ligne ajoutée"); setPacqDialogOpen(false); fetchPacq(); }
+    }
+    setSavingPacq(false);
+  };
+
+  const deletePacqRow = async (id: string) => {
+    const { error } = await supabase.from("suivi_pacq_instances").delete().eq("id", id);
+    if (error) toast.error("Erreur suppression : " + error.message);
+    else { toast.success("Ligne supprimée"); fetchPacq(); }
+  };
 
   const updateLocalDate = (sourceId: string, field: "cse_date" | "cvs_date" | "codir_date", value: string) => {
     setRows((prev) => prev.map((r) => (r.source_id === sourceId ? { ...r, [field]: value } : r)));
@@ -328,6 +395,7 @@ const SuiviInstancesPage = () => {
     if (activeTab === "suivi") handlePrint();
     else if (activeTab === "demandes-cvs") handlePrintSection("print-cvs");
     else if (activeTab === "retex") handlePrintSection("print-retex");
+    else if (activeTab === "pacq") handlePrintSection("print-pacq");
   };
 
   // Utilitaire d'échappement HTML pour l'impression
@@ -357,6 +425,7 @@ const SuiviInstancesPage = () => {
               {activeTab === "suivi" && <>Dates de présentation des FEI et Plaintes en <strong>CSE</strong>, <strong>CVS</strong> et <strong>CODIR</strong></>}
               {activeTab === "demandes-cvs" && "Les demandes CVS recensent les requêtes et suggestions exprimées par les résidents et familles en Conseil de la Vie Sociale."}
               {activeTab === "retex" && <>Le <strong>RETEX</strong> (Retour d'EXpérience) analyse en profondeur les événements indésirables pour en tirer des enseignements.{retexCount !== null && <> <strong>{retexCount}</strong> FEI marquée{retexCount > 1 ? "s" : ""} pour RETEX.</>}</>}
+              {activeTab === "pacq" && "Suivi des points PACQS présentés en instances (CSE, CVS, CODIR) — décisions et prochaines échéances."}
             </p>
           </div>
         </div>
@@ -418,6 +487,17 @@ const SuiviInstancesPage = () => {
           <RotateCcw className="w-4 h-4" />
           RETEX
         </button>
+        <button
+          onClick={() => setActiveTab("pacq")}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "pacq"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Target className="w-4 h-4" />
+          Suivi PACQ
+        </button>
       </div>
 
       {/* ── Contenu de l'onglet Demandes CVS ─────────────────────── */}
@@ -425,6 +505,66 @@ const SuiviInstancesPage = () => {
 
       {/* ── Contenu de l'onglet RETEX ─────────────────────────────── */}
       {activeTab === "retex" && <div id="print-retex"><RetexTab /></div>}
+
+      {/* ── Contenu de l'onglet Suivi PACQ ────────────────────────── */}
+      {activeTab === "pacq" && (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <Button size="sm" className="gap-1.5" onClick={() => openPacqDialog()}>
+              <Plus className="w-4 h-4" /> Ajouter une ligne
+            </Button>
+          </div>
+          {pacqLoading ? (
+            <div className="flex justify-center py-12"><div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" /></div>
+          ) : pacqRows.length === 0 ? (
+            <div className="rounded-xl border border-border bg-card py-16 text-center text-muted-foreground">
+              <Target className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">Aucun point PACQ enregistré</p>
+              <p className="text-sm mt-1 opacity-70">Ajoutez les points présentés en instances.</p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/60 border-b border-border">
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Instance</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Date</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Points présentés</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Décisions</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Prochaine échéance</th>
+                      <th className="px-4 py-2.5" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {pacqRows.map((row) => (
+                      <tr key={row.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-3 font-semibold text-primary">{row.instance}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{new Date(row.date + "T00:00:00").toLocaleDateString("fr-FR")}</td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground max-w-[220px] whitespace-pre-wrap">{row.points_presentes || "—"}</td>
+                        <td className="px-4 py-3 text-xs max-w-[220px] whitespace-pre-wrap">{row.decisions || "—"}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm">
+                          {row.prochaine_echeance ? new Date(row.prochaine_echeance + "T00:00:00").toLocaleDateString("fr-FR") : "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-1">
+                            <button onClick={() => openPacqDialog(row)} className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" title="Modifier">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => deletePacqRow(row.id)} className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Supprimer">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Contenu de l'onglet Tableau de suivi ─────────────────── */}
       {activeTab === "suivi" && <>
@@ -589,6 +729,57 @@ const SuiviInstancesPage = () => {
       )}
 
       </>}
+
+      {/* ── Dialog Suivi PACQ ────────────────────────────────────── */}
+      <Dialog open={pacqDialogOpen} onOpenChange={setPacqDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Target className="w-4 h-4 text-primary" />
+              {editingPacq ? "Modifier la ligne PACQ" : "Ajouter un point PACQ"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Instance <span className="text-destructive">*</span></Label>
+                <select
+                  value={pacqForm.instance}
+                  onChange={(e) => setPacqForm((f) => ({ ...f, instance: e.target.value }))}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  {["CSE", "CVS", "CODIR", "CODIR élargi", "Direction"].map((i) => (
+                    <option key={i} value={i}>{i}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Date <span className="text-destructive">*</span></Label>
+                <Input type="date" value={pacqForm.date} onChange={(e) => setPacqForm((f) => ({ ...f, date: e.target.value }))} className="h-9 text-sm" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Points présentés</Label>
+              <Textarea value={pacqForm.points_presentes} onChange={(e) => setPacqForm((f) => ({ ...f, points_presentes: e.target.value }))} placeholder="Points du PACQS présentés lors de cette instance…" rows={3} className="text-sm resize-none" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Décisions</Label>
+              <Textarea value={pacqForm.decisions} onChange={(e) => setPacqForm((f) => ({ ...f, decisions: e.target.value }))} placeholder="Décisions prises, validations, demandes de l'instance…" rows={3} className="text-sm resize-none" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Prochaine échéance</Label>
+              <Input type="date" value={pacqForm.prochaine_echeance} onChange={(e) => setPacqForm((f) => ({ ...f, prochaine_echeance: e.target.value }))} className="h-9 text-sm" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setPacqDialogOpen(false)} disabled={savingPacq}>Annuler</Button>
+            <Button size="sm" onClick={savePacqRow} disabled={savingPacq} className="gap-1.5">
+              {savingPacq ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              {editingPacq ? "Mettre à jour" : "Ajouter"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Dialog Retour / Analyse ───────────────────────────────── */}
       <Dialog open={!!retourDialog} onOpenChange={(open) => { if (!open) setRetourDialog(null); }}>

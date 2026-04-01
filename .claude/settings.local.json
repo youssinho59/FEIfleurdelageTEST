@@ -25,7 +25,11 @@
       "Read(//c/Users/ybena/.claude/projects/C--Users-ybena-Desktop-Application-FEI-EHPAD-feifleurdelage-main/**)",
       "Bash(python3:*)",
       "Bash(cmd /c \"findstr /c:\\\\\"intitule_objectif\\\\\" \\\\\"C:\\\\Users\\\\ybena\\\\.claude\\\\projects\\\\C--Users-ybena-Desktop-Application-FEI-EHPAD-feifleurdelage-main\\\\c8e537e4-994b-4423-9ade-ffab937a72b4.jsonl\\\\\" 2>nul | head -c 500\")",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(node:*)",
+      "Bash(npm install:*)",
+      "Bash(supabase db:*)",
+      "Bash(supabase --version)"
     ]
   }
 }

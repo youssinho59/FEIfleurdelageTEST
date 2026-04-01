@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import {
   ClipboardList, Calendar, MapPin, User, ChevronRight, Trash2, ClipboardCheck,
-  Building2, AlertTriangle, CheckCircle2, FileDown, Sparkles, Loader2,
+  Building2, AlertTriangle, CheckCircle2, FileDown, Sparkles, Loader2, MessageCircle,
 } from "lucide-react";
 import { generateFeiPdf } from "@/lib/pdfGenerator";
 import DeclarationArsDialog from "@/components/fei/DeclarationArsDialog";
@@ -107,6 +107,10 @@ type FeiRecord = {
   analyse: string | null;
   plan_action: string | null;
   retour_declarant: string | null;
+  retour_traitement: string | null;
+  date_retour_traitement: string | null;
+  retour_cloture: string | null;
+  date_retour_cloture: string | null;
   date_cloture: string | null;
   managed_by: string | null;
   managed_at: string | null;
@@ -118,6 +122,7 @@ type FeiRecord = {
   date_envoi_ars: string | null;
   statut_ars: string | null;
   retex: boolean;
+  retex_contenu: string | null;
 };
 
 const FeiManagementPage = () => {
@@ -127,6 +132,8 @@ const FeiManagementPage = () => {
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [filterStatut, setFilterStatut] = useState<string>("tous");
+  const [filterDateDebut, setFilterDateDebut] = useState<string>("");
+  const [filterDateFin, setFilterDateFin] = useState<string>("");
   const [selectedFei, setSelectedFei] = useState<FeiRecord | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -138,10 +145,15 @@ const FeiManagementPage = () => {
   const [editAnalyse, setEditAnalyse] = useState("");
   const [editPlanAction, setEditPlanAction] = useState("");
   const [editRetour, setEditRetour] = useState("");
+  const [editRetourTraitement, setEditRetourTraitement] = useState("");
+  const [editDateRetourTraitement, setEditDateRetourTraitement] = useState("");
+  const [editRetourCloture, setEditRetourCloture] = useState("");
+  const [editDateRetourCloture, setEditDateRetourCloture] = useState("");
   const [editActions, setEditActions] = useState("");
 
   // RETEX
   const [editRetex, setEditRetex] = useState(false);
+  const [editRetexContenu, setEditRetexContenu] = useState("");
 
   // ARS dialog
   const [arsDialogOpen, setArsDialogOpen] = useState(false);
@@ -179,6 +191,12 @@ const FeiManagementPage = () => {
     if (filterStatut !== "tous") {
       query = query.eq("statut", filterStatut);
     }
+    if (filterDateDebut) {
+      query = query.gte("date_evenement", filterDateDebut);
+    }
+    if (filterDateFin) {
+      query = query.lte("date_evenement", filterDateFin);
+    }
 
     if (isResponsable && !isAdmin && userServices.length > 0) {
       query = query.in("service", userServices);
@@ -197,7 +215,7 @@ const FeiManagementPage = () => {
 
   useEffect(() => {
     fetchFei();
-  }, [filterStatut]);
+  }, [filterStatut, filterDateDebut, filterDateFin]);
 
   const openDetail = (fei: FeiRecord) => {
     setSelectedFei(fei);
@@ -206,8 +224,13 @@ const FeiManagementPage = () => {
     setEditAnalyse(fei.analyse || "");
     setEditPlanAction(fei.plan_action || "");
     setEditRetour(fei.retour_declarant || "");
+    setEditRetourTraitement(fei.retour_traitement || "");
+    setEditDateRetourTraitement(fei.date_retour_traitement || "");
+    setEditRetourCloture(fei.retour_cloture || "");
+    setEditDateRetourCloture(fei.date_retour_cloture || "");
     setEditActions("");
     setEditRetex(fei.retex || false);
+    setEditRetexContenu(fei.retex_contenu || "");
     // ARS
     setEditDateEnvoiArs(fei.date_envoi_ars || "");
     setEditNatureArs(fei.nature_evenement_ars || "");
@@ -227,6 +250,14 @@ const FeiManagementPage = () => {
 
   const handleSave = async () => {
     if (!selectedFei || !user) return;
+
+    // Evolution 7: block closure if FEIG/FEIGS with ARS and retex_contenu empty
+    const isArsCategorie = editCategorie === "feigs" || editCategorie === "feig";
+    if (isArsCategorie && (editStatut === "cloture" || editStatut === "archive") && !editRetexContenu.trim()) {
+      toast.error("Le champ RETEX (contenu) est obligatoire pour clore une FEIG/FEIGS.");
+      return;
+    }
+
     setSaving(true);
 
     const updates: Record<string, unknown> = {
@@ -234,10 +265,15 @@ const FeiManagementPage = () => {
       analyse: editAnalyse || null,
       plan_action: editPlanAction || null,
       retour_declarant: editRetour || null,
+      retour_traitement: editRetourTraitement || null,
+      date_retour_traitement: editDateRetourTraitement || null,
+      retour_cloture: editRetourCloture || null,
+      date_retour_cloture: editDateRetourCloture || null,
       actions_correctives: editActions || null,
       managed_by: user.id,
       managed_at: new Date().toISOString(),
       retex: editRetex,
+      retex_contenu: editRetexContenu || null,
     };
 
     if (editStatut === "cloture" || editStatut === "archive") {
@@ -246,7 +282,7 @@ const FeiManagementPage = () => {
 
     updates.categorie_fei = editCategorie;
 
-    if (editCategorie === "feigs") {
+    if (editCategorie === "feigs" || editCategorie === "feig") {
       updates.date_envoi_ars = editDateEnvoiArs || null;
       updates.statut_ars = editDateEnvoiArs ? "declare" : "a_declarer";
       updates.nature_evenement_ars = editNatureArs || null;
@@ -416,6 +452,38 @@ const FeiManagementPage = () => {
         ))}
       </div>
 
+      {/* Date range filter */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1.5">
+          <Label className="text-xs text-muted-foreground whitespace-nowrap">Du</Label>
+          <Input
+            type="date"
+            value={filterDateDebut}
+            onChange={(e) => setFilterDateDebut(e.target.value)}
+            className="h-8 text-sm w-36"
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Label className="text-xs text-muted-foreground whitespace-nowrap">Au</Label>
+          <Input
+            type="date"
+            value={filterDateFin}
+            onChange={(e) => setFilterDateFin(e.target.value)}
+            className="h-8 text-sm w-36"
+          />
+        </div>
+        {(filterDateDebut || filterDateFin) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 text-xs text-muted-foreground"
+            onClick={() => { setFilterDateDebut(""); setFilterDateFin(""); }}
+          >
+            Effacer les dates
+          </Button>
+        )}
+      </div>
+
       {/* FEI List */}
       {loading ? (
         <div className="flex justify-center py-12">
@@ -441,6 +509,7 @@ const FeiManagementPage = () => {
             const statutInfo = getStatutInfo(fei.statut);
             const isFeigs = fei.categorie_fei === "feigs";
             const isFeig = fei.categorie_fei === "feig";
+            const hasRetour = !!(fei.retour_traitement || fei.retour_cloture);
             return (
               <Card
                 key={fei.id}
@@ -468,7 +537,12 @@ const FeiManagementPage = () => {
                             {fei.service}
                           </Badge>
                         )}
-                        {isFeigs && <ArsBadge statut_ars={fei.statut_ars} />}
+                        {(isFeigs || isFeig) && <ArsBadge statut_ars={fei.statut_ars} />}
+                        {hasRetour && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-primary/10 text-primary border border-primary/20">
+                            <MessageCircle className="w-3 h-3" /> Retour effectué
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm font-medium truncate">{fei.description}</p>
                       <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
@@ -548,7 +622,7 @@ const FeiManagementPage = () => {
                     <CategorieBadge categorie={selectedFei.categorie_fei} />
                     <Badge variant="secondary">{selectedFei.type_fei}</Badge>
                     <GraviteBadge gravite={selectedFei.gravite} />
-                    {selectedFei.categorie_fei === "feigs" && <ArsBadge statut_ars={selectedFei.statut_ars} />}
+                    {(selectedFei.categorie_fei === "feigs" || selectedFei.categorie_fei === "feig") && <ArsBadge statut_ars={selectedFei.statut_ars} />}
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
@@ -587,7 +661,15 @@ const FeiManagementPage = () => {
               <div className="space-y-4 mt-2">
                 <div className="space-y-2">
                   <Label>Statut</Label>
-                  <Select value={editStatut} onValueChange={setEditStatut}>
+                  <Select
+                    value={editStatut}
+                    onValueChange={(v) => {
+                      setEditStatut(v);
+                      if (v === "cloture") {
+                        toast.info("N'oubliez pas d'effectuer un retour au déclarant avant de clore définitivement.");
+                      }
+                    }}
+                  >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {STATUTS.filter(s => isAdmin || (s.value !== "cloture" && s.value !== "archive")).map((s) => (
@@ -607,22 +689,38 @@ const FeiManagementPage = () => {
                     <SelectContent>
                       <SelectItem value="standard">Standard</SelectItem>
                       <SelectItem value="feig">FEIG — Événement grave</SelectItem>
-                      <SelectItem value="feigs">FEIGS — Événement grave sériel (ARS)</SelectItem>
+                      <SelectItem value="feigs">FEIGS — Événement grave sanitaire (ARS)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 {/* Champ RETEX */}
-                <div className="flex items-center gap-2 py-1">
-                  <Checkbox
-                    id="retex-toggle"
-                    checked={editRetex}
-                    onCheckedChange={(v) => setEditRetex(!!v)}
-                  />
-                  <label htmlFor="retex-toggle" className="text-sm font-medium cursor-pointer">
-                    Faire l'objet d'un RETEX
-                  </label>
-                  <span className="text-xs text-muted-foreground">(Retour d'EXpérience)</span>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 py-1">
+                    <Checkbox
+                      id="retex-toggle"
+                      checked={editRetex}
+                      onCheckedChange={(v) => setEditRetex(!!v)}
+                    />
+                    <label htmlFor="retex-toggle" className="text-sm font-medium cursor-pointer">
+                      Faire l'objet d'un RETEX
+                    </label>
+                    <span className="text-xs text-muted-foreground">(Retour d'EXpérience)</span>
+                  </div>
+                  {(editCategorie === "feig" || editCategorie === "feigs") && (
+                    <div>
+                      <Textarea
+                        value={editRetexContenu}
+                        onChange={(e) => setEditRetexContenu(e.target.value)}
+                        placeholder="Contenu du RETEX — obligatoire pour clore une FEIG/FEIGS…"
+                        rows={3}
+                        className={!editRetexContenu.trim() && (editStatut === "cloture" || editStatut === "archive") ? "border-destructive focus:border-destructive" : ""}
+                      />
+                      {!editRetexContenu.trim() && (editStatut === "cloture" || editStatut === "archive") && (
+                        <p className="text-xs text-destructive mt-1">Ce champ est obligatoire pour clore une FEIG/FEIGS.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -720,24 +818,51 @@ const FeiManagementPage = () => {
                 </div>
 
                 {isAdmin && (
-                <div className="space-y-2">
-                  <Label htmlFor="retour">Retour au déclarant</Label>
-                  <Textarea
-                    id="retour"
-                    value={editRetour}
-                    onChange={(e) => setEditRetour(e.target.value)}
-                    placeholder="Message de retour à communiquer au déclarant..."
-                    rows={2}
-                  />
+                <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
+                  <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                    <MessageCircle className="w-4 h-4 text-primary" /> Retours au déclarant
+                  </p>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Retour au traitement</Label>
+                    <Textarea
+                      value={editRetourTraitement}
+                      onChange={(e) => setEditRetourTraitement(e.target.value)}
+                      placeholder="Message de suivi communiqué au déclarant en cours de traitement…"
+                      rows={2}
+                    />
+                    <Input
+                      type="date"
+                      value={editDateRetourTraitement}
+                      onChange={(e) => setEditDateRetourTraitement(e.target.value)}
+                      className="h-8 text-sm w-48"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Retour à la clôture</Label>
+                    <Textarea
+                      value={editRetourCloture}
+                      onChange={(e) => setEditRetourCloture(e.target.value)}
+                      placeholder="Message de clôture communiqué au déclarant…"
+                      rows={2}
+                    />
+                    <Input
+                      type="date"
+                      value={editDateRetourCloture}
+                      onChange={(e) => setEditDateRetourCloture(e.target.value)}
+                      className="h-8 text-sm w-48"
+                    />
+                  </div>
                 </div>
                 )}
 
-                {/* ── Section ARS (FEIGS uniquement) ── */}
-                {editCategorie === "feigs" && (
+                {/* ── Section ARS (FEIG et FEIGS) ── */}
+                {(editCategorie === "feigs" || editCategorie === "feig") && (
                   <div className="rounded-xl border-l-4 border-l-red-500 border border-red-200 bg-red-50/50 p-4 space-y-3">
                     <div className="flex items-center gap-2">
                       <Building2 className="w-4 h-4 text-red-600" />
-                      <p className="text-sm font-semibold text-red-800">Déclaration ARS — FEIGS</p>
+                      <p className="text-sm font-semibold text-red-800">
+                        {editCategorie === "feigs" ? "Déclaration ARS — FEIGS" : "Déclaration ARS — FEIG"}
+                      </p>
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-xs text-red-700 font-semibold uppercase tracking-wider">Nature de l'événement</Label>

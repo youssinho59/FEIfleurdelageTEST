@@ -65,6 +65,10 @@ type PlainteRecord = {
   plan_action: string | null;
   actions_correctives: string | null;
   retour_declarant: string | null;
+  retour_traitement: string | null;
+  date_retour_traitement: string | null;
+  retour_cloture: string | null;
+  date_retour_cloture: string | null;
   managed_by: string | null;
   managed_at: string | null;
   date_cloture: string | null;
@@ -91,6 +95,10 @@ const PlaintesManagementPage = () => {
   const [editPlanAction, setEditPlanAction] = useState("");
   const [editActions, setEditActions] = useState("");
   const [editRetour, setEditRetour] = useState("");
+  const [editRetourTraitement, setEditRetourTraitement] = useState("");
+  const [editDateRetourTraitement, setEditDateRetourTraitement] = useState("");
+  const [editRetourCloture, setEditRetourCloture] = useState("");
+  const [editDateRetourCloture, setEditDateRetourCloture] = useState("");
 
   // Section PACQ
   const [pacqTitre, setPacqTitre] = useState("");
@@ -138,6 +146,10 @@ const PlaintesManagementPage = () => {
     setEditPlanAction(plainte.plan_action || "");
     setEditActions(plainte.actions_correctives || "");
     setEditRetour(plainte.retour_declarant || "");
+    setEditRetourTraitement(plainte.retour_traitement || "");
+    setEditDateRetourTraitement(plainte.date_retour_traitement || "");
+    setEditRetourCloture(plainte.retour_cloture || "");
+    setEditDateRetourCloture(plainte.date_retour_cloture || "");
     setPacqTitre(plainte.plan_action ? plainte.plan_action.slice(0, 120) : "");
     setPacqResponsable("");
     setPacqDateEcheance("");
@@ -153,13 +165,17 @@ const PlaintesManagementPage = () => {
     setSaving(true);
 
     const updates: Record<string, unknown> = {
-      statut:              editStatut,
-      analyse:             editAnalyse || null,
-      plan_action:         editPlanAction || null,
-      actions_correctives: editActions || null,
-      retour_declarant:    editRetour || null,
-      managed_by:          user.id,
-      managed_at:          new Date().toISOString(),
+      statut:                  editStatut,
+      analyse:                 editAnalyse || null,
+      plan_action:             editPlanAction || null,
+      actions_correctives:     editActions || null,
+      retour_declarant:        editRetour || null,
+      retour_traitement:       editRetourTraitement || null,
+      date_retour_traitement:  editDateRetourTraitement || null,
+      retour_cloture:          editRetourCloture || null,
+      date_retour_cloture:     editDateRetourCloture || null,
+      managed_by:              user.id,
+      managed_at:              new Date().toISOString(),
     };
 
     if (editStatut === "traite") {
@@ -349,7 +365,7 @@ const PlaintesManagementPage = () => {
         <div className="space-y-3">
           {plaintesList.map((plainte) => {
             const statutInfo = getStatutInfo(plainte.statut);
-            const hasAdminFeedback = plainte.analyse || plainte.plan_action || plainte.retour_declarant;
+            const hasAdminFeedback = plainte.analyse || plainte.plan_action || plainte.retour_declarant || plainte.retour_traitement || plainte.retour_cloture;
             return (
               <Card key={plainte.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => openDetail(plainte)}>
                 <CardContent className="py-4">
@@ -653,15 +669,40 @@ const PlaintesManagementPage = () => {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="retour">Retour au déclarant</Label>
-                  <Textarea
-                    id="retour"
-                    value={editRetour}
-                    onChange={(e) => setEditRetour(e.target.value)}
-                    placeholder="Message de retour à communiquer au déclarant..."
-                    rows={2}
-                  />
+                <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
+                  <p className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                    <MessageCircle className="w-4 h-4 text-primary" /> Retours au déclarant
+                  </p>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Retour au traitement</Label>
+                    <Textarea
+                      value={editRetourTraitement}
+                      onChange={(e) => setEditRetourTraitement(e.target.value)}
+                      placeholder="Message de suivi communiqué au déclarant en cours de traitement…"
+                      rows={2}
+                    />
+                    <Input
+                      type="date"
+                      value={editDateRetourTraitement}
+                      onChange={(e) => setEditDateRetourTraitement(e.target.value)}
+                      className="h-8 text-sm w-48"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Retour à la clôture</Label>
+                    <Textarea
+                      value={editRetourCloture}
+                      onChange={(e) => setEditRetourCloture(e.target.value)}
+                      placeholder="Message de clôture communiqué au déclarant…"
+                      rows={2}
+                    />
+                    <Input
+                      type="date"
+                      value={editDateRetourCloture}
+                      onChange={(e) => setEditDateRetourCloture(e.target.value)}
+                      className="h-8 text-sm w-48"
+                    />
+                  </div>
                 </div>
 
                 {/* ── Section PACQ ── */}

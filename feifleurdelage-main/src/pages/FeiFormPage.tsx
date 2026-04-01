@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { generateFeiPdf } from "@/lib/pdfGenerator";
 import { FileText, Save, MapPin, AlertTriangle, Calendar, ClipboardList, Shield, ChevronRight, ChevronLeft, Check, ArrowRight, MessageSquareWarning, Mic, Square, Loader2, CheckCircle2, Download, Mail, X } from "lucide-react";
@@ -644,9 +644,9 @@ const FeiFormPage = () => {
               <DialogTitle className="text-center text-lg font-display font-bold text-foreground">
                 Déclaration enregistrée
               </DialogTitle>
-              <p className="text-sm text-muted-foreground text-center">
+              <DialogDescription className="text-sm text-muted-foreground text-center">
                 Souhaitez-vous envoyer cette déclaration à l'ARS ?
-              </p>
+              </DialogDescription>
             </div>
           </DialogHeader>
 

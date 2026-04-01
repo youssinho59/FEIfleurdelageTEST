@@ -102,7 +102,7 @@ const PageHeader = () => (
       </div>
       <p className="text-white/90 font-semibold text-sm">EHPAD La Fleur de l'Âge</p>
     </div>
-    <h1 className="text-xl font-bold text-white leading-tight">Questionnaire de satisfaction</h1>
+    <h1 className="text-xl font-bold text-white leading-tight">Avis — Satisfaction résidents</h1>
     <p className="text-white/75 text-sm mt-1">Votre avis nous aide à améliorer nos services</p>
   </div>
 );
