@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuditTerrain } from '@/hooks/useAuditTerrain';
 import { useAuditComplet } from '@/hooks/useAuditComplet';
 import { AUDIT_VALEURS, AuditValeur } from '@/types';
@@ -37,10 +37,20 @@ export function AuditTerrain({ auditId, onClose }: Props) {
   const [obsDialog, setObsDialog] = useState<{
     open: boolean; id?: string; nom?: string; service?: string; heure?: string; commentaire?: string;
     evaluations?: Record<string, AuditValeur>;
+    critereCommentaires?: Record<string, string>;
   }>({ open: false });
   const [obsSelectee, setObsSelectee] = useState<string | null>(null);
   const [loadingIA, setLoadingIA] = useState(false);
   const [loadingRapport, setLoadingRapport] = useState(false);
+  const [activeTab, setActiveTab] = useState('terrain');
+
+  // ── Comparatif states ────────────────────────────────────────────────────────
+  const [availableAudits, setAvailableAudits] = useState<{id: string; intitule?: string; titre?: string; date_fin?: string}[]>([]);
+  const [comparatifAuditIds, setComparatifAuditIds] = useState<string[]>([auditId]);
+  const [comparatifStats, setComparatifStats] = useState<Record<string, {pourcentage_global: number; criteres: Record<string, number>}>>({});
+  const [loadingComparatif, setLoadingComparatif] = useState(false);
+  const [iaComparatif, setIaComparatif] = useState<{constat: string; propositions: Array<{titre: string; description: string; priorite: string}>} | null>(null);
+  const [loadingIAComparatif, setLoadingIAComparatif] = useState(false);
 
   const handleAddCritere = async () => {
     if (!nouveauCritere.trim()) return;
@@ -66,6 +76,7 @@ export function AuditTerrain({ auditId, onClose }: Props) {
             observation_id: obsDialog.id,
             critere_id: critereId,
             valeur,
+            commentaire: (obsDialog.critereCommentaires || {})[critereId] || null,
           })),
           { onConflict: 'observation_id,critere_id' }
         );
@@ -99,6 +110,7 @@ export function AuditTerrain({ auditId, onClose }: Props) {
             observation_id: (obs as { id: string }).id,
             critere_id: c.id,
             valeur: evals[c.id] || 'non_evalue',
+            commentaire: (obsDialog.critereCommentaires || {})[c.id] || null,
           }))
         );
         if (crError) {
@@ -204,6 +216,50 @@ export function AuditTerrain({ auditId, onClose }: Props) {
     URL.revokeObjectURL(url);
   };
 
+  // ── Comparatif ───────────────────────────────────────────────────────────────
+  const loadComparatifData = async (auditIds: string[]) => {
+    if (auditIds.length === 0) return;
+    setLoadingComparatif(true);
+    try {
+      const { data: allCrits } = await supabase
+        .from('audit_criteres').select('id, intitule, audit_id').in('audit_id', auditIds);
+      if (!allCrits) return;
+      const critIds = allCrits.map(c => c.id);
+      const { data: allObsCrits } = critIds.length > 0
+        ? await supabase.from('audit_observations_criteres').select('critere_id, valeur').in('critere_id', critIds)
+        : { data: [] };
+
+      const newStats: Record<string, {pourcentage_global: number; criteres: Record<string, number>}> = {};
+      auditIds.forEach(aid => {
+        const auditCrits = allCrits.filter(c => c.audit_id === aid);
+        const critStats: Record<string, number> = {};
+        auditCrits.forEach(c => {
+          const vals = (allObsCrits || []).filter(oc => oc.critere_id === c.id && oc.valeur !== 'non_evalue' && oc.valeur !== 'non_applicable');
+          critStats[c.intitule] = vals.length > 0 ? Math.round(vals.filter(v => v.valeur === 'conforme').length / vals.length * 100) : 0;
+        });
+        const allVals = (allObsCrits || []).filter(oc => auditCrits.some(c => c.id === oc.critere_id) && oc.valeur !== 'non_evalue' && oc.valeur !== 'non_applicable');
+        const pct = allVals.length > 0 ? Math.round(allVals.filter(v => v.valeur === 'conforme').length / allVals.length * 100) : 0;
+        newStats[aid] = { pourcentage_global: pct, criteres: critStats };
+      });
+      setComparatifStats(newStats);
+    } finally {
+      setLoadingComparatif(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'comparatif' || !audit?.theme) return;
+    supabase.from('audits').select('id, intitule, titre, date_fin').eq('theme', audit.theme)
+      .then(({ data }) => {
+        if (data) {
+          setAvailableAudits(data);
+          const ids = data.map((a: {id: string}) => a.id);
+          setComparatifAuditIds(ids.length > 0 ? [auditId] : []);
+          loadComparatifData(ids.length > 0 ? [auditId] : []);
+        }
+      });
+  }, [activeTab, audit?.theme]); // eslint-disable-line
+
   // Données graphiques
   const dataBarres = stats.map(s => ({
     name: s.critere.intitule.length > 22 ? s.critere.intitule.slice(0, 22) + '…' : s.critere.intitule,
@@ -230,7 +286,7 @@ export function AuditTerrain({ auditId, onClose }: Props) {
         <Button variant="outline" size="sm" onClick={onClose}>← Retour</Button>
       </div>
 
-      <Tabs defaultValue="terrain">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="w-full">
           <TabsTrigger value="criteres" className="flex-1 gap-1 text-xs">
             <ClipboardList className="w-3.5 h-3.5" />Critères
@@ -240,6 +296,9 @@ export function AuditTerrain({ auditId, onClose }: Props) {
           </TabsTrigger>
           <TabsTrigger value="consolidation" className="flex-1 gap-1 text-xs">
             <BarChart3 className="w-3.5 h-3.5" />Consolidation
+          </TabsTrigger>
+          <TabsTrigger value="comparatif" className="flex-1 gap-1 text-xs">
+            <BarChart3 className="w-3.5 h-3.5" />Comparatif
           </TabsTrigger>
           <TabsTrigger value="rapport" className="flex-1 gap-1 text-xs">
             <FileText className="w-3.5 h-3.5" />Rapport
@@ -333,7 +392,11 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                           (obs.resultats || []).forEach(r => {
                             existingEvals[r.critere_id] = r.valeur as AuditValeur;
                           });
-                          setObsDialog({ open: true, id: obs.id, nom: obs.nom_agent || '', service: obs.service || '', heure: obs.heure_observation || '', commentaire: obs.commentaire_global || '', evaluations: existingEvals });
+                          const existingComments: Record<string, string> = {};
+                          (obs.resultats || []).forEach(r => {
+                            if (r.commentaire) existingComments[r.critere_id] = r.commentaire;
+                          });
+                          setObsDialog({ open: true, id: obs.id, nom: obs.nom_agent || '', service: obs.service || '', heure: obs.heure_observation || '', commentaire: obs.commentaire_global || '', evaluations: existingEvals, critereCommentaires: existingComments });
                         }}
                       >✏️</Button>
                       <Button
@@ -370,6 +433,15 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                                 </button>
                               ))}
                             </div>
+                            <input
+                              className="w-full text-xs bg-gray-50 border border-gray-100 rounded px-2 py-0.5 mt-0.5 text-gray-500 placeholder:text-gray-300 focus:outline-none focus:border-gray-300"
+                              placeholder="💬 commentaire..."
+                              defaultValue={obs.resultats?.find(r => r.critere_id === critere.id)?.commentaire || ''}
+                              onBlur={e => {
+                                const currentValeur = getValeurForObs(obs.id, critere.id);
+                                setValeur(obs.id, critere.id, currentValeur, e.target.value);
+                              }}
+                            />
                           </div>
                         );
                       })}
@@ -572,6 +644,178 @@ export function AuditTerrain({ auditId, onClose }: Props) {
           )}
         </TabsContent>
 
+        {/* ═══ ONGLET COMPARATIF ═══ */}
+        <TabsContent value="comparatif" className="space-y-4 pt-3">
+          {!audit?.theme ? (
+            <p className="text-center text-gray-400 py-8">Thème de l'audit non défini.</p>
+          ) : loadingComparatif ? (
+            <div className="text-center py-8 text-gray-400">Chargement...</div>
+          ) : (
+            <>
+              {/* Sélecteur d'audits */}
+              <Card>
+                <CardHeader><CardTitle className="text-sm">Audits à comparer — thème : {audit.theme}</CardTitle></CardHeader>
+                <CardContent className="flex flex-wrap gap-2">
+                  {availableAudits.length === 0 ? (
+                    <p className="text-xs text-gray-400">Aucun audit avec ce thème.</p>
+                  ) : availableAudits.map(a => {
+                    const selected = comparatifAuditIds.includes(a.id);
+                    const label = a.intitule || a.titre || 'Sans titre';
+                    return (
+                      <button
+                        key={a.id}
+                        onClick={() => {
+                          const newIds = selected
+                            ? comparatifAuditIds.filter(id => id !== a.id)
+                            : [...comparatifAuditIds, a.id];
+                          setComparatifAuditIds(newIds);
+                          loadComparatifData(newIds);
+                        }}
+                        className={`text-xs px-3 py-1.5 rounded-full border transition-all ${
+                          selected ? 'bg-orange-100 border-orange-400 text-orange-700 font-semibold' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'
+                        }`}
+                      >
+                        {a.id === auditId ? '📌 ' : ''}{label.slice(0, 30)}{a.date_fin ? ` (${new Date(a.date_fin).toLocaleDateString('fr-FR')})` : ''}
+                      </button>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+
+              {comparatifAuditIds.length > 0 && Object.keys(comparatifStats).length > 0 && (
+                <>
+                  {/* Tableau comparatif */}
+                  <Card>
+                    <CardHeader><CardTitle className="text-sm">Tableau comparatif</CardTitle></CardHeader>
+                    <CardContent className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left p-2 font-medium text-gray-600 min-w-[120px]">Critère</th>
+                            {comparatifAuditIds.map(aid => {
+                              const a = availableAudits.find(x => x.id === aid);
+                              return (
+                                <th key={aid} className="text-center p-2 font-medium text-gray-600 min-w-[80px]">
+                                  {a?.id === auditId ? '📌 ' : ''}{(a?.intitule || a?.titre || 'Audit').slice(0, 18)}
+                                </th>
+                              );
+                            })}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr className="border-b bg-gray-50 font-semibold">
+                            <td className="p-2 text-gray-700">Conformité globale</td>
+                            {comparatifAuditIds.map(aid => {
+                              const pct = comparatifStats[aid]?.pourcentage_global ?? 0;
+                              return (
+                                <td key={aid} className={`text-center p-2 font-bold ${pct >= 80 ? 'text-green-600' : pct >= 60 ? 'text-orange-600' : 'text-red-600'}`}>
+                                  {pct}%
+                                </td>
+                              );
+                            })}
+                          </tr>
+                          {[...new Set(comparatifAuditIds.flatMap(aid => Object.keys(comparatifStats[aid]?.criteres || {})))].map(crit => (
+                            <tr key={crit} className="border-b hover:bg-gray-50">
+                              <td className="p-2 text-gray-600">{crit}</td>
+                              {comparatifAuditIds.map(aid => {
+                                const pct = comparatifStats[aid]?.criteres?.[crit];
+                                return (
+                                  <td key={aid} className={`text-center p-2 ${pct === undefined ? 'text-gray-300' : pct >= 80 ? 'text-green-600' : pct >= 60 ? 'text-orange-600' : 'text-red-600'}`}>
+                                    {pct !== undefined ? `${pct}%` : '—'}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </CardContent>
+                  </Card>
+
+                  {/* BarChart — conformité globale par audit */}
+                  {comparatifAuditIds.length >= 2 && (
+                    <Card>
+                      <CardHeader><CardTitle className="text-xs">Évolution de la conformité globale</CardTitle></CardHeader>
+                      <CardContent>
+                        <ResponsiveContainer width="100%" height={160}>
+                          <BarChart data={comparatifAuditIds.map(aid => {
+                            const a = availableAudits.find(x => x.id === aid);
+                            return {
+                              name: (a?.intitule || a?.titre || 'Audit').slice(0, 14),
+                              pct: comparatifStats[aid]?.pourcentage_global ?? 0,
+                            };
+                          })}>
+                            <XAxis dataKey="name" tick={{ fontSize: 9 }} />
+                            <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 9 }} />
+                            <Tooltip formatter={(v: number) => `${v}%`} />
+                            <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
+                              {comparatifAuditIds.map((aid, i) => {
+                                const pct = comparatifStats[aid]?.pourcentage_global ?? 0;
+                                return <Cell key={i} fill={pct >= 80 ? '#22c55e' : pct >= 60 ? '#f59e0b' : '#ef4444'} />;
+                              })}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Analyse IA comparative */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-xs flex items-center justify-between">
+                        Analyse IA comparative
+                        <Button
+                          size="sm" variant="outline" className="gap-1 h-7 text-xs"
+                          disabled={loadingIAComparatif}
+                          onClick={async () => {
+                            setLoadingIAComparatif(true);
+                            try {
+                              const auditsData = comparatifAuditIds.map(aid => {
+                                const a = availableAudits.find(x => x.id === aid);
+                                return {
+                                  titre: a?.intitule || a?.titre || 'Audit',
+                                  date: a?.date_fin,
+                                  pourcentage_global: comparatifStats[aid]?.pourcentage_global ?? 0,
+                                  criteres: Object.entries(comparatifStats[aid]?.criteres || {}).map(([intitule, pourcentage]) => ({ intitule, pourcentage })),
+                                };
+                              });
+                              const { data, error } = await supabase.functions.invoke('suggest-actions', {
+                                body: { context_type: 'comparatif_audit', data: { theme: audit.theme, audits: auditsData } },
+                              });
+                              if (error) throw error;
+                              setIaComparatif(data);
+                            } catch (e: unknown) {
+                              toast.error('Erreur IA : ' + ((e as Error)?.message || 'inconnue'));
+                            } finally { setLoadingIAComparatif(false); }
+                          }}
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          {loadingIAComparatif ? 'Analyse...' : '✨ Analyser'}
+                        </Button>
+                      </CardTitle>
+                    </CardHeader>
+                    {iaComparatif && (
+                      <CardContent className="space-y-3">
+                        <div className="bg-blue-50 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap">{iaComparatif.constat}</div>
+                        {iaComparatif.propositions?.map((p, i) => (
+                          <div key={i} className="border rounded-lg p-3">
+                            <p className="text-xs font-medium">{p.titre}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">{p.description}</p>
+                            <Badge className={`mt-1 text-xs ${p.priorite === 'haute' ? 'bg-red-100 text-red-700' : p.priorite === 'moyenne' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
+                              {p.priorite}
+                            </Badge>
+                          </div>
+                        ))}
+                      </CardContent>
+                    )}
+                  </Card>
+                </>
+              )}
+            </>
+          )}
+        </TabsContent>
+
         {/* ═══ ONGLET RAPPORT ═══ */}
         <TabsContent value="rapport" className="space-y-3 pt-3">
           <div className="flex gap-2">
@@ -711,6 +955,16 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                             </button>
                           )}
                         </div>
+                        <Textarea
+                          placeholder="Commentaire sur ce critère... (optionnel)"
+                          rows={1}
+                          className="text-xs resize-none mt-1"
+                          value={(obsDialog.critereCommentaires || {})[critere.id] || ''}
+                          onChange={e => setObsDialog(d => ({
+                            ...d,
+                            critereCommentaires: { ...(d.critereCommentaires || {}), [critere.id]: e.target.value }
+                          }))}
+                        />
                       </div>
                     );
                   })}

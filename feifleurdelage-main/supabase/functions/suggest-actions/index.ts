@@ -330,6 +330,38 @@ Sois concis, factuel et orienté gestion publique hospitalière.`;
       const parsed = JSON.parse(anthropicData.content[0].text.trim());
       return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+    } else if (context_type === 'comparatif_audit') {
+      const system = "Tu es un expert qualité en EHPAD. Réponds UNIQUEMENT en JSON valide sans markdown ni backticks.";
+      const auditsTexte = (data.audits as Array<{titre: string; date?: string; pourcentage_global: number; criteres: Array<{intitule: string; pourcentage: number}>}>).map((a, i) =>
+        `Audit ${i + 1} — ${a.titre}${a.date ? ` (${a.date})` : ''} : ${a.pourcentage_global}% global\n${a.criteres.map(c => `  • ${c.intitule}: ${c.pourcentage}%`).join('\n')}`
+      ).join('\n\n');
+      const prompt = `Plusieurs audits ont été réalisés dans un EHPAD sur le thème "${data.theme}".
+
+${auditsTexte}
+
+Compare ces audits et analyse l'évolution des résultats dans le temps.
+Réponds UNIQUEMENT avec ce JSON exact :
+{
+  "constat": "Analyse comparative en 3-4 phrases : tendances, points d'amélioration, points positifs",
+  "propositions": [
+    {
+      "titre": "Titre court de l'action",
+      "description": "Description concrète ciblée sur les critères en régression ou constamment non conformes",
+      "priorite": "haute|moyenne|faible"
+    }
+  ]
+}
+Propose 3 actions maximum ciblées sur les critères les plus problématiques.`;
+
+      const response = await callAnthropic(apiKey, system, prompt, 800);
+      if (!response.ok) {
+        const errText = await response.text();
+        return new Response(JSON.stringify({ error: `Erreur API Anthropic ${response.status}: ${errText}` }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      const anthropicData = await response.json();
+      const parsed = JSON.parse(anthropicData.content[0].text.trim());
+      return new Response(JSON.stringify(parsed), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
     } else if (context_type === "retex") {
       const system = "Tu es un expert qualité et gestion des risques dans un EHPAD français. Tu rédiges des comptes-rendus de RETEX (Retour d'EXpérience) structurés, professionnels et exploitables. Réponds en texte structuré clair, sans JSON.";
       const prompt = `Rédige un compte-rendu de RETEX structuré pour l'événement suivant dans un EHPAD.
@@ -374,7 +406,7 @@ Adopte un ton professionnel adapté à un rapport qualité d'EHPAD.`;
 
     } else {
       return new Response(
-        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte | duerp_complete | duerp_propositions | cvs_demande | audit_analyse | audit_rapport | retex | cartographie_risque | analyse_financiere" }),
+        JSON.stringify({ error: "context_type invalide — attendu: fei | plainte | voice_fei | voice_plainte | duerp_complete | duerp_propositions | cvs_demande | audit_analyse | audit_rapport | comparatif_audit | retex | cartographie_risque | analyse_financiere" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

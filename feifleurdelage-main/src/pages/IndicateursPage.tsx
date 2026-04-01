@@ -31,6 +31,7 @@ import {
   PencilLine,
   BarChart2,
   Loader2,
+  Link2,
 } from "lucide-react";
 import { format, subMonths, startOfMonth } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -341,11 +342,15 @@ const KpiCard = ({
   value,
   prevValue,
   unit,
+  actionCount,
+  onLinkClick,
 }: {
   label: string;
   value: number | null;
   prevValue: number | null;
   unit?: string;
+  actionCount?: number;
+  onLinkClick?: () => void;
 }) => {
   const diff =
     value !== null && prevValue !== null ? value - prevValue : null;
@@ -381,6 +386,17 @@ const KpiCard = ({
         </div>
         {diff !== null && (
           <p className="text-[9px] text-muted-foreground mt-0.5">vs mois préc.</p>
+        )}
+        {onLinkClick !== undefined && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onLinkClick(); }}
+            className={`mt-1.5 flex items-center gap-0.5 text-[9px] transition-colors ${
+              actionCount && actionCount > 0 ? 'text-primary font-medium' : 'text-muted-foreground/40 hover:text-muted-foreground'
+            }`}
+          >
+            <Link2 className="w-2.5 h-2.5" />
+            {actionCount && actionCount > 0 ? `${actionCount} action${actionCount > 1 ? 's' : ''} PACQ` : 'Lier une action'}
+          </button>
         )}
       </CardContent>
     </Card>
@@ -472,6 +488,63 @@ const IndicateursPage = () => {
       fetchDomainData(activeTab);
     }
   }, [activeTab, allData, fetchDomainData]);
+
+  // ── Indicateurs ↔ PACQ ─────────────────────────────────────────────────────
+
+  const [linkedCounts, setLinkedCounts] = useState<Record<string, number>>({});
+  const [linkDialog, setLinkDialog] = useState<{open: boolean; domaine: string; label: string} | null>(null);
+  const [pacqActions, setPacqActions] = useState<{id: string; titre: string; statut: string; priorite: string}[]>([]);
+  const [linkedActions, setLinkedActions] = useState<{id: string; action_id: string}[]>([]);
+  const [loadingLinkDialog, setLoadingLinkDialog] = useState(false);
+
+  useEffect(() => {
+    if (!activeTab) return;
+    supabase.from('indicateurs_actions')
+      .select('indicateur_label, indicateur_domaine')
+      .eq('indicateur_domaine', activeTab)
+      .then(({ data }) => {
+        if (!data) return;
+        const counts: Record<string, number> = {};
+        data.forEach((r: {indicateur_domaine: string; indicateur_label: string}) => {
+          const key = `${r.indicateur_domaine}:${r.indicateur_label}`;
+          counts[key] = (counts[key] || 0) + 1;
+        });
+        setLinkedCounts((prev) => ({ ...prev, ...counts }));
+      });
+  }, [activeTab]);
+
+  const openLinkDialog = async (domaine: string, label: string) => {
+    setLinkDialog({ open: true, domaine, label });
+    setLoadingLinkDialog(true);
+    const [{ data: actions }, { data: linked }] = await Promise.all([
+      supabase.from('actions_correctives').select('id, titre, statut, priorite').order('created_at', { ascending: false }),
+      supabase.from('indicateurs_actions').select('id, action_id').eq('indicateur_domaine', domaine).eq('indicateur_label', label),
+    ]);
+    setPacqActions((actions || []) as {id: string; titre: string; statut: string; priorite: string}[]);
+    setLinkedActions((linked || []) as {id: string; action_id: string}[]);
+    setLoadingLinkDialog(false);
+  };
+
+  const toggleLink = async (actionId: string) => {
+    if (!linkDialog) return;
+    const key = `${linkDialog.domaine}:${linkDialog.label}`;
+    const existing = linkedActions.find((r) => r.action_id === actionId);
+    if (existing) {
+      await supabase.from('indicateurs_actions').delete().eq('id', existing.id);
+      setLinkedActions((prev) => prev.filter((r) => r.id !== existing.id));
+      setLinkedCounts((prev) => ({ ...prev, [key]: Math.max(0, (prev[key] || 1) - 1) }));
+    } else {
+      const { data } = await supabase.from('indicateurs_actions').insert([{
+        indicateur_domaine: linkDialog.domaine,
+        indicateur_label: linkDialog.label,
+        action_id: actionId,
+      }]).select().single();
+      if (data) {
+        setLinkedActions((prev) => [...prev, data as {id: string; action_id: string}]);
+        setLinkedCounts((prev) => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
+      }
+    }
+  };
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -821,6 +894,8 @@ const IndicateursPage = () => {
                         value={getValue(monthData, ind.label, selectedDateStr)}
                         prevValue={getValue(prevMonthData, ind.label, prevDateStr)}
                         unit={ind.unit}
+                        actionCount={linkedCounts[`${domaine.id}:${ind.label}`] || 0}
+                        onLinkClick={() => openLinkDialog(domaine.id, ind.label)}
                       />
                     ))}
                   </div>
@@ -923,6 +998,53 @@ const IndicateursPage = () => {
           </TabsContent>
         ))}
       </Tabs>
+
+      {/* Dialog Liaisons PACQ */}
+      <Dialog open={!!linkDialog?.open} onOpenChange={v => !v && setLinkDialog(null)}>
+        <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <Link2 className="w-4 h-4 text-primary" />
+              Actions PACQ liées — {linkDialog?.label}
+            </DialogTitle>
+          </DialogHeader>
+          {loadingLinkDialog ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-5 h-5 animate-spin text-primary" />
+            </div>
+          ) : (
+            <ScrollArea className="flex-1 pr-2 max-h-[50vh]">
+              <div className="space-y-2">
+                {pacqActions.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-4">Aucune action PACQ disponible.</p>
+                ) : pacqActions.map(action => {
+                  const isLinked = linkedActions.some(r => r.action_id === action.id);
+                  return (
+                    <button
+                      key={action.id}
+                      onClick={() => toggleLink(action.id)}
+                      className={`w-full text-left rounded-lg border px-3 py-2 transition-all flex items-start justify-between gap-2 ${
+                        isLinked ? 'border-primary bg-primary/5' : 'border-border bg-background hover:border-primary/40'
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium leading-tight truncate">{action.titre}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{action.statut} · {action.priorite}</p>
+                      </div>
+                      <span className={`text-[10px] shrink-0 mt-0.5 font-medium ${isLinked ? 'text-primary' : 'text-muted-foreground'}`}>
+                        {isLinked ? '✓ Lié' : '+ Lier'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </ScrollArea>
+          )}
+          <DialogFooter>
+            <Button size="sm" variant="outline" onClick={() => setLinkDialog(null)}>Fermer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Saisie modal */}
       <Dialog open={saisieOpen} onOpenChange={setSaisieOpen}>

@@ -113,6 +113,7 @@ export default function PlanActionsCorrectives() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ActionCorrective | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [linkedIndicateurs, setLinkedIndicateurs] = useState<{id: string; indicateur_domaine: string; indicateur_label: string}[]>([]);
 
   const fetchActions = async () => {
     setLoading(true);
@@ -213,11 +214,16 @@ export default function PlanActionsCorrectives() {
     setSubmittingComment(null);
   };
 
-  const openCreate = () => { setEditingAction(null); setForm(EMPTY_FORM); setDialogOpen(true); };
-  const openEdit = (a: ActionCorrective) => {
+  const openCreate = () => { setEditingAction(null); setForm(EMPTY_FORM); setLinkedIndicateurs([]); setDialogOpen(true); };
+  const openEdit = async (a: ActionCorrective) => {
     setEditingAction(a);
     setForm({ titre: a.titre, description: a.description || "", responsable_id: a.responsable_id || "", date_echeance: a.date_echeance, priorite: a.priorite, statut: a.statut, fei_id: a.fei_id || "", service: a.service || "", source: a.source || "" });
+    setLinkedIndicateurs([]);
     setDialogOpen(true);
+    const { data } = await supabase.from('indicateurs_actions')
+      .select('id, indicateur_domaine, indicateur_label')
+      .eq('action_id', a.id);
+    if (data) setLinkedIndicateurs(data as {id: string; indicateur_domaine: string; indicateur_label: string}[]);
   };
 
   const handleSave = async () => {
@@ -649,6 +655,18 @@ export default function PlanActionsCorrectives() {
                 </SelectContent>
               </Select>
             </div>
+            {linkedIndicateurs.length > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Indicateurs liés</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {linkedIndicateurs.map(ind => (
+                    <span key={ind.id} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 border border-primary/20">
+                      📊 {ind.indicateur_domaine} — {ind.indicateur_label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>Annuler</Button>
