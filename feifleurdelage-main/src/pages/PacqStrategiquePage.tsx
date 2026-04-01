@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { THEMES_AGEVAL, ANNEES_INDICATEURS } from "@/lib/pacqStrategique";
+import { THEMATIQUES_ESSMS, ANNEES_INDICATEURS } from "@/lib/pacqStrategique";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -101,7 +101,7 @@ const item      = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, tra
 export default function PacqStrategiquePage() {
   const { profile, user } = useAuth();
 
-  const [selectedTheme, setSelectedTheme] = useState(THEMES_AGEVAL[0].id);
+  const [selectedTheme, setSelectedTheme] = useState(THEMATIQUES_ESSMS[0].id);
   const [filterAvancement, setFilterAvancement] = useState("tous");
   const [filterMesActions, setFilterMesActions] = useState(false);
   const [allObjectifs, setAllObjectifs] = useState<Objectif[]>([]);
@@ -348,7 +348,7 @@ export default function PacqStrategiquePage() {
     doc.text(`Exporté le ${new Date().toLocaleDateString("fr-FR")}`, pageW / 2, y, { align: "center" });
     y += 10;
 
-    for (const theme of THEMES_AGEVAL) {
+    for (const theme of THEMATIQUES_ESSMS) {
       const objs = allObjectifs.filter(o => o.theme === theme.id);
       if (objs.length === 0) continue;
 
@@ -415,7 +415,7 @@ export default function PacqStrategiquePage() {
   const exportExcel = () => {
     setExporting("xlsx");
     const rows: any[] = [];
-    for (const theme of THEMES_AGEVAL) {
+    for (const theme of THEMATIQUES_ESSMS) {
       const objs = allObjectifs.filter(o => o.theme === theme.id);
       for (const obj of objs) {
         const objActions = actions.filter(a => a.objectif_id === obj.id);
@@ -463,7 +463,7 @@ export default function PacqStrategiquePage() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
-  const currentThemeMeta = THEMES_AGEVAL.find(t => t.id === selectedTheme)!;
+  const currentThemeMeta = THEMATIQUES_ESSMS.find(t => t.id === selectedTheme)!;
   const themeColors = THEME_COLORS[currentThemeMeta.color];
 
   return (
@@ -556,7 +556,7 @@ export default function PacqStrategiquePage() {
       {/* Tabs thèmes */}
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
         className="flex flex-wrap gap-2">
-        {THEMES_AGEVAL.map(t => {
+        {THEMATIQUES_ESSMS.map(t => {
           const c = THEME_COLORS[t.color];
           const active = t.id === selectedTheme;
           const count = allObjectifs.filter(o => o.theme === t.id).length;
@@ -810,7 +810,7 @@ export default function PacqStrategiquePage() {
                 <Select value={objForm.theme} onValueChange={v => setObjForm(f => ({ ...f, theme: v }))}>
                   <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {THEMES_AGEVAL.map(t => <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>)}
+                    {THEMATIQUES_ESSMS.map(t => <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
