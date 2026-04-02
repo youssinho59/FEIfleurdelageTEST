@@ -247,18 +247,23 @@ export function AuditTerrain({ auditId, onClose }: Props) {
     }
   };
 
+  // Clé de regroupement : theme en priorité, sinon intitule, sinon titre
+  const auditThemeLabel = audit?.theme || audit?.intitule || audit?.titre || '';
+
   useEffect(() => {
-    if (activeTab !== 'comparatif' || !audit?.theme) return;
-    supabase.from('audits').select('id, intitule, titre, date_fin').eq('theme', audit.theme)
-      .then(({ data }) => {
-        if (data) {
-          setAvailableAudits(data);
-          const ids = data.map((a: {id: string}) => a.id);
-          setComparatifAuditIds(ids.length > 0 ? [auditId] : []);
-          loadComparatifData(ids.length > 0 ? [auditId] : []);
-        }
-      });
-  }, [activeTab, audit?.theme]); // eslint-disable-line
+    if (activeTab !== 'comparatif' || !auditThemeLabel) return;
+    let q = supabase.from('audits').select('id, intitule, titre, date_fin');
+    if (audit?.theme)         q = q.eq('theme', audit.theme);
+    else if (audit?.intitule) q = q.eq('intitule', audit.intitule);
+    else                      q = q.eq('titre', audit?.titre ?? '');
+    q.then(({ data }) => {
+      if (data) {
+        setAvailableAudits(data);
+        setComparatifAuditIds([auditId]);
+        loadComparatifData([auditId]);
+      }
+    });
+  }, [activeTab, auditThemeLabel]); // eslint-disable-line
 
   // Données graphiques
   const dataBarres = stats.map(s => ({
@@ -646,15 +651,19 @@ export function AuditTerrain({ auditId, onClose }: Props) {
 
         {/* ═══ ONGLET COMPARATIF ═══ */}
         <TabsContent value="comparatif" className="space-y-4 pt-3">
-          {!audit?.theme ? (
+          {!auditThemeLabel ? (
             <p className="text-center text-gray-400 py-8">Thème de l'audit non défini.</p>
           ) : loadingComparatif ? (
             <div className="text-center py-8 text-gray-400">Chargement...</div>
+          ) : availableAudits.filter(a => a.id !== auditId).length === 0 ? (
+            <p className="text-center text-gray-400 py-8 px-6">
+              Aucun audit précédent disponible pour ce thème. Le comparatif sera disponible après la réalisation d'un second audit.
+            </p>
           ) : (
             <>
               {/* Sélecteur d'audits */}
               <Card>
-                <CardHeader><CardTitle className="text-sm">Audits à comparer — thème : {audit.theme}</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="text-sm">Audits à comparer — thème : {auditThemeLabel}</CardTitle></CardHeader>
                 <CardContent className="flex flex-wrap gap-2">
                   {availableAudits.length === 0 ? (
                     <p className="text-xs text-gray-400">Aucun audit avec ce thème.</p>
@@ -781,7 +790,7 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                                 };
                               });
                               const { data, error } = await supabase.functions.invoke('suggest-actions', {
-                                body: { context_type: 'comparatif_audit', data: { theme: audit.theme, audits: auditsData } },
+                                body: { context_type: 'comparatif_audit', data: { theme: auditThemeLabel, audits: auditsData } },
                               });
                               if (error) throw error;
                               setIaComparatif(data);
