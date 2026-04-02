@@ -45,7 +45,15 @@ export function AuditTerrain({ auditId, onClose }: Props) {
   const [activeTab, setActiveTab] = useState('terrain');
 
   // ── Comparatif states ────────────────────────────────────────────────────────
-  const [availableAudits, setAvailableAudits] = useState<{id: string; intitule?: string; titre?: string; date_fin?: string}[]>([]);
+  const [availableAudits, setAvailableAudits] = useState<{
+    id: string;
+    intitule?: string;
+    titre?: string;
+    date_fin?: string | null;
+    date_debut?: string | null;
+    date_audit?: string | null;
+    created_at?: string | null;
+  }[]>([]);
   const [comparatifAuditIds, setComparatifAuditIds] = useState<string[]>([auditId]);
   const [comparatifStats, setComparatifStats] = useState<Record<string, {pourcentage_global: number; criteres: Record<string, number>}>>({});
   const [loadingComparatif, setLoadingComparatif] = useState(false);
@@ -128,6 +136,36 @@ export function AuditTerrain({ auditId, onClose }: Props) {
   const getValeurForObs = (obsId: string, critereId: string): AuditValeur => {
     const obs = observations.find(o => o.id === obsId);
     return (obs?.resultats?.find(r => r.critere_id === critereId)?.valeur as AuditValeur) || 'non_evalue';
+  };
+
+  const getAuditDisplayDate = (a: {
+    date_fin?: string | null;
+    date_debut?: string | null;
+    date_audit?: string | null;
+    created_at?: string | null;
+  }) => {
+    const rawDate = a.date_fin || a.date_debut || a.date_audit || a.created_at;
+    if (!rawDate) return '';
+
+    const date = new Date(rawDate);
+    if (Number.isNaN(date.getTime())) return '';
+
+    return ` — ${date.toLocaleDateString('fr-FR')}`;
+  };
+
+  const getAuditShortDate = (a?: {
+    date_fin?: string | null;
+    date_debut?: string | null;
+    date_audit?: string | null;
+    created_at?: string | null;
+  }) => {
+    const rawDate = a?.date_fin || a?.date_debut || a?.date_audit || a?.created_at;
+    if (!rawDate) return '';
+
+    const date = new Date(rawDate);
+    if (Number.isNaN(date.getTime())) return '';
+
+    return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
   };
 
   // Génération IA constat + actions
@@ -252,7 +290,9 @@ export function AuditTerrain({ auditId, onClose }: Props) {
 
   useEffect(() => {
     if (activeTab !== 'comparatif' || !auditThemeLabel) return;
-    let q = supabase.from('audits').select('id, intitule, titre, date_fin');
+    let q = supabase
+      .from('audits')
+      .select('id, intitule, titre, date_fin, date_debut, date_audit, created_at');
     if (audit?.theme)         q = q.eq('theme', audit.theme);
     else if (audit?.intitule) q = q.eq('intitule', audit.intitule);
     else                      q = q.eq('titre', audit?.titre ?? '');
@@ -670,7 +710,7 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                   ) : availableAudits.map(a => {
                     const selected = comparatifAuditIds.includes(a.id);
                     const label = a.intitule || a.titre || 'Sans titre';
-                    const dateLabel = a.date_fin ? ` — ${new Date(a.date_fin).toLocaleDateString('fr-FR')}` : '';
+                    const dateLabel = getAuditDisplayDate(a);
                     return (
                       <button
                         key={a.id}
@@ -706,7 +746,9 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                               const a = availableAudits.find(x => x.id === aid);
                               return (
                                 <th key={aid} className="text-center p-2 font-medium text-gray-600 min-w-[110px]">
-                                  {a?.id === auditId ? '📌 ' : ''}{a?.intitule || a?.titre || 'Audit'}{a?.date_fin ? ` — ${new Date(a.date_fin).toLocaleDateString('fr-FR')}` : ''}
+                                  {a?.id === auditId ? '📌 ' : ''}
+                                  {a?.intitule || a?.titre || 'Audit'}
+                                  {a ? getAuditDisplayDate(a) : ''}
                                 </th>
                               );
                             })}
@@ -750,8 +792,10 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                         <ResponsiveContainer width="100%" height={160}>
                           <BarChart data={comparatifAuditIds.map(aid => {
                             const a = availableAudits.find(x => x.id === aid);
+                            const label = (a?.intitule || a?.titre || 'Audit').slice(0, 10);
+                            const shortDate = getAuditShortDate(a);
                             return {
-                              name: `${(a?.intitule || a?.titre || 'Audit').slice(0, 10)}${a?.date_fin ? ' ' + new Date(a.date_fin).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) : ''}`,
+                              name: shortDate ? `${label} ${shortDate}` : label,
                               pct: comparatifStats[aid]?.pourcentage_global ?? 0,
                             };
                           })}>
@@ -785,7 +829,7 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                                 const a = availableAudits.find(x => x.id === aid);
                                 return {
                                   titre: a?.intitule || a?.titre || 'Audit',
-                                  date: a?.date_fin,
+                                  date: a?.date_fin || a?.date_debut || a?.date_audit || a?.created_at || null,
                                   pourcentage_global: comparatifStats[aid]?.pourcentage_global ?? 0,
                                   criteres: Object.entries(comparatifStats[aid]?.criteres || {}).map(([intitule, pourcentage]) => ({ intitule, pourcentage })),
                                 };
