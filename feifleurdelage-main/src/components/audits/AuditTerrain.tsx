@@ -670,6 +670,7 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                   ) : availableAudits.map(a => {
                     const selected = comparatifAuditIds.includes(a.id);
                     const label = a.intitule || a.titre || 'Sans titre';
+                    const dateLabel = a.date_fin ? ` — ${new Date(a.date_fin).toLocaleDateString('fr-FR')}` : '';
                     return (
                       <button
                         key={a.id}
@@ -684,7 +685,7 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                           selected ? 'bg-orange-100 border-orange-400 text-orange-700 font-semibold' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'
                         }`}
                       >
-                        {a.id === auditId ? '📌 ' : ''}{label.slice(0, 30)}{a.date_fin ? ` (${new Date(a.date_fin).toLocaleDateString('fr-FR')})` : ''}
+                        {a.id === auditId ? '📌 ' : ''}{label}{dateLabel}
                       </button>
                     );
                   })}
@@ -704,8 +705,8 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                             {comparatifAuditIds.map(aid => {
                               const a = availableAudits.find(x => x.id === aid);
                               return (
-                                <th key={aid} className="text-center p-2 font-medium text-gray-600 min-w-[80px]">
-                                  {a?.id === auditId ? '📌 ' : ''}{(a?.intitule || a?.titre || 'Audit').slice(0, 18)}
+                                <th key={aid} className="text-center p-2 font-medium text-gray-600 min-w-[110px]">
+                                  {a?.id === auditId ? '📌 ' : ''}{a?.intitule || a?.titre || 'Audit'}{a?.date_fin ? ` — ${new Date(a.date_fin).toLocaleDateString('fr-FR')}` : ''}
                                 </th>
                               );
                             })}
@@ -750,7 +751,7 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                           <BarChart data={comparatifAuditIds.map(aid => {
                             const a = availableAudits.find(x => x.id === aid);
                             return {
-                              name: (a?.intitule || a?.titre || 'Audit').slice(0, 14),
+                              name: `${(a?.intitule || a?.titre || 'Audit').slice(0, 10)}${a?.date_fin ? ' ' + new Date(a.date_fin).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }) : ''}`,
                               pct: comparatifStats[aid]?.pourcentage_global ?? 0,
                             };
                           })}>
