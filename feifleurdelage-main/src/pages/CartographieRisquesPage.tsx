@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -225,11 +226,21 @@ function RisqueCard({
 }) {
   const { label, classes } = getCriticiteBadge(risque.criticite_residuelle);
   const showPacqBtn = risque.criticite_residuelle >= 25;
+  const sousCategorie = risque.categorie.toLowerCase().startsWith("maltraitance") && risque.categorie.includes(" - ")
+    ? risque.categorie.replace(/^[^-]+-\s*/i, "").trim()
+    : null;
 
   return (
     <div className="border rounded-lg p-4 bg-card hover:shadow-sm transition-shadow">
       <div className="flex items-start justify-between gap-2 mb-2">
-        <h4 className="font-semibold text-sm leading-tight flex-1">{risque.intitule_risque}</h4>
+        <div className="flex-1 min-w-0">
+          {sousCategorie && (
+            <span className="inline-block text-[10px] font-semibold bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded-full mb-1">
+              {sousCategorie}
+            </span>
+          )}
+          <h4 className="font-semibold text-sm leading-tight">{risque.intitule_risque}</h4>
+        </div>
         <div className="flex items-center gap-1 shrink-0">
           <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${classes}`}>
             {label}
@@ -291,6 +302,7 @@ export default function CartographieRisquesPage() {
   const [showAISuggestions, setShowAISuggestions] = useState(false);
   const [creatingPacq, setCreatingPacq] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [maltraitanceSousCategorie, setMaltraitanceSousCategorie] = useState("toutes");
 
   // ── Computed values ──────────────────────────────────────────────────────
 
@@ -298,7 +310,17 @@ export default function CartographieRisquesPage() {
   const criticiteResiduelle = formData.probabilite * formData.gravite * formData.niveau_maitrise;
   const { label: badgeLabel, classes: badgeClasses } = getCriticiteBadge(criticiteResiduelle);
 
-  const tabRisques = risques.filter((r) => r.categorie === activeTab);
+  // Toutes les sous-catégories distinctes Maltraitance - *
+  const maltraitanceSousCategories = [...new Set(
+    risques
+      .filter(r => r.categorie.toLowerCase().startsWith("maltraitance"))
+      .map(r => r.categorie)
+  )].sort();
+
+  // Filtre onglet : Maltraitances inclut tout ce qui commence par "maltraitance"
+  const tabRisques = activeTab === "Maltraitances"
+    ? risques.filter(r => r.categorie.toLowerCase().startsWith("maltraitance"))
+    : risques.filter(r => r.categorie === activeTab);
 
   // ── Fetch ────────────────────────────────────────────────────────────────
 
@@ -516,7 +538,9 @@ export default function CartographieRisquesPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/50 p-1">
           {CATEGORIES.map((cat) => {
-            const count = risques.filter((r) => r.categorie === cat).length;
+            const count = cat === "Maltraitances"
+              ? risques.filter(r => r.categorie.toLowerCase().startsWith("maltraitance")).length
+              : risques.filter(r => r.categorie === cat).length;
             return (
               <TabsTrigger key={cat} value={cat} className="text-xs px-3 py-1.5 gap-1.5">
                 {cat}
@@ -531,15 +555,40 @@ export default function CartographieRisquesPage() {
         </TabsList>
 
         {CATEGORIES.map((cat) => {
-          const catRisques = risques.filter((r) => r.categorie === cat);
+          const catRisques = cat === "Maltraitances"
+            ? risques.filter(r => r.categorie.toLowerCase().startsWith("maltraitance"))
+            : risques.filter(r => r.categorie === cat);
+          const displayRisques = cat === "Maltraitances" && maltraitanceSousCategorie !== "toutes"
+            ? catRisques.filter(r => r.categorie === maltraitanceSousCategorie)
+            : catRisques;
           return (
             <TabsContent key={cat} value={cat} className="mt-4 space-y-4">
+              {/* Filtre sous-catégorie Maltraitances */}
+              {cat === "Maltraitances" && maltraitanceSousCategories.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs text-muted-foreground shrink-0">Sous-thème :</Label>
+                  <Select value={maltraitanceSousCategorie} onValueChange={setMaltraitanceSousCategorie}>
+                    <SelectTrigger className="h-8 text-xs w-72">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="toutes">Tous les sous-thèmes ({catRisques.length})</SelectItem>
+                      {maltraitanceSousCategories.map(sc => (
+                        <SelectItem key={sc} value={sc}>
+                          {sc.replace(/^[^-]+-\s*/i, "").trim()} ({catRisques.filter(r => r.categorie === sc).length})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
               {/* Add button */}
               <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">
-                  {catRisques.length === 0
+                  {displayRisques.length === 0
                     ? "Aucun risque enregistré pour cette catégorie"
-                    : `${catRisques.length} risque${catRisques.length > 1 ? "s" : ""} enregistré${catRisques.length > 1 ? "s" : ""}`}
+                    : `${displayRisques.length} risque${displayRisques.length > 1 ? "s" : ""} enregistré${displayRisques.length > 1 ? "s" : ""}`}
                 </p>
                 <Button size="sm" onClick={openNew} className="gap-1.5">
                   <Plus className="w-4 h-4" />
@@ -552,7 +601,7 @@ export default function CartographieRisquesPage() {
                 <div className="flex justify-center py-8">
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                 </div>
-              ) : catRisques.length === 0 ? (
+              ) : displayRisques.length === 0 ? (
                 <div className="border border-dashed rounded-lg p-8 text-center">
                   <ShieldAlert className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
                   <p className="text-sm text-muted-foreground">
@@ -561,7 +610,7 @@ export default function CartographieRisquesPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {catRisques.map((r) => (
+                  {displayRisques.map((r) => (
                     <RisqueCard
                       key={r.id}
                       risque={r}
@@ -575,7 +624,7 @@ export default function CartographieRisquesPage() {
               )}
 
               {/* Matrix */}
-              {catRisques.length > 0 && <RisqueMatrix risques={catRisques} />}
+              {displayRisques.length > 0 && <RisqueMatrix risques={displayRisques} />}
             </TabsContent>
           );
         })}
