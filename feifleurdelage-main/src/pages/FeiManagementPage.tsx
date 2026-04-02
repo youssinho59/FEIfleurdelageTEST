@@ -999,6 +999,9 @@ const FeiManagementPage = () => {
             actions_correctives: selectedFei.actions_correctives,
             categorie_fei: selectedFei.categorie_fei,
             consequences_resident_ars: selectedFei.consequences_resident_ars,
+            nature_evenement_ars: selectedFei.nature_evenement_ars,
+            circonstances_ars: selectedFei.circonstances_ars,
+            mesures_prises_ars: selectedFei.mesures_prises_ars,
           }}
         />
       )}

@@ -149,6 +149,9 @@ type Props = {
     actions_correctives?: string | null;
     categorie_fei?: string;
     consequences_resident_ars?: string | null;
+    nature_evenement_ars?: string | null;
+    circonstances_ars?: string | null;
+    mesures_prises_ars?: string | null;
   };
 };
 
@@ -172,14 +175,26 @@ const DeclarationArsDialog = ({ open, onOpenChange, feiId, feiData }: Props) => 
         feiData.type_fei,
         feiData.categorie_fei || "standard"
       );
+
+      // Circonstances : champ ARS dédié en priorité, sinon composition depuis description
+      const dateStr = new Date(feiData.date_evenement + "T00:00:00").toLocaleDateString("fr-FR");
+      let circonstancesValue = "";
+      if (feiData.circonstances_ars) {
+        circonstancesValue = feiData.circonstances_ars;
+      } else {
+        const parts: string[] = [`${dateStr} — ${feiData.lieu}`];
+        if (feiData.nature_evenement_ars) parts.push(`Nature : ${feiData.nature_evenement_ars}`);
+        if (feiData.description) parts.push(feiData.description);
+        circonstancesValue = parts.join("\n\n");
+      }
+
       setData((prev) => ({
         ...prev,
         nature_faits: natureMapped.length > 0 ? natureMapped : prev.nature_faits,
-        circonstances: feiData.description
-          ? `${new Date(feiData.date_evenement + "T00:00:00").toLocaleDateString("fr-FR")} — ${feiData.lieu}\n\n${feiData.description}`
-          : prev.circonstances,
+        circonstances: circonstancesValue || prev.circonstances,
         consequences_personnes: feiData.consequences_resident_ars || prev.consequences_personnes,
-        mesures_victimes: feiData.actions_correctives || prev.mesures_victimes,
+        // Mesures : champ ARS dédié en priorité, sinon actions correctives générales
+        mesures_victimes: feiData.mesures_prises_ars || feiData.actions_correctives || prev.mesures_victimes,
       }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -310,17 +325,22 @@ const DeclarationArsDialog = ({ open, onOpenChange, feiId, feiData }: Props) => 
     };
 
     // Header
-    doc.setFillColor(196, 107, 72);
-    doc.rect(0, 0, 210, 20, "F");
+    doc.setFillColor(185, 28, 28);
+    doc.rect(0, 0, 210, 32, "F");
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(12);
+    doc.setFontSize(11.5);
     doc.setFont("helvetica", "bold");
-    doc.text("Déclaration d'événement indésirable — ARS", margin, 10);
-    doc.setFontSize(8);
+    doc.text("Déclaration d'événement indésirable — ARS", margin, 9);
+    doc.setFontSize(9.5);
+    doc.text("EHPAD La Fleur de l'Âge", margin, 16.5);
     doc.setFont("helvetica", "normal");
-    doc.text("Décret 2016-1813 — EHPAD La Fleur de l'Âge", margin, 16);
+    doc.setFontSize(7.5);
+    doc.text("20 bis Allée des Sports — 59960 Neuville-en-Ferrain", margin, 22);
+    doc.text("Tél : 03 20 94 09 28 | courrier@ehpad-lafleurdelage.fr", margin, 27);
+    doc.setFontSize(7.5);
+    doc.text("Décret 2016-1813", 210 - margin, 27, { align: "right" });
     doc.setTextColor(30, 30, 30);
-    y = 26;
+    y = 38;
 
     addText(`Date de déclaration : ${new Date().toLocaleDateString("fr-FR")}`, false, 8.5);
     y += 2;
@@ -431,6 +451,13 @@ const DeclarationArsDialog = ({ open, onOpenChange, feiId, feiData }: Props) => 
           </div>
         ) : (
           <div className="space-y-5 py-1">
+            {/* En-tête établissement */}
+            <div className="rounded-lg bg-red-700 text-white px-4 py-3 space-y-0.5">
+              <p className="font-bold text-sm">EHPAD La Fleur de l'Âge</p>
+              <p className="text-xs opacity-90">20 bis Allée des Sports — 59960 Neuville-en-Ferrain</p>
+              <p className="text-xs opacity-90">Tél : 03 20 94 09 28 | courrier@ehpad-lafleurdelage.fr</p>
+            </div>
+
             {/* Établissement — pré-rempli */}
             <div className="rounded-lg border bg-muted/40 p-3 text-sm space-y-1">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Établissement / Événement concerné</p>
