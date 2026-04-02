@@ -392,28 +392,6 @@ const PlaintesFormPage = () => {
             </Card>
           </motion.div>
 
-          {/* Section: Réponse immédiate apportée */}
-          <motion.div variants={item}>
-            <Card className="border-border/50 shadow-warm overflow-hidden">
-              <div className="px-5 py-3 bg-success/10 border-b border-border/50 flex items-center gap-2">
-                <MessageCircle className="w-4 h-4 text-success" />
-                <span className="text-sm font-semibold text-foreground">Réponse immédiate apportée</span>
-              </div>
-              <CardContent className="p-5">
-                <div className="space-y-2">
-                  <Label htmlFor="reponse">Mesures prises ou réponse donnée <span className="text-muted-foreground">(optionnel)</span></Label>
-                  <Textarea
-                    id="reponse"
-                    value={form.reponse_apportee}
-                    onChange={(e) => setForm({ ...form, reponse_apportee: e.target.value })}
-                    placeholder="Décrivez la réponse ou les mesures prises immédiatement suite à cette réclamation..."
-                    rows={3}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
           {/* Section: Description */}
           <motion.div variants={item}>
             <Card className="border-border/50 shadow-warm overflow-hidden">
@@ -469,6 +447,28 @@ const PlaintesFormPage = () => {
                       ⏳ Transcription en cours… (10-30 secondes)
                     </p>
                   )}
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Section: Réponse immédiate apportée */}
+          <motion.div variants={item}>
+            <Card className="border-border/50 shadow-warm overflow-hidden">
+              <div className="px-5 py-3 bg-success/10 border-b border-border/50 flex items-center gap-2">
+                <MessageCircle className="w-4 h-4 text-success" />
+                <span className="text-sm font-semibold text-foreground">Réponse immédiate apportée</span>
+              </div>
+              <CardContent className="p-5">
+                <div className="space-y-2">
+                  <Label htmlFor="reponse">Mesures prises ou réponse donnée <span className="text-muted-foreground">(optionnel)</span></Label>
+                  <Textarea
+                    id="reponse"
+                    value={form.reponse_apportee}
+                    onChange={(e) => setForm({ ...form, reponse_apportee: e.target.value })}
+                    placeholder="Décrivez la réponse ou les mesures prises immédiatement suite à cette réclamation..."
+                    rows={3}
+                  />
                 </div>
               </CardContent>
             </Card>
