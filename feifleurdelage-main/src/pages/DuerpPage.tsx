@@ -141,6 +141,20 @@ const PRIORITE_MAP: Record<string, DuerpRisque["priorite"]> = {
   "Critique": "critique",
 };
 
+// L'IA renvoie parfois criticite en français au lieu d'un entier
+const CRITICITE_MAP: Record<string, number> = {
+  "Faible":   2,
+  "Modérée":  6,
+  "Élevée":   9,
+  "Critique": 12,
+};
+
+function normaliseCriticite(val: number | string | null | undefined): number | null {
+  if (val === null || val === undefined) return null;
+  if (typeof val === "number") return val;
+  return CRITICITE_MAP[val] ?? null;
+}
+
 const PRIORITE_COLOR_AI: Record<string, string> = {
   "Faible":   "bg-emerald-100 text-emerald-700",
   "Modérée":  "bg-amber-100 text-amber-700",
@@ -522,7 +536,7 @@ export default function DuerpPage() {
       personnes_exposees: p.dommages ? p.dommages + (p.effectif_expose ? ` (${p.effectif_expose} exposés)` : "") : null,
       probabilite: p.probabilite ?? null,
       gravite: p.gravite ?? null,
-      criticite: p.criticite ?? null,
+      criticite: normaliseCriticite(p.criticite as number | string | null),
       mesures_existantes: p.mesures_existantes || null,
       mesures_proposees: p.mesures_proposees || null,
       priorite: (PRIORITE_MAP[p.priorite] ?? "moyenne") as DuerpRisque["priorite"],
