@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -17,6 +18,7 @@ import {
   ClipboardCheck, Plus, ListTodo, Clock, CheckCircle2,
   AlertTriangle, User, Calendar, FileText, Pencil, Trash2,
   Filter, TrendingUp, MessageSquare, Send, ChevronDown, ChevronUp, UserCheck,
+  X, ExternalLink, Loader2,
 } from "lucide-react";
 
 type Priorite = "haute" | "moyenne" | "faible";
@@ -90,6 +92,7 @@ const item = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transiti
 export default function PlanActionsCorrectives() {
   const { user, profile, isAdmin } = useAuth();
   const agents = useAgents();
+  const navigate = useNavigate();
 
   const [actions, setActions] = useState<ActionCorrective[]>([]);
   const [commentsByAction, setCommentsByAction] = useState<Record<string, Commentaire[]>>({});
@@ -114,7 +117,12 @@ export default function PlanActionsCorrectives() {
   const [deleteTarget, setDeleteTarget] = useState<ActionCorrective | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [linkedIndicateurs, setLinkedIndicateurs] = useState<{id: string; indicateur_domaine: string; indicateur_label: string}[]>([]);
-  const [allIndicateursMap, setAllIndicateursMap] = useState<Record<string, {indicateur_domaine: string; indicateur_label: string}[]>>({});
+  const [allIndicateursMap, setAllIndicateursMap] = useState<Record<string, {id: string; indicateur_domaine: string; indicateur_label: string}[]>>({});
+  const [createIndDialog, setCreateIndDialog] = useState<{ actionId: string; actionTitre: string } | null>(null);
+  const [createIndForm, setCreateIndForm] = useState({ label: "", unite: "", valeur_cible: "", frequence: "" });
+  const [savingInd, setSavingInd] = useState(false);
+  const [unlinkIndConfirm, setUnlinkIndConfirm] = useState<{ linkId: string; label: string } | null>(null);
+  const [deleteIndConfirm, setDeleteIndConfirm] = useState<{ linkId: string; label: string } | null>(null);
 
   const fetchActions = async () => {
     setLoading(true);
@@ -146,15 +154,58 @@ export default function PlanActionsCorrectives() {
 
   const fetchAllIndicateursMap = async () => {
     const { data } = await supabase.from('indicateurs_actions')
-      .select('action_id, indicateur_domaine, indicateur_label')
+      .select('id, action_id, indicateur_domaine, indicateur_label')
       .eq('action_type', 'operationnel');
     if (data) {
-      const map: Record<string, {indicateur_domaine: string; indicateur_label: string}[]> = {};
-      (data as {action_id: string; indicateur_domaine: string; indicateur_label: string}[]).forEach(r => {
+      const map: Record<string, {id: string; indicateur_domaine: string; indicateur_label: string}[]> = {};
+      (data as {id: string; action_id: string; indicateur_domaine: string; indicateur_label: string}[]).forEach(r => {
         (map[r.action_id] = map[r.action_id] || []).push(r);
       });
       setAllIndicateursMap(map);
     }
+  };
+
+  const unlinkIndicateur = async (linkId: string) => {
+    const { error } = await supabase.from("indicateurs_actions").delete().eq("id", linkId);
+    if (error) { toast.error("Erreur : " + error.message); return; }
+    toast.success("Liaison supprimée");
+    setUnlinkIndConfirm(null);
+    fetchAllIndicateursMap();
+  };
+
+  const deleteIndicateur = async (linkId: string, label: string) => {
+    await supabase.from("indicateurs_actions").delete().eq("id", linkId);
+    const { error } = await supabase.from("indicateurs").delete()
+      .eq("domaine", "Personnalisé").eq("label", label);
+    if (error) { toast.error("Erreur : " + error.message); return; }
+    toast.success("Indicateur supprimé");
+    setDeleteIndConfirm(null);
+    fetchAllIndicateursMap();
+  };
+
+  const handleCreateIndicateur = async () => {
+    if (!createIndDialog || !createIndForm.label.trim()) return;
+    setSavingInd(true);
+    const { error: indErr } = await supabase.from("indicateurs").insert({
+      domaine: "Personnalisé",
+      label: createIndForm.label.trim(),
+      unite: createIndForm.unite || null,
+      valeur_cible: createIndForm.valeur_cible || null,
+      frequence: createIndForm.frequence || null,
+    });
+    if (indErr) { toast.error("Erreur : " + indErr.message); setSavingInd(false); return; }
+    const { error: linkErr } = await supabase.from("indicateurs_actions").insert({
+      indicateur_domaine: "Personnalisé",
+      indicateur_label: createIndForm.label.trim(),
+      action_id: createIndDialog.actionId,
+      action_type: "operationnel",
+    });
+    if (linkErr) { toast.error("Erreur liaison : " + linkErr.message); setSavingInd(false); return; }
+    toast.success("Indicateur créé et lié");
+    setCreateIndDialog(null);
+    setCreateIndForm({ label: "", unite: "", valeur_cible: "", frequence: "" });
+    setSavingInd(false);
+    fetchAllIndicateursMap();
   };
 
   useEffect(() => { fetchActions(); fetchComments(); fetchRefs(); fetchAllIndicateursMap(); }, []);
@@ -478,15 +529,44 @@ export default function PlanActionsCorrectives() {
                           {fei && <span className="flex items-center gap-1.5"><FileText className="w-3 h-3" />FEI · {fei.type_fei} — {new Date(fei.date_evenement).toLocaleDateString("fr-FR")}</span>}
                           {plainte && <span className="flex items-center gap-1.5"><FileText className="w-3 h-3" />Plainte · {plainte.objet.slice(0, 40)}{plainte.objet.length > 40 ? "…" : ""}</span>}
                         </div>
-                        {(allIndicateursMap[action.id] || []).length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-2">
-                            {(allIndicateursMap[action.id] || []).map((ind, i) => (
-                              <span key={i} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 border border-primary/20">
+                        <div className="flex flex-wrap gap-1 mt-2 items-center">
+                          {(allIndicateursMap[action.id] || []).map(ind => (
+                            <span key={ind.id} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 border border-primary/20 group">
+                              <button
+                                onClick={() => navigate(`/indicateurs?domaine=${ind.indicateur_domaine === "Personnalisé" ? "personnalise" : ind.indicateur_domaine}`)}
+                                className="hover:underline flex items-center gap-1"
+                                title="Voir dans Indicateurs"
+                              >
                                 📊 {ind.indicateur_domaine} — {ind.indicateur_label}
-                              </span>
-                            ))}
-                          </div>
-                        )}
+                                <ExternalLink className="w-2.5 h-2.5 opacity-0 group-hover:opacity-60 transition-opacity" />
+                              </button>
+                              <button
+                                onClick={() => setUnlinkIndConfirm({ linkId: ind.id, label: ind.indicateur_label })}
+                                className="hover:text-destructive transition-colors ml-0.5 opacity-50 hover:opacity-100"
+                                title="Délier"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                              {ind.indicateur_domaine === "Personnalisé" && (
+                                <button
+                                  onClick={() => setDeleteIndConfirm({ linkId: ind.id, label: ind.indicateur_label })}
+                                  className="hover:text-destructive transition-colors opacity-50 hover:opacity-100"
+                                  title="Supprimer l'indicateur"
+                                >
+                                  <Trash2 className="w-2.5 h-2.5" />
+                                </button>
+                              )}
+                            </span>
+                          ))}
+                          {isAdmin && (
+                            <button
+                              onClick={() => { setCreateIndDialog({ actionId: action.id, actionTitre: action.titre }); setCreateIndForm({ label: "", unite: "", valeur_cible: "", frequence: "" }); }}
+                              className="flex items-center gap-0.5 text-[10px] text-primary hover:text-primary/70 transition-colors"
+                            >
+                              <Plus className="w-3 h-3" /> Créer indicateur
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {canEdit(action) && (
                         <div className="flex items-center gap-1.5 shrink-0">
@@ -700,6 +780,88 @@ export default function PlanActionsCorrectives() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Dialog — Créer indicateur personnalisé */}
+      <Dialog open={!!createIndDialog} onOpenChange={v => { if (!v) setCreateIndDialog(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Créer un indicateur de suivi</DialogTitle>
+            {createIndDialog?.actionTitre && (
+              <p className="text-xs text-muted-foreground mt-1">Action : {createIndDialog.actionTitre}</p>
+            )}
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Libellé *</Label>
+              <Input className="h-8 text-xs" placeholder="ex. Taux de chutes avec blessure"
+                value={createIndForm.label} onChange={e => setCreateIndForm(f => ({ ...f, label: e.target.value }))} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Unité</Label>
+                <Input className="h-8 text-xs" placeholder="ex. %"
+                  value={createIndForm.unite} onChange={e => setCreateIndForm(f => ({ ...f, unite: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Valeur cible</Label>
+                <Input className="h-8 text-xs" placeholder="ex. &lt; 5 %"
+                  value={createIndForm.valeur_cible} onChange={e => setCreateIndForm(f => ({ ...f, valeur_cible: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Fréquence de suivi</Label>
+              <Input className="h-8 text-xs" placeholder="ex. Mensuel"
+                value={createIndForm.frequence} onChange={e => setCreateIndForm(f => ({ ...f, frequence: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setCreateIndDialog(null)}>Annuler</Button>
+            <Button size="sm" onClick={handleCreateIndicateur} disabled={savingInd || !createIndForm.label.trim()}>
+              {savingInd && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
+              Créer et lier
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AlertDialog — Délier indicateur */}
+      <AlertDialog open={!!unlinkIndConfirm} onOpenChange={v => { if (!v) setUnlinkIndConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Délier cet indicateur ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              La liaison avec <strong>"{unlinkIndConfirm?.label}"</strong> sera supprimée. L'indicateur sera conservé.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={() => unlinkIndConfirm && unlinkIndicateur(unlinkIndConfirm.linkId)}>
+              Délier
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* AlertDialog — Supprimer indicateur personnalisé */}
+      <AlertDialog open={!!deleteIndConfirm} onOpenChange={v => { if (!v) setDeleteIndConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer l'indicateur ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>"{deleteIndConfirm?.label}"</strong> sera définitivement supprimé ainsi que toutes ses liaisons PACQ.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteIndConfirm && deleteIndicateur(deleteIndConfirm.linkId, deleteIndConfirm.label)}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Dialog Suppression */}
       <AlertDialog open={!!deleteTarget} onOpenChange={o => !o && setDeleteTarget(null)}>

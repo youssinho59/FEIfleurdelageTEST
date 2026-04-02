@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,6 +13,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -33,6 +44,7 @@ import {
   Loader2,
   Link2,
   X,
+  Trash2,
 } from "lucide-react";
 import { format, subMonths, startOfMonth } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -408,6 +420,7 @@ const KpiCard = ({
 
 const IndicateursPage = () => {
   const { isAdmin, userServices } = useAuth();
+  const [searchParams] = useSearchParams();
 
   // ── Access filtering ───────────────────────────────────────────────────────
 
@@ -426,9 +439,48 @@ const IndicateursPage = () => {
 
   useEffect(() => {
     if (visibleDomaines.length > 0 && !activeTab) {
-      setActiveTab(visibleDomaines[0].id);
+      const paramDomaine = searchParams.get("domaine");
+      if (paramDomaine) {
+        const allTabIds = [...visibleDomaines.map((d) => d.id), "personnalise"];
+        const found = allTabIds.find((id) => id === paramDomaine);
+        setActiveTab(found || visibleDomaines[0].id);
+      } else {
+        setActiveTab(visibleDomaines[0].id);
+      }
     }
-  }, [visibleDomaines, activeTab]);
+  }, [visibleDomaines, activeTab]); // eslint-disable-line
+
+  // ── Custom (Personnalisé) indicators ──────────────────────────────────────
+
+  const [customIndicateurs, setCustomIndicateurs] = useState<{
+    id: string; label: string; unite: string | null; valeur_cible: string | null; frequence: string | null;
+  }[]>([]);
+  const [loadingCustom, setLoadingCustom] = useState(false);
+  const [deletingCustomInd, setDeletingCustomInd] = useState<string | null>(null);
+
+  const fetchCustomIndicateurs = useCallback(async () => {
+    setLoadingCustom(true);
+    const { data } = await supabase.from("indicateurs").select("*").eq("domaine", "Personnalisé").order("created_at", { ascending: false });
+    setCustomIndicateurs((data as any[]) || []);
+    setLoadingCustom(false);
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "personnalise") fetchCustomIndicateurs();
+  }, [activeTab, fetchCustomIndicateurs]);
+
+  const deleteCustomIndicateur = async () => {
+    if (!deletingCustomInd) return;
+    const ind = customIndicateurs.find((i) => i.id === deletingCustomInd);
+    if (!ind) return;
+    await supabase.from("indicateurs_actions").delete()
+      .eq("indicateur_domaine", "Personnalisé").eq("indicateur_label", ind.label);
+    const { error } = await supabase.from("indicateurs").delete().eq("id", deletingCustomInd);
+    if (error) { toast.error("Erreur : " + error.message); return; }
+    toast.success("Indicateur supprimé");
+    setDeletingCustomInd(null);
+    fetchCustomIndicateurs();
+  };
 
   // ── Month selector ─────────────────────────────────────────────────────────
 
@@ -817,6 +869,11 @@ const IndicateursPage = () => {
               {d.tabLabel}
             </TabsTrigger>
           ))}
+          {isAdmin && (
+            <TabsTrigger value="personnalise" className="text-xs">
+              Personnalisé
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {visibleDomaines.map((domaine) => (
@@ -1003,7 +1060,79 @@ const IndicateursPage = () => {
             )}
           </TabsContent>
         ))}
+
+        {/* Tab Personnalisé */}
+        {isAdmin && (
+          <TabsContent value="personnalise" className="space-y-4 mt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold">Indicateurs personnalisés</h2>
+                <p className="text-xs text-muted-foreground">Créés depuis les actions PACQ</p>
+              </div>
+              <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={fetchCustomIndicateurs} disabled={loadingCustom}>
+                {loadingCustom ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Actualiser"}
+              </Button>
+            </div>
+
+            {loadingCustom && (
+              <div className="flex justify-center py-12">
+                <Loader2 className="w-6 h-6 animate-spin text-primary" />
+              </div>
+            )}
+
+            {!loadingCustom && customIndicateurs.length === 0 && (
+              <div className="rounded-xl border border-dashed border-border py-16 text-center">
+                <BarChart2 className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground font-medium">Aucun indicateur personnalisé</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Créez des indicateurs depuis les actions PACQ (bouton "+ Créer" sur chaque action).
+                </p>
+              </div>
+            )}
+
+            {!loadingCustom && customIndicateurs.length > 0 && (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {customIndicateurs.map((ind) => (
+                  <Card key={ind.id}>
+                    <CardContent className="p-4 space-y-1.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-semibold leading-snug">{ind.label}</p>
+                        <Button
+                          variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:text-destructive shrink-0"
+                          onClick={() => setDeletingCustomInd(ind.id)}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                      {ind.unite && <p className="text-xs text-muted-foreground">Unité : {ind.unite}</p>}
+                      {ind.valeur_cible && <p className="text-xs text-muted-foreground">Cible : {ind.valeur_cible}</p>}
+                      {ind.frequence && <p className="text-xs text-muted-foreground">Fréquence : {ind.frequence}</p>}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        )}
       </Tabs>
+
+      {/* AlertDialog — Supprimer indicateur personnalisé */}
+      <AlertDialog open={!!deletingCustomInd} onOpenChange={v => { if (!v) setDeletingCustomInd(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer l'indicateur ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cet indicateur et toutes ses liaisons PACQ seront définitivement supprimés.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={deleteCustomIndicateur} className="bg-destructive hover:bg-destructive/90">
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Dialog Liaisons PACQ */}
       <Dialog open={!!linkDialog?.open} onOpenChange={v => { if (!v) { setLinkDialog(null); setLinkSearch(""); } }}>

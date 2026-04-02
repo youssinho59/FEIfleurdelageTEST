@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,7 +15,7 @@ import { toast } from "sonner";
 import {
   Target, Plus, Pencil, Trash2, ChevronDown, ChevronUp,
   Calendar, User, CheckCircle2, BarChart3,
-  Download, FileSpreadsheet, Loader2, UserCheck,
+  Download, FileSpreadsheet, Loader2, UserCheck, X, ExternalLink,
 } from "lucide-react";
 import jsPDF from "jspdf";
 import * as XLSX from "xlsx";
@@ -100,6 +101,7 @@ const item      = { hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, tra
 
 export default function PacqStrategiquePage() {
   const { profile, user } = useAuth();
+  const navigate = useNavigate();
 
   const [selectedTheme, setSelectedTheme] = useState(THEMATIQUES_ESSMS[0].id);
   const [filterAvancement, setFilterAvancement] = useState("tous");
@@ -136,6 +138,13 @@ export default function PacqStrategiquePage() {
 
   // Export
   const [exporting, setExporting] = useState<"pdf" | "xlsx" | null>(null);
+
+  // Indicateur personnalisé — création / déliaison / suppression
+  const [createIndDialog, setCreateIndDialog] = useState<{ actionId: string; actionIntitule: string } | null>(null);
+  const [createIndForm, setCreateIndForm] = useState({ label: "", unite: "", valeur_cible: "", frequence: "" });
+  const [savingInd, setSavingInd] = useState(false);
+  const [unlinkIndConfirm, setUnlinkIndConfirm] = useState<{ linkId: string; label: string } | null>(null);
+  const [deleteIndConfirm, setDeleteIndConfirm] = useState<{ linkId: string; label: string } | null>(null);
 
   // ── Data loading ────────────────────────────────────────────────────────────
 
@@ -207,6 +216,55 @@ export default function PacqStrategiquePage() {
   const terminees      = actions.filter(a => a.avancement === "Terminé").length;
   const enCours        = actions.filter(a => a.avancement === "En cours").length;
   const progressPct    = totalActions > 0 ? Math.round((terminees / totalActions) * 100) : 0;
+
+  // ── Indicateur personnalisé helpers ─────────────────────────────────────────
+
+  const unlinkIndicateur = async (linkId: string) => {
+    const { error } = await supabase.from("indicateurs_actions").delete().eq("id", linkId);
+    if (error) { toast.error("Erreur : " + error.message); return; }
+    toast.success("Liaison supprimée");
+    setUnlinkIndConfirm(null);
+    await load();
+  };
+
+  const deleteIndicateur = async (linkId: string, label: string) => {
+    // Delete the link
+    await supabase.from("indicateurs_actions").delete().eq("id", linkId);
+    // Delete the custom indicator by domaine + label
+    const { error } = await supabase.from("indicateurs").delete()
+      .eq("domaine", "Personnalisé").eq("label", label);
+    if (error) { toast.error("Erreur : " + error.message); return; }
+    toast.success("Indicateur supprimé");
+    setDeleteIndConfirm(null);
+    await load();
+  };
+
+  const handleCreateIndicateur = async () => {
+    if (!createIndDialog || !createIndForm.label.trim()) return;
+    setSavingInd(true);
+    // 1. Create indicator
+    const { error: indErr } = await supabase.from("indicateurs").insert({
+      domaine: "Personnalisé",
+      label: createIndForm.label.trim(),
+      unite: createIndForm.unite || null,
+      valeur_cible: createIndForm.valeur_cible || null,
+      frequence: createIndForm.frequence || null,
+    });
+    if (indErr) { toast.error("Erreur : " + indErr.message); setSavingInd(false); return; }
+    // 2. Create link
+    const { error: linkErr } = await supabase.from("indicateurs_actions").insert({
+      indicateur_domaine: "Personnalisé",
+      indicateur_label: createIndForm.label.trim(),
+      action_id: createIndDialog.actionId,
+      action_type: "strategique",
+    });
+    if (linkErr) { toast.error("Erreur liaison : " + linkErr.message); setSavingInd(false); return; }
+    toast.success("Indicateur créé et lié");
+    setCreateIndDialog(null);
+    setCreateIndForm({ label: "", unite: "", valeur_cible: "", frequence: "" });
+    setSavingInd(false);
+    await load();
+  };
 
   // ── Toggle helpers ───────────────────────────────────────────────────────────
 
@@ -723,18 +781,49 @@ export default function PacqStrategiquePage() {
                                           {indExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                                         </button>
 
-                                        {/* Indicateurs de suivi (liés depuis la page Indicateurs) */}
+                                        {/* Indicateurs de suivi */}
                                         <div className="mt-2 pt-2 border-t border-border/30">
-                                          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1.5">
-                                            Indicateurs de suivi
-                                          </p>
+                                          <div className="flex items-center justify-between mb-1.5">
+                                            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                                              Indicateurs de suivi
+                                            </p>
+                                            <button
+                                              onClick={() => { setCreateIndDialog({ actionId: act.id, actionIntitule: act.intitule || "" }); setCreateIndForm({ label: "", unite: "", valeur_cible: "", frequence: "" }); }}
+                                              className="flex items-center gap-0.5 text-[10px] text-primary hover:text-primary/70 transition-colors"
+                                            >
+                                              <Plus className="w-3 h-3" /> Créer
+                                            </button>
+                                          </div>
                                           {(linkedIndicateursMap[act.id] || []).length === 0 ? (
                                             <p className="text-[10px] text-muted-foreground/50 italic">Aucun indicateur rattaché</p>
                                           ) : (
                                             <div className="flex flex-wrap gap-1">
                                               {(linkedIndicateursMap[act.id] || []).map(ind => (
-                                                <span key={ind.id} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 border border-primary/20">
-                                                  📊 {ind.indicateur_domaine} — {ind.indicateur_label}
+                                                <span key={ind.id} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 border border-primary/20 group">
+                                                  <button
+                                                    onClick={() => navigate(`/indicateurs?domaine=${ind.indicateur_domaine === "Personnalisé" ? "personnalise" : ind.indicateur_domaine}`)}
+                                                    className="hover:underline flex items-center gap-1"
+                                                    title="Voir dans Indicateurs"
+                                                  >
+                                                    📊 {ind.indicateur_domaine} — {ind.indicateur_label}
+                                                    <ExternalLink className="w-2.5 h-2.5 opacity-0 group-hover:opacity-60 transition-opacity" />
+                                                  </button>
+                                                  <button
+                                                    onClick={() => setUnlinkIndConfirm({ linkId: ind.id, label: ind.indicateur_label })}
+                                                    className="hover:text-destructive transition-colors ml-0.5 opacity-50 hover:opacity-100"
+                                                    title="Délier"
+                                                  >
+                                                    <X className="w-2.5 h-2.5" />
+                                                  </button>
+                                                  {ind.indicateur_domaine === "Personnalisé" && (
+                                                    <button
+                                                      onClick={() => setDeleteIndConfirm({ linkId: ind.id, label: ind.indicateur_label })}
+                                                      className="hover:text-destructive transition-colors opacity-50 hover:opacity-100"
+                                                      title="Supprimer l'indicateur"
+                                                    >
+                                                      <Trash2 className="w-2.5 h-2.5" />
+                                                    </button>
+                                                  )}
                                                 </span>
                                               ))}
                                             </div>
@@ -964,6 +1053,104 @@ export default function PacqStrategiquePage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDelete} className="bg-destructive hover:bg-destructive/90">
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog — Créer indicateur personnalisé */}
+      <Dialog open={!!createIndDialog} onOpenChange={v => { if (!v) setCreateIndDialog(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Créer un indicateur de suivi</DialogTitle>
+            {createIndDialog?.actionIntitule && (
+              <p className="text-xs text-muted-foreground mt-1">Action : {createIndDialog.actionIntitule}</p>
+            )}
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Libellé *</Label>
+              <input
+                className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder="ex. Taux de chutes avec blessure"
+                value={createIndForm.label}
+                onChange={e => setCreateIndForm(f => ({ ...f, label: e.target.value }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Unité</Label>
+                <input
+                  className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  placeholder="ex. %"
+                  value={createIndForm.unite}
+                  onChange={e => setCreateIndForm(f => ({ ...f, unite: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Valeur cible</Label>
+                <input
+                  className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  placeholder="ex. < 5 %"
+                  value={createIndForm.valeur_cible}
+                  onChange={e => setCreateIndForm(f => ({ ...f, valeur_cible: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Fréquence de suivi</Label>
+              <input
+                className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder="ex. Mensuel"
+                value={createIndForm.frequence}
+                onChange={e => setCreateIndForm(f => ({ ...f, frequence: e.target.value }))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setCreateIndDialog(null)}>Annuler</Button>
+            <Button size="sm" onClick={handleCreateIndicateur} disabled={savingInd || !createIndForm.label.trim()}>
+              {savingInd && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
+              Créer et lier
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AlertDialog — Délier indicateur */}
+      <AlertDialog open={!!unlinkIndConfirm} onOpenChange={v => { if (!v) setUnlinkIndConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Délier cet indicateur ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              La liaison avec <strong>"{unlinkIndConfirm?.label}"</strong> sera supprimée. L'indicateur sera conservé.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={() => unlinkIndConfirm && unlinkIndicateur(unlinkIndConfirm.linkId)}>
+              Délier
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* AlertDialog — Supprimer indicateur personnalisé */}
+      <AlertDialog open={!!deleteIndConfirm} onOpenChange={v => { if (!v) setDeleteIndConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer l'indicateur ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>"{deleteIndConfirm?.label}"</strong> sera définitivement supprimé ainsi que toutes ses liaisons PACQ.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteIndConfirm && deleteIndicateur(deleteIndConfirm.linkId, deleteIndConfirm.label)}
+              className="bg-destructive hover:bg-destructive/90"
+            >
               Supprimer
             </AlertDialogAction>
           </AlertDialogFooter>

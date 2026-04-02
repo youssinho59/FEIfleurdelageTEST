@@ -29,7 +29,11 @@
       "Bash(node:*)",
       "Bash(npm install:*)",
       "Bash(supabase db:*)",
-      "Bash(supabase --version)"
+      "Bash(supabase --version)",
+      "Bash(for file:*)",
+      "Bash(do grep:*)",
+      "Bash(done)",
+      "Bash(npx vite:*)"
     ]
   }
 }
