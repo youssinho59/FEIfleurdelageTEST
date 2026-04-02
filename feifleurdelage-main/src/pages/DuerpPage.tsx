@@ -536,7 +536,7 @@ export default function DuerpPage() {
       personnes_exposees: p.dommages ? p.dommages + (p.effectif_expose ? ` (${p.effectif_expose} exposés)` : "") : null,
       probabilite: p.probabilite ?? null,
       gravite: p.gravite ?? null,
-      criticite: normaliseCriticite(p.criticite as number | string | null),
+      // criticite est GENERATED ALWAYS AS (probabilite * gravite) — ne pas insérer
       mesures_existantes: p.mesures_existantes || null,
       mesures_proposees: p.mesures_proposees || null,
       priorite: (PRIORITE_MAP[p.priorite] ?? "moyenne") as DuerpRisque["priorite"],
