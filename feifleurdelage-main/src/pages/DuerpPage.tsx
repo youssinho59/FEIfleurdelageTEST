@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
@@ -302,7 +302,7 @@ export default function DuerpPage() {
     };
     const { error } = editingVersion
       ? await supabase.from("duerp_versions").update(payload).eq("id", editingVersion.id)
-      : await supabase.from("duerp_versions").insert({ ...payload, created_by: user.id });
+      : await supabase.from("duerp_versions").insert(payload);
     if (error) toast.error("Erreur : " + error.message);
     else {
       toast.success(editingVersion ? "Version mise à jour." : "Version créée.");
@@ -394,7 +394,7 @@ export default function DuerpPage() {
     };
     const { error } = editingRisque
       ? await supabase.from("duerp_risques").update(payload).eq("id", editingRisque.id)
-      : await supabase.from("duerp_risques").insert({ ...payload, created_by: user.id });
+      : await supabase.from("duerp_risques").insert(payload);
     if (error) toast.error("Erreur : " + error.message);
     else {
       toast.success(editingRisque ? "Risque mis à jour." : "Risque ajouté.");
@@ -541,7 +541,6 @@ export default function DuerpPage() {
       mesures_proposees: p.mesures_proposees || null,
       priorite: (PRIORITE_MAP[p.priorite] ?? "moyenne") as DuerpRisque["priorite"],
       statut: "ouvert" as const,
-      created_by: user.id,
     }));
     const { error } = await supabase.from("duerp_risques").insert(rows);
     if (error) {
@@ -891,6 +890,7 @@ export default function DuerpPage() {
               {editingVersion ? <Pencil className="w-4 h-4 text-primary" /> : <Plus className="w-4 h-4 text-primary" />}
               {editingVersion ? "Modifier la version DUERP" : "Nouvelle version DUERP"}
             </DialogTitle>
+            <DialogDescription className="sr-only">Formulaire de création ou modification d'une version DUERP</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-4">
@@ -966,6 +966,7 @@ export default function DuerpPage() {
                 <span className="text-xs font-normal text-muted-foreground ml-1">— {selectedVersion.annee} {selectedVersion.titre}</span>
               )}
             </DialogTitle>
+            <DialogDescription className="sr-only">Formulaire de saisie d'un risque DUERP</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-4">
@@ -1119,6 +1120,7 @@ export default function DuerpPage() {
               <Zap className="w-4 h-4 text-violet-600" />
               Créer une action PACQS opérationnel
             </DialogTitle>
+            <DialogDescription className="sr-only">Créer une action corrective PACQS depuis un risque DUERP</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             {pacqRisque && (
@@ -1197,6 +1199,7 @@ export default function DuerpPage() {
               <Lightbulb className="w-4 h-4 text-amber-500" />
               Propositions IA — Risques par unité de travail
             </DialogTitle>
+            <DialogDescription className="sr-only">Génération et import de propositions de risques DUERP par intelligence artificielle</DialogDescription>
           </DialogHeader>
 
           {/* Étape 1 : sélection */}
