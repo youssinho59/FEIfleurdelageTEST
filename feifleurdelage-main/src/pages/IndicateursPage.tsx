@@ -32,6 +32,7 @@ import {
   BarChart2,
   Loader2,
   Link2,
+  X,
 } from "lucide-react";
 import { format, subMonths, startOfMonth } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -497,6 +498,7 @@ const IndicateursPage = () => {
   const [pacqStrategiqeActions, setPacqStrategiqeActions] = useState<{id: string; intitule: string | null; avancement: string | null; priorite: string | null}[]>([]);
   const [linkedActions, setLinkedActions] = useState<{id: string; action_id: string; action_type: string}[]>([]);
   const [loadingLinkDialog, setLoadingLinkDialog] = useState(false);
+  const [linkSearch, setLinkSearch] = useState("");
 
   useEffect(() => {
     if (!activeTab) return;
@@ -1004,7 +1006,7 @@ const IndicateursPage = () => {
       </Tabs>
 
       {/* Dialog Liaisons PACQ */}
-      <Dialog open={!!linkDialog?.open} onOpenChange={v => !v && setLinkDialog(null)}>
+      <Dialog open={!!linkDialog?.open} onOpenChange={v => { if (!v) { setLinkDialog(null); setLinkSearch(""); } }}>
         <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
@@ -1016,65 +1018,119 @@ const IndicateursPage = () => {
             <div className="flex justify-center py-8">
               <Loader2 className="w-5 h-5 animate-spin text-primary" />
             </div>
-          ) : (
-            <ScrollArea className="flex-1 pr-2 max-h-[50vh]">
-              <div className="space-y-4">
-                {/* PACQ Opérationnel */}
-                <div className="space-y-1.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 px-1">PACQ Opérationnel</p>
-                  {pacqActions.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-2">Aucune action disponible.</p>
-                  ) : pacqActions.map(action => {
-                    const isLinked = linkedActions.some(r => r.action_id === action.id && r.action_type === 'operationnel');
-                    return (
-                      <button
-                        key={action.id}
-                        onClick={() => toggleLink(action.id, 'operationnel')}
-                        className={`w-full text-left rounded-lg border px-3 py-2 transition-all flex items-start justify-between gap-2 ${
-                          isLinked ? 'border-primary bg-primary/5' : 'border-border bg-background hover:border-primary/40'
-                        }`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium leading-tight truncate">{action.titre}</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">{action.statut} · {action.priorite}</p>
-                        </div>
-                        <span className={`text-[10px] shrink-0 mt-0.5 font-medium ${isLinked ? 'text-primary' : 'text-muted-foreground'}`}>
-                          {isLinked ? '✓ Lié' : '+ Lier'}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+          ) : (() => {
+            // Actions liées (tous types confondus)
+            const linkedOp = pacqActions.filter(a => linkedActions.some(r => r.action_id === a.id && r.action_type === 'operationnel'));
+            const linkedSt = pacqStrategiqeActions.filter(a => linkedActions.some(r => r.action_id === a.id && r.action_type === 'strategique'));
+            const hasLinked = linkedOp.length > 0 || linkedSt.length > 0;
 
-                {/* PACQ Stratégique */}
-                <div className="space-y-1.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 px-1">PACQ Stratégique</p>
-                  {pacqStrategiqeActions.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-2">Aucune action disponible.</p>
-                  ) : pacqStrategiqeActions.map(action => {
-                    const isLinked = linkedActions.some(r => r.action_id === action.id && r.action_type === 'strategique');
-                    return (
-                      <button
-                        key={action.id}
-                        onClick={() => toggleLink(action.id, 'strategique')}
-                        className={`w-full text-left rounded-lg border px-3 py-2 transition-all flex items-start justify-between gap-2 ${
-                          isLinked ? 'border-primary bg-primary/5' : 'border-border bg-background hover:border-primary/40'
-                        }`}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium leading-tight truncate">{action.intitule || '—'}</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">{action.avancement || 'Non initié'} · {action.priorite || 'Normale'}</p>
+            // Actions non liées, filtrées par recherche
+            const q = linkSearch.toLowerCase();
+            const unlinkedOp = pacqActions
+              .filter(a => !linkedActions.some(r => r.action_id === a.id && r.action_type === 'operationnel'))
+              .filter(a => !q || a.titre.toLowerCase().includes(q));
+            const unlinkedSt = pacqStrategiqeActions
+              .filter(a => !linkedActions.some(r => r.action_id === a.id && r.action_type === 'strategique'))
+              .filter(a => !q || (a.intitule || '').toLowerCase().includes(q));
+
+            return (
+              <div className="flex flex-col gap-3 min-h-0">
+                {/* Recherche */}
+                <Input
+                  placeholder="Rechercher une action..."
+                  value={linkSearch}
+                  onChange={e => setLinkSearch(e.target.value)}
+                  className="h-8 text-xs"
+                />
+
+                <div className="max-h-96 overflow-y-auto space-y-4 pr-1">
+                  {/* Actions liées */}
+                  {hasLinked && (
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70 px-1">
+                        Actions liées ({linkedOp.length + linkedSt.length})
+                      </p>
+                      {linkedOp.map(action => (
+                        <div key={action.id} className="flex items-center gap-2 rounded-lg border border-primary bg-primary/5 px-3 py-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium leading-tight truncate">{action.titre}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">Opérationnel · {action.statut} · {action.priorite}</p>
+                          </div>
+                          <button onClick={() => toggleLink(action.id, 'operationnel')} className="shrink-0 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                        <span className={`text-[10px] shrink-0 mt-0.5 font-medium ${isLinked ? 'text-primary' : 'text-muted-foreground'}`}>
-                          {isLinked ? '✓ Lié' : '+ Lier'}
-                        </span>
-                      </button>
-                    );
-                  })}
+                      ))}
+                      {linkedSt.map(action => (
+                        <div key={action.id} className="flex items-center gap-2 rounded-lg border border-primary bg-primary/5 px-3 py-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium leading-tight truncate">{action.intitule || '—'}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">Stratégique · {action.avancement || 'Non initié'} · {action.priorite || 'Normale'}</p>
+                          </div>
+                          <button onClick={() => toggleLink(action.id, 'strategique')} className="shrink-0 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Ajouter une liaison */}
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 px-1">
+                      Ajouter une liaison
+                    </p>
+
+                    {/* Opérationnel */}
+                    {unlinkedOp.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-[10px] text-muted-foreground/60 px-1 italic">PACQ Opérationnel</p>
+                        {unlinkedOp.map(action => (
+                          <button
+                            key={action.id}
+                            onClick={() => toggleLink(action.id, 'operationnel')}
+                            className="w-full text-left rounded-lg border border-border bg-background hover:border-primary/40 px-3 py-2 transition-all flex items-start justify-between gap-2"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium leading-tight truncate">{action.titre}</p>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">{action.statut} · {action.priorite}</p>
+                            </div>
+                            <span className="text-[10px] shrink-0 mt-0.5 font-medium text-muted-foreground">+ Lier</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Stratégique */}
+                    {unlinkedSt.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-[10px] text-muted-foreground/60 px-1 italic">PACQ Stratégique</p>
+                        {unlinkedSt.map(action => (
+                          <button
+                            key={action.id}
+                            onClick={() => toggleLink(action.id, 'strategique')}
+                            className="w-full text-left rounded-lg border border-border bg-background hover:border-primary/40 px-3 py-2 transition-all flex items-start justify-between gap-2"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium leading-tight truncate">{action.intitule || '—'}</p>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">{action.avancement || 'Non initié'} · {action.priorite || 'Normale'}</p>
+                            </div>
+                            <span className="text-[10px] shrink-0 mt-0.5 font-medium text-muted-foreground">+ Lier</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {unlinkedOp.length === 0 && unlinkedSt.length === 0 && (
+                      <p className="text-xs text-muted-foreground text-center py-3">
+                        {q ? 'Aucune action ne correspond à la recherche.' : 'Toutes les actions disponibles sont déjà liées.'}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </ScrollArea>
-          )}
+            );
+          })()}
           <DialogFooter>
             <Button size="sm" variant="outline" onClick={() => setLinkDialog(null)}>Fermer</Button>
           </DialogFooter>
