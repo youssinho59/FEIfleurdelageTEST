@@ -134,8 +134,17 @@ export default function PlanActionsCorrectives() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ActionCorrective | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [linkedIndicateurs, setLinkedIndicateurs] = useState<{id: string; indicateur_domaine: string; indicateur_label: string}[]>([]);
-  const [allIndicateursMap, setAllIndicateursMap] = useState<Record<string, {id: string; indicateur_domaine: string; indicateur_label: string}[]>>({});
+  type LinkedIndicateur = {
+  linkId: string;
+  actionId: string;
+  indicateurId: string;
+  onglet: string;
+  libelle: string;
+  service: string | null;
+};
+
+  const [linkedIndicateurs, setLinkedIndicateurs] = useState<LinkedIndicateur[]>([]);
+  const [allIndicateursMap, setAllIndicateursMap] = useState<Record<string, LinkedIndicateur[]>>({});
   const [createIndDialog, setCreateIndDialog] = useState<{ actionId: string; actionTitre: string; actionService?: string | null } | null>(null);
   const [createIndForm, setCreateIndForm] = useState({
     domaine: "personnalise",
@@ -179,127 +188,177 @@ export default function PlanActionsCorrectives() {
   };
 
   const fetchAllIndicateursMap = async () => {
-    const { data } = await supabase.from('indicateurs_actions')
-      .select('id, action_id, indicateur_domaine, indicateur_label')
-      .eq('action_type', 'operationnel');
-    if (data) {
-      const map: Record<string, {id: string; indicateur_domaine: string; indicateur_label: string}[]> = {};
-      (data as {id: string; action_id: string; indicateur_domaine: string; indicateur_label: string}[]).forEach(r => {
-        (map[r.action_id] = map[r.action_id] || []).push(r);
-      });
-      setAllIndicateursMap(map);
+    const { data: links, error: linksError } = await supabase
+      .from("indicateurs_actions")
+      .select("id, action_id, indicateur_id");
+
+    if (linksError) {
+      toast.error("Erreur chargement indicateurs liés : " + linksError.message);
+      return;
     }
+
+    const typedLinks = (links || []) as { id: string; action_id: string; indicateur_id: string }[];
+    const indicateurIds = Array.from(new Set(typedLinks.map((l) => l.indicateur_id).filter(Boolean)));
+
+    if (indicateurIds.length === 0) {
+      setAllIndicateursMap({});
+      return;
+    }
+
+    const { data: indicateursData, error: indicateursError } = await supabase
+      .from("indicateurs")
+      .select("id, onglet, libelle, service")
+      .in("id", indicateurIds);
+
+    if (indicateursError) {
+      toast.error("Erreur chargement indicateurs : " + indicateursError.message);
+      return;
+    }
+
+    const indicateursById = new Map(
+      ((indicateursData || []) as { id: string; onglet: string; libelle: string; service: string | null }[]).map((ind) => [ind.id, ind])
+    );
+
+    const map: Record<string, LinkedIndicateur[]> = {};
+
+    typedLinks.forEach((link) => {
+      const indicateur = indicateursById.get(link.indicateur_id);
+      if (!indicateur) return;
+
+      const item: LinkedIndicateur = {
+        linkId: link.id,
+        actionId: link.action_id,
+        indicateurId: link.indicateur_id,
+        onglet: indicateur.onglet || "Personnalisé",
+        libelle: indicateur.libelle || "Indicateur",
+        service: indicateur.service || null,
+      };
+
+      (map[link.action_id] = map[link.action_id] || []).push(item);
+    });
+
+    setAllIndicateursMap(map);
   };
 
   const unlinkIndicateur = async (linkId: string) => {
     const { error } = await supabase.from("indicateurs_actions").delete().eq("id", linkId);
-    if (error) { toast.error("Erreur : " + error.message); return; }
+    if (error) {
+      toast.error("Erreur : " + error.message);
+      return;
+    }
     toast.success("Liaison supprimée");
     setUnlinkIndConfirm(null);
     fetchAllIndicateursMap();
   };
 
   const deleteIndicateur = async (linkId: string, label: string) => {
-    const link = (Object.values(allIndicateursMap).flat() as {id: string; indicateur_domaine: string; indicateur_label: string}[]).find((item) => item.id === linkId);
-    await supabase.from("indicateurs_actions").delete().eq("id", linkId);
+    const link = Object.values(allIndicateursMap).flat().find((item) => item.linkId === linkId);
 
-    if (link) {
-      await supabase.from("indicateurs_actions")
-        .delete()
-        .eq("indicateur_domaine", link.indicateur_domaine)
-        .eq("indicateur_label", label);
-
-      await supabase.from("indicateurs_valeurs")
-        .delete()
-        .eq("domaine", link.indicateur_domaine)
-        .eq("indicateur", label);
-
-      const { error } = await supabase.from("indicateurs")
-        .delete()
-        .eq("domaine", link.indicateur_domaine)
-        .eq("label", label);
-      if (error) { toast.error("Erreur : " + error.message); return; }
+    if (!link) {
+      toast.error("Indicateur introuvable");
+      return;
     }
 
-    toast.success("Indicateur supprimé");
+    const { error } = await supabase.from("indicateurs").delete().eq("id", link.indicateurId);
+    if (error) {
+      toast.error("Erreur : " + error.message);
+      return;
+    }
+
+    toast.success(`Indicateur supprimé : ${label}`);
     setDeleteIndConfirm(null);
     fetchAllIndicateursMap();
   };
 
   const handleCreateIndicateur = async () => {
     if (!createIndDialog || !createIndForm.label.trim()) return;
+
     setSavingInd(true);
 
     const domaine = createIndForm.domaine || "personnalise";
-    const theme = createIndForm.theme.trim() || INDICATEUR_THEME_PAR_DOMAINE[domaine] || "Indicateurs personnalisés";
-    const label = createIndForm.label.trim();
+    const ongletLabel = INDICATEUR_DOMAINES.find((d) => d.value === domaine)?.label || "Personnalisé";
+    const categorie = createIndForm.theme.trim() || INDICATEUR_THEME_PAR_DOMAINE[domaine] || "Indicateurs personnalisés";
+    const libelle = createIndForm.label.trim();
+    const service = createIndForm.service || createIndDialog.actionService || null;
 
-    const { data: existingIndicateur, error: existingError } = await supabase
-      .from("indicateurs")
-      .select("id")
-      .eq("domaine", domaine)
-      .eq("label", label)
-      .maybeSingle();
-
-    if (existingError) {
-      toast.error("Erreur : " + existingError.message);
-      setSavingInd(false);
-      return;
-    }
-
-    let indicateurId = existingIndicateur?.id as string | undefined;
-
-    if (!indicateurId) {
-      const { data: insertedIndicateur, error: indErr } = await supabase
+    try {
+      const { data: existingIndicateurs, error: existingError } = await supabase
         .from("indicateurs")
-        .insert({
-          domaine,
-          theme,
-          label,
-          unite: createIndForm.unite || null,
-          valeur_cible: createIndForm.valeur_cible || null,
-          frequence: createIndForm.frequence || null,
-          service: createIndForm.service || createIndDialog.actionService || null,
-        })
         .select("id")
-        .single();
+        .eq("onglet", ongletLabel)
+        .eq("libelle", libelle)
+        .limit(1);
 
-      if (indErr) {
-        toast.error("Erreur : " + indErr.message);
+      if (existingError) throw existingError;
+
+      let indicateurId = existingIndicateurs?.[0]?.id as string | undefined;
+      let createdNow = false;
+
+      if (!indicateurId) {
+        const payload = {
+          libelle,
+          onglet: ongletLabel,
+          service,
+          categorie,
+          unite: createIndForm.unite.trim() || null,
+          valeur_cible: createIndForm.valeur_cible !== "" ? Number(createIndForm.valeur_cible) : null,
+          frequence_suivi: createIndForm.frequence.trim() || null,
+          actif: true,
+          cree_depuis_pacq: true,
+        };
+
+        const { data: insertedIndicateur, error: indErr } = await supabase
+          .from("indicateurs")
+          .insert(payload)
+          .select("id")
+          .single();
+
+        if (indErr) throw indErr;
+
+        indicateurId = insertedIndicateur.id;
+        createdNow = true;
+      }
+
+      const { error: linkErr } = await supabase
+        .from("indicateurs_actions")
+        .insert({
+          indicateur_id: indicateurId,
+          action_id: createIndDialog.actionId,
+        });
+
+      if (linkErr) {
+        if (createdNow && indicateurId) {
+          await supabase.from("indicateurs").delete().eq("id", indicateurId);
+        }
+
+        if (linkErr.message.toLowerCase().includes("duplicate") || String(linkErr.code) === "23505") {
+          toast.info("Cet indicateur est déjà lié à cette action");
+        } else {
+          toast.error("Erreur liaison : " + linkErr.message);
+        }
+
         setSavingInd(false);
         return;
       }
 
-      indicateurId = insertedIndicateur.id;
-    }
-
-    const { error: linkErr } = await supabase.from("indicateurs_actions").insert({
-      indicateur_id: indicateurId,
-      indicateur_domaine: domaine,
-      indicateur_label: label,
-      action_id: createIndDialog.actionId,
-      action_type: "operationnel",
-    });
-
-    if (linkErr && !linkErr.message.toLowerCase().includes("duplicate")) {
-      toast.error("Erreur liaison : " + linkErr.message);
+      toast.success(createdNow ? "Indicateur créé et lié" : "Indicateur lié à l'action");
+      setCreateIndDialog(null);
+      setCreateIndForm({
+        domaine: "personnalise",
+        theme: "Indicateurs personnalisés",
+        label: "",
+        unite: "",
+        valeur_cible: "",
+        frequence: "",
+        service: "",
+      });
+      fetchAllIndicateursMap();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erreur inconnue";
+      toast.error("Erreur : " + message);
+    } finally {
       setSavingInd(false);
-      return;
     }
-
-    toast.success(existingIndicateur ? "Indicateur lié à l'action" : "Indicateur créé et lié");
-    setCreateIndDialog(null);
-    setCreateIndForm({
-      domaine: "personnalise",
-      theme: "Indicateurs personnalisés",
-      label: "",
-      unite: "",
-      valeur_cible: "",
-      frequence: "",
-      service: "",
-    });
-    setSavingInd(false);
-    fetchAllIndicateursMap();
   };
 
   useEffect(() => { fetchActions(); fetchComments(); fetchRefs(); fetchAllIndicateursMap(); }, []);
@@ -379,10 +438,8 @@ export default function PlanActionsCorrectives() {
     setForm({ titre: a.titre, description: a.description || "", responsable_id: a.responsable_id || "", date_echeance: a.date_echeance, priorite: a.priorite, statut: a.statut, fei_id: a.fei_id || "", service: a.service || "", source: a.source || "" });
     setLinkedIndicateurs([]);
     setDialogOpen(true);
-    const { data } = await supabase.from('indicateurs_actions')
-      .select('id, indicateur_domaine, indicateur_label')
-      .eq('action_id', a.id);
-    if (data) setLinkedIndicateurs(data as {id: string; indicateur_domaine: string; indicateur_label: string}[]);
+    const currentLinks = allIndicateursMap[a.id] || [];
+    setLinkedIndicateurs(currentLinks);
   };
 
   const handleSave = async () => {
@@ -627,23 +684,23 @@ export default function PlanActionsCorrectives() {
                           {(allIndicateursMap[action.id] || []).map(ind => (
                             <span key={ind.id} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 border border-primary/20 group">
                               <button
-                                onClick={() => navigate(`/indicateurs?domaine=${ind.indicateur_domaine === "Personnalisé" ? "personnalise" : ind.indicateur_domaine}`)}
+                                onClick={() => navigate(`/indicateurs?domaine=${INDICATEUR_DOMAINES.find((d) => d.label === ind.onglet)?.value || "personnalise"}`)}
                                 className="hover:underline flex items-center gap-1"
                                 title="Voir dans Indicateurs"
                               >
-                                📊 {ind.indicateur_domaine} — {ind.indicateur_label}
+                                📊 {ind.onglet} — {ind.libelle}
                                 <ExternalLink className="w-2.5 h-2.5 opacity-0 group-hover:opacity-60 transition-opacity" />
                               </button>
                               <button
-                                onClick={() => setUnlinkIndConfirm({ linkId: ind.id, label: ind.indicateur_label })}
+                                onClick={() => setUnlinkIndConfirm({ linkId: ind.linkId, label: ind.libelle })}
                                 className="hover:text-destructive transition-colors ml-0.5 opacity-50 hover:opacity-100"
                                 title="Délier"
                               >
                                 <X className="w-2.5 h-2.5" />
                               </button>
-                              {ind.indicateur_domaine === "Personnalisé" && (
+                              {ind.onglet === "Personnalisé" && (
                                 <button
-                                  onClick={() => setDeleteIndConfirm({ linkId: ind.id, label: ind.indicateur_label })}
+                                  onClick={() => setDeleteIndConfirm({ linkId: ind.linkId, label: ind.libelle })}
                                   className="hover:text-destructive transition-colors opacity-50 hover:opacity-100"
                                   title="Supprimer l'indicateur"
                                 >
@@ -869,7 +926,7 @@ export default function PlanActionsCorrectives() {
                 <div className="flex flex-wrap gap-1.5">
                   {linkedIndicateurs.map(ind => (
                     <span key={ind.id} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 border border-primary/20">
-                      📊 {ind.indicateur_domaine} — {ind.indicateur_label}
+                      📊 {ind.onglet} — {ind.libelle}
                     </span>
                   ))}
                 </div>
