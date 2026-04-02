@@ -494,7 +494,8 @@ const IndicateursPage = () => {
   const [linkedCounts, setLinkedCounts] = useState<Record<string, number>>({});
   const [linkDialog, setLinkDialog] = useState<{open: boolean; domaine: string; label: string} | null>(null);
   const [pacqActions, setPacqActions] = useState<{id: string; titre: string; statut: string; priorite: string}[]>([]);
-  const [linkedActions, setLinkedActions] = useState<{id: string; action_id: string}[]>([]);
+  const [pacqStrategiqeActions, setPacqStrategiqeActions] = useState<{id: string; intitule: string | null; avancement: string | null; priorite: string | null}[]>([]);
+  const [linkedActions, setLinkedActions] = useState<{id: string; action_id: string; action_type: string}[]>([]);
   const [loadingLinkDialog, setLoadingLinkDialog] = useState(false);
 
   useEffect(() => {
@@ -516,19 +517,21 @@ const IndicateursPage = () => {
   const openLinkDialog = async (domaine: string, label: string) => {
     setLinkDialog({ open: true, domaine, label });
     setLoadingLinkDialog(true);
-    const [{ data: actions }, { data: linked }] = await Promise.all([
+    const [{ data: actions }, { data: stratActions }, { data: linked }] = await Promise.all([
       supabase.from('actions_correctives').select('id, titre, statut, priorite').order('created_at', { ascending: false }),
-      supabase.from('indicateurs_actions').select('id, action_id').eq('indicateur_domaine', domaine).eq('indicateur_label', label),
+      supabase.from('pacq_strategique_actions').select('id, intitule, avancement, priorite').order('intitule', { ascending: true }),
+      supabase.from('indicateurs_actions').select('id, action_id, action_type').eq('indicateur_domaine', domaine).eq('indicateur_label', label),
     ]);
     setPacqActions((actions || []) as {id: string; titre: string; statut: string; priorite: string}[]);
-    setLinkedActions((linked || []) as {id: string; action_id: string}[]);
+    setPacqStrategiqeActions((stratActions || []) as {id: string; intitule: string | null; avancement: string | null; priorite: string | null}[]);
+    setLinkedActions((linked || []) as {id: string; action_id: string; action_type: string}[]);
     setLoadingLinkDialog(false);
   };
 
-  const toggleLink = async (actionId: string) => {
+  const toggleLink = async (actionId: string, actionType: 'operationnel' | 'strategique' = 'operationnel') => {
     if (!linkDialog) return;
     const key = `${linkDialog.domaine}:${linkDialog.label}`;
-    const existing = linkedActions.find((r) => r.action_id === actionId);
+    const existing = linkedActions.find((r) => r.action_id === actionId && r.action_type === actionType);
     if (existing) {
       await supabase.from('indicateurs_actions').delete().eq('id', existing.id);
       setLinkedActions((prev) => prev.filter((r) => r.id !== existing.id));
@@ -538,9 +541,10 @@ const IndicateursPage = () => {
         indicateur_domaine: linkDialog.domaine,
         indicateur_label: linkDialog.label,
         action_id: actionId,
+        action_type: actionType,
       }]).select().single();
       if (data) {
-        setLinkedActions((prev) => [...prev, data as {id: string; action_id: string}]);
+        setLinkedActions((prev) => [...prev, data as {id: string; action_id: string; action_type: string}]);
         setLinkedCounts((prev) => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
       }
     }
@@ -1014,29 +1018,60 @@ const IndicateursPage = () => {
             </div>
           ) : (
             <ScrollArea className="flex-1 pr-2 max-h-[50vh]">
-              <div className="space-y-2">
-                {pacqActions.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-4">Aucune action PACQ disponible.</p>
-                ) : pacqActions.map(action => {
-                  const isLinked = linkedActions.some(r => r.action_id === action.id);
-                  return (
-                    <button
-                      key={action.id}
-                      onClick={() => toggleLink(action.id)}
-                      className={`w-full text-left rounded-lg border px-3 py-2 transition-all flex items-start justify-between gap-2 ${
-                        isLinked ? 'border-primary bg-primary/5' : 'border-border bg-background hover:border-primary/40'
-                      }`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium leading-tight truncate">{action.titre}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{action.statut} · {action.priorite}</p>
-                      </div>
-                      <span className={`text-[10px] shrink-0 mt-0.5 font-medium ${isLinked ? 'text-primary' : 'text-muted-foreground'}`}>
-                        {isLinked ? '✓ Lié' : '+ Lier'}
-                      </span>
-                    </button>
-                  );
-                })}
+              <div className="space-y-4">
+                {/* PACQ Opérationnel */}
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 px-1">PACQ Opérationnel</p>
+                  {pacqActions.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-2">Aucune action disponible.</p>
+                  ) : pacqActions.map(action => {
+                    const isLinked = linkedActions.some(r => r.action_id === action.id && r.action_type === 'operationnel');
+                    return (
+                      <button
+                        key={action.id}
+                        onClick={() => toggleLink(action.id, 'operationnel')}
+                        className={`w-full text-left rounded-lg border px-3 py-2 transition-all flex items-start justify-between gap-2 ${
+                          isLinked ? 'border-primary bg-primary/5' : 'border-border bg-background hover:border-primary/40'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium leading-tight truncate">{action.titre}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{action.statut} · {action.priorite}</p>
+                        </div>
+                        <span className={`text-[10px] shrink-0 mt-0.5 font-medium ${isLinked ? 'text-primary' : 'text-muted-foreground'}`}>
+                          {isLinked ? '✓ Lié' : '+ Lier'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* PACQ Stratégique */}
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 px-1">PACQ Stratégique</p>
+                  {pacqStrategiqeActions.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-2">Aucune action disponible.</p>
+                  ) : pacqStrategiqeActions.map(action => {
+                    const isLinked = linkedActions.some(r => r.action_id === action.id && r.action_type === 'strategique');
+                    return (
+                      <button
+                        key={action.id}
+                        onClick={() => toggleLink(action.id, 'strategique')}
+                        className={`w-full text-left rounded-lg border px-3 py-2 transition-all flex items-start justify-between gap-2 ${
+                          isLinked ? 'border-primary bg-primary/5' : 'border-border bg-background hover:border-primary/40'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium leading-tight truncate">{action.intitule || '—'}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">{action.avancement || 'Non initié'} · {action.priorite || 'Normale'}</p>
+                        </div>
+                        <span className={`text-[10px] shrink-0 mt-0.5 font-medium ${isLinked ? 'text-primary' : 'text-muted-foreground'}`}>
+                          {isLinked ? '✓ Lié' : '+ Lier'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </ScrollArea>
           )}

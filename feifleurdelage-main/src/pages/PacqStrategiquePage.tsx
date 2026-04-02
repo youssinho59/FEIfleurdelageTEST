@@ -111,6 +111,7 @@ export default function PacqStrategiquePage() {
   const [loading, setLoading]           = useState(true);
   const [expandedObjectifs, setExpandedObjectifs] = useState<Set<string>>(new Set());
   const [expandedIndicateurs, setExpandedIndicateurs] = useState<Set<string>>(new Set());
+  const [linkedIndicateursMap, setLinkedIndicateursMap] = useState<Record<string, {id: string; indicateur_domaine: string; indicateur_label: string}[]>>({});
 
   // Objectif dialog
   const [objDialog, setObjDialog]   = useState(false);
@@ -141,7 +142,7 @@ export default function PacqStrategiquePage() {
   const load = useCallback(async () => {
     setLoading(true);
 
-    const [{ data: objs }, { data: acts }, { data: inds }, { data: profilesData }, { data: rolesData }] = await Promise.all([
+    const [{ data: objs }, { data: acts }, { data: inds }, { data: profilesData }, { data: rolesData }, { data: indLinks }] = await Promise.all([
       supabase.from("pacq_strategique_objectifs")
         .select("id, reference, intitule, theme, responsable, priorite, avancement, echeance")
         .order("reference", { ascending: true }),
@@ -152,11 +153,20 @@ export default function PacqStrategiquePage() {
         .select("id, action_id, annee, commentaire"),
       supabase.from("profiles").select("id, full_name, user_id").order("full_name"),
       supabase.from("user_roles").select("user_id, role"),
+      supabase.from("indicateurs_actions")
+        .select("id, action_id, indicateur_domaine, indicateur_label")
+        .eq("action_type", "strategique"),
     ]);
 
     setAllObjectifs((objs as Objectif[]) || []);
     setActions((acts as Action[]) || []);
     setIndicateurs((inds as Indicateur[]) || []);
+
+    const indLinksMap: Record<string, {id: string; indicateur_domaine: string; indicateur_label: string}[]> = {};
+    ((indLinks || []) as {id: string; action_id: string; indicateur_domaine: string; indicateur_label: string}[]).forEach(r => {
+      (indLinksMap[r.action_id] = indLinksMap[r.action_id] || []).push(r);
+    });
+    setLinkedIndicateursMap(indLinksMap);
 
     const agentsList: Agent[] = ((profilesData as any[]) || []).map(p => ({
       id: p.id,
@@ -712,6 +722,24 @@ export default function PacqStrategiquePage() {
                                           {hasInds && <span className="text-[10px] bg-primary/10 text-primary px-1.5 rounded-full font-semibold">renseignés</span>}
                                           {indExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                                         </button>
+
+                                        {/* Indicateurs de suivi (liés depuis la page Indicateurs) */}
+                                        <div className="mt-2 pt-2 border-t border-border/30">
+                                          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1.5">
+                                            Indicateurs de suivi
+                                          </p>
+                                          {(linkedIndicateursMap[act.id] || []).length === 0 ? (
+                                            <p className="text-[10px] text-muted-foreground/50 italic">Aucun indicateur rattaché</p>
+                                          ) : (
+                                            <div className="flex flex-wrap gap-1">
+                                              {(linkedIndicateursMap[act.id] || []).map(ind => (
+                                                <span key={ind.id} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 border border-primary/20">
+                                                  📊 {ind.indicateur_domaine} — {ind.indicateur_label}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
                                       </div>
                                       <div className="flex items-center gap-1 shrink-0">
                                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditAction(act)}>

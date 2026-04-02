@@ -114,6 +114,7 @@ export default function PlanActionsCorrectives() {
   const [deleteTarget, setDeleteTarget] = useState<ActionCorrective | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [linkedIndicateurs, setLinkedIndicateurs] = useState<{id: string; indicateur_domaine: string; indicateur_label: string}[]>([]);
+  const [allIndicateursMap, setAllIndicateursMap] = useState<Record<string, {indicateur_domaine: string; indicateur_label: string}[]>>({});
 
   const fetchActions = async () => {
     setLoading(true);
@@ -143,7 +144,20 @@ export default function PlanActionsCorrectives() {
     setPlainteOptions((plainteRes.data as PlainteOption[]) || []);
   };
 
-  useEffect(() => { fetchActions(); fetchComments(); fetchRefs(); }, []);
+  const fetchAllIndicateursMap = async () => {
+    const { data } = await supabase.from('indicateurs_actions')
+      .select('action_id, indicateur_domaine, indicateur_label')
+      .eq('action_type', 'operationnel');
+    if (data) {
+      const map: Record<string, {indicateur_domaine: string; indicateur_label: string}[]> = {};
+      (data as {action_id: string; indicateur_domaine: string; indicateur_label: string}[]).forEach(r => {
+        (map[r.action_id] = map[r.action_id] || []).push(r);
+      });
+      setAllIndicateursMap(map);
+    }
+  };
+
+  useEffect(() => { fetchActions(); fetchComments(); fetchRefs(); fetchAllIndicateursMap(); }, []);
 
   // Stats
   const total = actions.length;
@@ -464,6 +478,15 @@ export default function PlanActionsCorrectives() {
                           {fei && <span className="flex items-center gap-1.5"><FileText className="w-3 h-3" />FEI · {fei.type_fei} — {new Date(fei.date_evenement).toLocaleDateString("fr-FR")}</span>}
                           {plainte && <span className="flex items-center gap-1.5"><FileText className="w-3 h-3" />Plainte · {plainte.objet.slice(0, 40)}{plainte.objet.length > 40 ? "…" : ""}</span>}
                         </div>
+                        {(allIndicateursMap[action.id] || []).length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {(allIndicateursMap[action.id] || []).map((ind, i) => (
+                              <span key={i} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 border border-primary/20">
+                                📊 {ind.indicateur_domaine} — {ind.indicateur_label}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       {canEdit(action) && (
                         <div className="flex items-center gap-1.5 shrink-0">
