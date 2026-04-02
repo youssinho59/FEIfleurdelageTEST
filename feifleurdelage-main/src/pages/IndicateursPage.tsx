@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -418,14 +419,117 @@ const KpiCard = ({
 
 // ── IndicateursPage ───────────────────────────────────────────────────────────
 
+
+const CUSTOM_DOMAIN: DomaineDef = {
+  id: "personnalise",
+  label: "Personnalisé",
+  tabLabel: "Personnalisé",
+  themes: [
+    {
+      id: "indicateurs_personnalises",
+      label: "Indicateurs personnalisés",
+      indicateurs: [],
+    },
+  ],
+};
+
+const DOMAINES_META: DomaineDef[] = [...DOMAINES, CUSTOM_DOMAIN];
+
+const SERVICE_OPTIONS = [
+  "Administration",
+  "Cuisine",
+  "Technique",
+  "Lingerie",
+  "Animation",
+  "Soins/Hôtellerie",
+  "Entretien",
+];
+
+type DbIndicateur = {
+  id: string;
+  domaine: string;
+  theme: string | null;
+  label: string;
+  unite: string | null;
+  valeur_cible: string | null;
+  frequence: string | null;
+  service: string | null;
+  created_at: string;
+};
+
+const DEFAULT_INDICATEURS: Omit<DbIndicateur, "id" | "created_at">[] = DOMAINES.flatMap((domaine) =>
+  domaine.themes.flatMap((theme) =>
+    theme.indicateurs.map((ind) => ({
+      domaine: domaine.id,
+      theme: theme.label,
+      label: ind.label,
+      unite: ind.unit || null,
+      valeur_cible: null,
+      frequence: null,
+      service: null,
+    }))
+  )
+);
+
+const ManagedKpiCard = ({
+  label,
+  value,
+  prevValue,
+  unit,
+  actionCount,
+  onLinkClick,
+  service,
+  onDeleteClick,
+  canDelete,
+}: {
+  label: string;
+  value: number | null;
+  prevValue: number | null;
+  unit?: string | null;
+  actionCount?: number;
+  onLinkClick?: () => void;
+  service?: string | null;
+  onDeleteClick?: () => void;
+  canDelete?: boolean;
+}) => {
+  return (
+    <div className="relative">
+      <KpiCard
+        label={label}
+        value={value}
+        prevValue={prevValue}
+        unit={unit || undefined}
+        actionCount={actionCount}
+        onLinkClick={onLinkClick}
+      />
+      {service && (
+        <span className="absolute left-3 top-3 rounded-full bg-muted px-2 py-0.5 text-[9px] text-muted-foreground">
+          {service}
+        </span>
+      )}
+      {canDelete && onDeleteClick && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-2 top-2 h-7 w-7 text-muted-foreground hover:text-destructive"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDeleteClick();
+          }}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      )}
+    </div>
+  );
+};
+
 const IndicateursPage = () => {
   const { isAdmin, userServices } = useAuth();
   const [searchParams] = useSearchParams();
 
-  // ── Access filtering ───────────────────────────────────────────────────────
-
   const visibleDomaines = useMemo(() => {
-    if (isAdmin) return DOMAINES;
+    if (isAdmin) return DOMAINES_META;
     return DOMAINES.filter((d) => {
       const allowed = DOMAINE_ACCESS[d.id] || [];
       if (allowed.length === 0) return false;
@@ -436,53 +540,33 @@ const IndicateursPage = () => {
   }, [isAdmin, userServices]);
 
   const [activeTab, setActiveTab] = useState<string>("");
-
-  useEffect(() => {
-    if (visibleDomaines.length > 0 && !activeTab) {
-      const paramDomaine = searchParams.get("domaine");
-      if (paramDomaine) {
-        const allTabIds = [...visibleDomaines.map((d) => d.id), "personnalise"];
-        const found = allTabIds.find((id) => id === paramDomaine);
-        setActiveTab(found || visibleDomaines[0].id);
-      } else {
-        setActiveTab(visibleDomaines[0].id);
-      }
-    }
-  }, [visibleDomaines, activeTab]); // eslint-disable-line
-
-  // ── Custom (Personnalisé) indicators ──────────────────────────────────────
-
-  const [customIndicateurs, setCustomIndicateurs] = useState<{
-    id: string; label: string; unite: string | null; valeur_cible: string | null; frequence: string | null;
-  }[]>([]);
-  const [loadingCustom, setLoadingCustom] = useState(false);
-  const [deletingCustomInd, setDeletingCustomInd] = useState<string | null>(null);
-
-  const fetchCustomIndicateurs = useCallback(async () => {
-    setLoadingCustom(true);
-    const { data } = await supabase.from("indicateurs").select("*").eq("domaine", "Personnalisé").order("created_at", { ascending: false });
-    setCustomIndicateurs((data as any[]) || []);
-    setLoadingCustom(false);
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "personnalise") fetchCustomIndicateurs();
-  }, [activeTab, fetchCustomIndicateurs]);
-
-  const deleteCustomIndicateur = async () => {
-    if (!deletingCustomInd) return;
-    const ind = customIndicateurs.find((i) => i.id === deletingCustomInd);
-    if (!ind) return;
-    await supabase.from("indicateurs_actions").delete()
-      .eq("indicateur_domaine", "Personnalisé").eq("indicateur_label", ind.label);
-    const { error } = await supabase.from("indicateurs").delete().eq("id", deletingCustomInd);
-    if (error) { toast.error("Erreur : " + error.message); return; }
-    toast.success("Indicateur supprimé");
-    setDeletingCustomInd(null);
-    fetchCustomIndicateurs();
-  };
-
-  // ── Month selector ─────────────────────────────────────────────────────────
+  const [allIndicateurs, setAllIndicateurs] = useState<DbIndicateur[]>([]);
+  const [loadingIndicateurs, setLoadingIndicateurs] = useState(false);
+  const [allData, setAllData] = useState<Record<string, ValeurRecord[]>>({});
+  const [loadingDomain, setLoadingDomain] = useState<string | null>(null);
+  const [linkedCounts, setLinkedCounts] = useState<Record<string, number>>({});
+  const [linkDialog, setLinkDialog] = useState<{ open: boolean; domaine: string; label: string } | null>(null);
+  const [pacqActions, setPacqActions] = useState<{ id: string; titre: string; statut: string; priorite: string }[]>([]);
+  const [pacqStrategiqeActions, setPacqStrategiqeActions] = useState<{ id: string; intitule: string | null; avancement: string | null; priorite: string | null }[]>([]);
+  const [linkedActions, setLinkedActions] = useState<{ id: string; action_id: string; action_type: string }[]>([]);
+  const [loadingLinkDialog, setLoadingLinkDialog] = useState(false);
+  const [linkSearch, setLinkSearch] = useState("");
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    domaine: "animation",
+    theme: "",
+    label: "",
+    unite: "",
+    valeur_cible: "",
+    frequence: "",
+    service: "",
+  });
+  const [savingCreate, setSavingCreate] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DbIndicateur | null>(null);
+  const [deletingIndicator, setDeletingIndicator] = useState(false);
+  const [saisieOpen, setSaisieOpen] = useState(false);
+  const [saisieValues, setSaisieValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
 
   const now = useMemo(() => new Date(), []);
   const [selYear, setSelYear] = useState(now.getFullYear());
@@ -500,8 +584,6 @@ const IndicateursPage = () => {
 
   const yearOptions = [now.getFullYear() - 2, now.getFullYear() - 1, now.getFullYear()];
 
-  // ── 12 rolling months (for charts) ────────────────────────────────────────
-
   const last12Months = useMemo(() => {
     return Array.from({ length: 12 }, (_, i) => {
       const d = subMonths(startOfMonth(now), 11 - i);
@@ -512,26 +594,114 @@ const IndicateursPage = () => {
     });
   }, [now]);
 
-  // ── Data per domain ────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (visibleDomaines.length > 0 && !activeTab) {
+      const paramDomaine = searchParams.get("domaine");
+      const availableIds = visibleDomaines.map((d) => d.id);
+      if (paramDomaine && availableIds.includes(paramDomaine)) {
+        setActiveTab(paramDomaine);
+      } else {
+        setActiveTab(visibleDomaines[0].id);
+      }
+    }
+  }, [visibleDomaines, activeTab, searchParams]);
 
-  const [allData, setAllData] = useState<Record<string, ValeurRecord[]>>({});
-  const [loadingDomain, setLoadingDomain] = useState<string | null>(null);
+  const ensureDefaultIndicateurs = useCallback(async () => {
+    const { count, error } = await supabase
+      .from("indicateurs")
+      .select("id", { count: "exact", head: true });
+
+    if (error) {
+      throw error;
+    }
+
+    if ((count ?? 0) === 0) {
+      const { error: seedError } = await supabase.from("indicateurs").insert(DEFAULT_INDICATEURS);
+      if (seedError) {
+        throw seedError;
+      }
+    }
+  }, []);
+
+  const fetchIndicateurDefinitions = useCallback(async () => {
+    setLoadingIndicateurs(true);
+    try {
+      await ensureDefaultIndicateurs();
+      const { data, error } = await supabase
+        .from("indicateurs")
+        .select("*")
+        .order("domaine", { ascending: true })
+        .order("theme", { ascending: true })
+        .order("label", { ascending: true });
+
+      if (error) throw error;
+      setAllIndicateurs((data as DbIndicateur[]) || []);
+    } catch (error) {
+      toast.error("Erreur indicateurs : " + ((error as Error).message || "inconnue"));
+    } finally {
+      setLoadingIndicateurs(false);
+    }
+  }, [ensureDefaultIndicateurs]);
+
+  useEffect(() => {
+    fetchIndicateurDefinitions();
+  }, [fetchIndicateurDefinitions]);
+
+  const getDefinitionsForDomain = useCallback(
+    (domaineId: string) => allIndicateurs.filter((ind) => ind.domaine === domaineId),
+    [allIndicateurs]
+  );
+
+  const buildThemesForDomain = useCallback(
+    (domaineId: string) => {
+      const defs = getDefinitionsForDomain(domaineId);
+      const meta = DOMAINES_META.find((d) => d.id === domaineId);
+      const defaultThemeLabels = (meta?.themes || []).map((theme) => theme.label);
+      const grouped = new Map<string, DbIndicateur[]>();
+
+      defs.forEach((ind) => {
+        const themeLabel = ind.theme || (domaineId === "personnalise" ? "Indicateurs personnalisés" : "Autres");
+        const arr = grouped.get(themeLabel) || [];
+        arr.push(ind);
+        grouped.set(themeLabel, arr);
+      });
+
+      const orderedLabels = [
+        ...defaultThemeLabels.filter((label) => grouped.has(label)),
+        ...Array.from(grouped.keys())
+          .filter((label) => !defaultThemeLabels.includes(label))
+          .sort((a, b) => a.localeCompare(b, "fr")),
+      ];
+
+      return orderedLabels.map((label) => ({
+        id: label.toLowerCase().replace(/[^a-z0-9]+/gi, "_"),
+        label,
+        indicateurs: grouped.get(label) || [],
+      }));
+    },
+    [getDefinitionsForDomain]
+  );
 
   const fetchDomainData = useCallback(
     async (domaineId: string) => {
+      if (!domaineId) return;
       setLoadingDomain(domaineId);
-      const fromDate = format(subMonths(startOfMonth(now), 13), "yyyy-MM-dd");
-      const { data, error } = await supabase
-        .from("indicateurs_valeurs")
-        .select("*")
-        .eq("domaine", domaineId)
-        .gte("date_mois", fromDate)
-        .order("date_mois", { ascending: true });
+      try {
+        const fromDate = format(subMonths(startOfMonth(now), 13), "yyyy-MM-dd");
+        const { data, error } = await supabase
+          .from("indicateurs_valeurs")
+          .select("*")
+          .eq("domaine", domaineId)
+          .gte("date_mois", fromDate)
+          .order("date_mois", { ascending: true });
 
-      if (!error && data) {
-        setAllData((prev) => ({ ...prev, [domaineId]: data as ValeurRecord[] }));
+        if (error) throw error;
+        setAllData((prev) => ({ ...prev, [domaineId]: (data as ValeurRecord[]) || [] }));
+      } catch (error) {
+        toast.error("Erreur données : " + ((error as Error).message || "inconnue"));
+      } finally {
+        setLoadingDomain(null);
       }
-      setLoadingDomain(null);
     },
     [now]
   );
@@ -542,25 +712,16 @@ const IndicateursPage = () => {
     }
   }, [activeTab, allData, fetchDomainData]);
 
-  // ── Indicateurs ↔ PACQ ─────────────────────────────────────────────────────
-
-  const [linkedCounts, setLinkedCounts] = useState<Record<string, number>>({});
-  const [linkDialog, setLinkDialog] = useState<{open: boolean; domaine: string; label: string} | null>(null);
-  const [pacqActions, setPacqActions] = useState<{id: string; titre: string; statut: string; priorite: string}[]>([]);
-  const [pacqStrategiqeActions, setPacqStrategiqeActions] = useState<{id: string; intitule: string | null; avancement: string | null; priorite: string | null}[]>([]);
-  const [linkedActions, setLinkedActions] = useState<{id: string; action_id: string; action_type: string}[]>([]);
-  const [loadingLinkDialog, setLoadingLinkDialog] = useState(false);
-  const [linkSearch, setLinkSearch] = useState("");
-
   useEffect(() => {
     if (!activeTab) return;
-    supabase.from('indicateurs_actions')
-      .select('indicateur_label, indicateur_domaine')
-      .eq('indicateur_domaine', activeTab)
+    supabase
+      .from("indicateurs_actions")
+      .select("indicateur_label, indicateur_domaine")
+      .eq("indicateur_domaine", activeTab)
       .then(({ data }) => {
         if (!data) return;
         const counts: Record<string, number> = {};
-        data.forEach((r: {indicateur_domaine: string; indicateur_label: string}) => {
+        data.forEach((r: { indicateur_domaine: string; indicateur_label: string }) => {
           const key = `${r.indicateur_domaine}:${r.indicateur_label}`;
           counts[key] = (counts[key] || 0) + 1;
         });
@@ -572,110 +733,193 @@ const IndicateursPage = () => {
     setLinkDialog({ open: true, domaine, label });
     setLoadingLinkDialog(true);
     const [{ data: actions }, { data: stratActions }, { data: linked }] = await Promise.all([
-      supabase.from('actions_correctives').select('id, titre, statut, priorite').order('created_at', { ascending: false }),
-      supabase.from('pacq_strategique_actions').select('id, intitule, avancement, priorite').order('intitule', { ascending: true }),
-      supabase.from('indicateurs_actions').select('id, action_id, action_type').eq('indicateur_domaine', domaine).eq('indicateur_label', label),
+      supabase.from("actions_correctives").select("id, titre, statut, priorite").order("created_at", { ascending: false }),
+      supabase.from("pacq_strategique_actions").select("id, intitule, avancement, priorite").order("intitule", { ascending: true }),
+      supabase.from("indicateurs_actions").select("id, action_id, action_type").eq("indicateur_domaine", domaine).eq("indicateur_label", label),
     ]);
-    setPacqActions((actions || []) as {id: string; titre: string; statut: string; priorite: string}[]);
-    setPacqStrategiqeActions((stratActions || []) as {id: string; intitule: string | null; avancement: string | null; priorite: string | null}[]);
-    setLinkedActions((linked || []) as {id: string; action_id: string; action_type: string}[]);
+    setPacqActions((actions || []) as { id: string; titre: string; statut: string; priorite: string }[]);
+    setPacqStrategiqeActions((stratActions || []) as { id: string; intitule: string | null; avancement: string | null; priorite: string | null }[]);
+    setLinkedActions((linked || []) as { id: string; action_id: string; action_type: string }[]);
     setLoadingLinkDialog(false);
   };
 
-  const toggleLink = async (actionId: string, actionType: 'operationnel' | 'strategique' = 'operationnel') => {
+  const toggleLink = async (actionId: string, actionType: "operationnel" | "strategique" = "operationnel") => {
     if (!linkDialog) return;
     const key = `${linkDialog.domaine}:${linkDialog.label}`;
     const existing = linkedActions.find((r) => r.action_id === actionId && r.action_type === actionType);
     if (existing) {
-      await supabase.from('indicateurs_actions').delete().eq('id', existing.id);
+      await supabase.from("indicateurs_actions").delete().eq("id", existing.id);
       setLinkedActions((prev) => prev.filter((r) => r.id !== existing.id));
       setLinkedCounts((prev) => ({ ...prev, [key]: Math.max(0, (prev[key] || 1) - 1) }));
     } else {
-      const { data } = await supabase.from('indicateurs_actions').insert([{
-        indicateur_domaine: linkDialog.domaine,
-        indicateur_label: linkDialog.label,
-        action_id: actionId,
-        action_type: actionType,
-      }]).select().single();
+      const indicateur = allIndicateurs.find(
+        (ind) => ind.domaine === linkDialog.domaine && ind.label === linkDialog.label
+      );
+      const { data } = await supabase
+        .from("indicateurs_actions")
+        .insert([
+          {
+            indicateur_id: indicateur?.id || null,
+            indicateur_domaine: linkDialog.domaine,
+            indicateur_label: linkDialog.label,
+            action_id: actionId,
+            action_type: actionType,
+          },
+        ])
+        .select()
+        .single();
       if (data) {
-        setLinkedActions((prev) => [...prev, data as {id: string; action_id: string; action_type: string}]);
+        setLinkedActions((prev) => [...prev, data as { id: string; action_id: string; action_type: string }]);
         setLinkedCounts((prev) => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
       }
     }
   };
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
   const getDomainData = (id: string) => allData[id] || [];
 
-  const getValue = (
-    data: ValeurRecord[],
-    indicateur: string,
-    dateStr: string
-  ): number | null => {
-    const rec = data.find(
-      (r) => r.indicateur === indicateur && r.date_mois === dateStr
-    );
+  const getValue = (data: ValeurRecord[], indicateur: string, dateStr: string): number | null => {
+    const rec = data.find((r) => r.indicateur === indicateur && r.date_mois === dateStr);
     return rec?.valeur ?? null;
   };
 
-  const getChartData = (
-    indicateur: string,
-    data: ValeurRecord[]
-  ) =>
+  const getChartData = (indicateur: string, data: ValeurRecord[]) =>
     last12Months.map((m) => ({
       month: m.label,
       value: getValue(data, indicateur, m.date),
     }));
 
-  // ── Saisie modal ───────────────────────────────────────────────────────────
-
-  const [saisieOpen, setSaisieOpen] = useState(false);
-  const [saisieValues, setSaisieValues] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-
-  const activeDomaine = useMemo(
-    () => DOMAINES.find((d) => d.id === activeTab),
-    [activeTab]
+  const getThemeOptionsForDomaine = useCallback(
+    (domaineId: string) => {
+      const defaults = (DOMAINES_META.find((d) => d.id === domaineId)?.themes || []).map((theme) => theme.label);
+      const existing = Array.from(
+        new Set(
+          getDefinitionsForDomain(domaineId)
+            .map((ind) => ind.theme)
+            .filter(Boolean) as string[]
+        )
+      );
+      const fallback = domaineId === "personnalise" ? ["Indicateurs personnalisés"] : [];
+      return Array.from(new Set([...defaults, ...existing, ...fallback]));
+    },
+    [getDefinitionsForDomain]
   );
 
+  const openCreateDialog = (domaineId?: string) => {
+    const targetDomaine = domaineId || activeTab || visibleDomaines[0]?.id || "animation";
+    const themeOptions = getThemeOptionsForDomaine(targetDomaine);
+    setCreateForm({
+      domaine: targetDomaine,
+      theme: themeOptions[0] || (targetDomaine === "personnalise" ? "Indicateurs personnalisés" : ""),
+      label: "",
+      unite: "",
+      valeur_cible: "",
+      frequence: "",
+      service: "",
+    });
+    setCreateDialogOpen(true);
+  };
+
+  const handleCreateIndicator = async () => {
+    if (!createForm.label.trim()) {
+      toast.error("Le libellé est obligatoire.");
+      return;
+    }
+
+    setSavingCreate(true);
+    try {
+      const payload = {
+        domaine: createForm.domaine,
+        theme: createForm.theme.trim() || null,
+        label: createForm.label.trim(),
+        unite: createForm.unite.trim() || null,
+        valeur_cible: createForm.valeur_cible.trim() || null,
+        frequence: createForm.frequence.trim() || null,
+        service: createForm.service || null,
+      };
+
+      const { error } = await supabase.from("indicateurs").insert(payload);
+      if (error) throw error;
+
+      toast.success("Indicateur créé");
+      setCreateDialogOpen(false);
+      if (activeTab !== payload.domaine) {
+        setActiveTab(payload.domaine);
+      }
+      await fetchIndicateurDefinitions();
+      setAllData((prev) => {
+        const next = { ...prev };
+        delete next[payload.domaine];
+        return next;
+      });
+    } catch (error) {
+      toast.error("Erreur : " + ((error as Error).message || "inconnue"));
+    } finally {
+      setSavingCreate(false);
+    }
+  };
+
+  const handleDeleteIndicator = async () => {
+    if (!deleteTarget) return;
+    setDeletingIndicator(true);
+    try {
+      await supabase.from("indicateurs_actions").delete().eq("indicateur_id", deleteTarget.id);
+      await supabase
+        .from("indicateurs_actions")
+        .delete()
+        .eq("indicateur_domaine", deleteTarget.domaine)
+        .eq("indicateur_label", deleteTarget.label);
+      await supabase
+        .from("indicateurs_valeurs")
+        .delete()
+        .eq("domaine", deleteTarget.domaine)
+        .eq("indicateur", deleteTarget.label);
+      const { error } = await supabase.from("indicateurs").delete().eq("id", deleteTarget.id);
+      if (error) throw error;
+
+      toast.success("Indicateur supprimé");
+      setDeleteTarget(null);
+      await fetchIndicateurDefinitions();
+      setAllData((prev) => {
+        const next = { ...prev };
+        delete next[deleteTarget.domaine];
+        return next;
+      });
+    } catch (error) {
+      toast.error("Erreur : " + ((error as Error).message || "inconnue"));
+    } finally {
+      setDeletingIndicator(false);
+    }
+  };
+
+  const activeDefinitions = useMemo(() => getDefinitionsForDomain(activeTab), [activeTab, getDefinitionsForDomain]);
+  const activeThemes = useMemo(() => buildThemesForDomain(activeTab), [activeTab, buildThemesForDomain]);
+  const activeDomaine = useMemo(() => DOMAINES_META.find((d) => d.id === activeTab) || null, [activeTab]);
+
   const openSaisie = useCallback(() => {
-    if (!activeDomaine) return;
-    const monthData = getDomainData(activeTab).filter(
-      (r) => r.date_mois === selectedDateStr
-    );
+    if (!activeTab || activeDefinitions.length === 0) return;
+    const monthData = getDomainData(activeTab).filter((r) => r.date_mois === selectedDateStr);
     const initial: Record<string, string> = {};
-    activeDomaine.themes.forEach((t) =>
-      t.indicateurs.forEach((ind) => {
-        if (ind.calculated) return;
-        const existing = monthData.find((r) => r.indicateur === ind.label);
-        initial[ind.label] =
-          existing?.valeur !== null && existing?.valeur !== undefined
-            ? String(existing.valeur)
-            : "";
-      })
-    );
+    activeDefinitions.forEach((ind) => {
+      const existing = monthData.find((r) => r.indicateur === ind.label);
+      initial[ind.label] =
+        existing?.valeur !== null && existing?.valeur !== undefined ? String(existing.valeur) : "";
+    });
     setSaisieValues(initial);
     setSaisieOpen(true);
-  }, [activeDomaine, allData, activeTab, selectedDateStr]); // eslint-disable-line
+  }, [activeDefinitions, activeTab, allData, selectedDateStr]);
 
-  // Auto-compute locaux ratio in form state
   const locauxRatio = useMemo(() => {
     if (activeTab !== "locaux") return null;
-    const prevus = parseFloat(
-      saisieValues["Nombre d'entretiens complets de chambres prévus sur le mois"] || "0"
-    );
+    const prevus = parseFloat(saisieValues["Nombre d'entretiens complets de chambres prévus sur le mois"] || "0");
     const effectues = parseFloat(
-      saisieValues[
-        "Nombre d'entretiens complets de chambres réellement effectués"
-      ] || "0"
+      saisieValues["Nombre d'entretiens complets de chambres réellement effectués"] || "0"
     );
-    if (!prevus || isNaN(prevus) || isNaN(effectues)) return null;
+    if (!prevus || Number.isNaN(prevus) || Number.isNaN(effectues)) return null;
     return Math.round((effectues / prevus) * 100);
   }, [activeTab, saisieValues]);
 
   const handleSave = async () => {
-    if (!activeDomaine) return;
+    if (!activeTab || activeDefinitions.length === 0) return;
     setSaving(true);
 
     const rows: {
@@ -684,20 +928,14 @@ const IndicateursPage = () => {
       indicateur: string;
       date_mois: string;
       valeur: number | null;
-    }[] = Object.entries(saisieValues).map(([indicateur, val]) => {
-      const theme = activeDomaine.themes.find((t) =>
-        t.indicateurs.some((i) => i.label === indicateur)
-      );
-      return {
-        domaine: activeTab,
-        theme: theme?.label ?? null,
-        indicateur,
-        date_mois: selectedDateStr,
-        valeur: val === "" ? null : parseFloat(val.replace(",", ".")),
-      };
-    });
+    }[] = activeDefinitions.map((ind) => ({
+      domaine: activeTab,
+      theme: ind.theme || null,
+      indicateur: ind.label,
+      date_mois: selectedDateStr,
+      valeur: saisieValues[ind.label] === "" ? null : parseFloat(saisieValues[ind.label].replace(",", ".")),
+    }));
 
-    // Add calculated ratio for locaux
     if (activeTab === "locaux") {
       rows.push({
         domaine: "locaux",
@@ -717,7 +955,6 @@ const IndicateursPage = () => {
     } else {
       toast.success("Valeurs enregistrées");
       setSaisieOpen(false);
-      // Invalidate cached data to force re-fetch
       setAllData((prev) => {
         const next = { ...prev };
         delete next[activeTab];
@@ -727,22 +964,15 @@ const IndicateursPage = () => {
     setSaving(false);
   };
 
-  // ── PDF export ─────────────────────────────────────────────────────────────
-
   const handleExportPdf = useCallback(() => {
-    if (!activeDomaine) return;
+    if (!activeDomaine || activeThemes.length === 0) return;
     const domData = getDomainData(activeTab);
     const monthData = domData.filter((r) => r.date_mois === selectedDateStr);
     const prevData = domData.filter((r) => r.date_mois === prevDateStr);
 
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-    const monthLabel = format(
-      new Date(selYear, selMonth - 1, 1),
-      "MMMM yyyy",
-      { locale: fr }
-    );
+    const monthLabel = format(new Date(selYear, selMonth - 1, 1), "MMMM yyyy", { locale: fr });
 
-    // Header
     doc.setFillColor(234, 215, 255);
     doc.rect(0, 0, 210, 30, "F");
     doc.setFontSize(15);
@@ -755,68 +985,49 @@ const IndicateursPage = () => {
     doc.text(`Période : ${monthLabel}  |  EHPAD La Fleur de l'Âge`, 20, 22);
 
     let y = 40;
-
-    activeDomaine.themes.forEach((theme) => {
+    activeThemes.forEach((theme) => {
       if (y > 255) {
         doc.addPage();
-        y = 20;
+        y = 18;
       }
-      // Theme header
-      doc.setFillColor(245, 240, 255);
-      doc.rect(15, y - 4, 180, 8, "F");
-      doc.setFontSize(10);
+
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(70, 20, 100);
-      doc.text(theme.label, 18, y + 1);
-      y += 10;
+      doc.setFontSize(11);
+      doc.setTextColor(45, 45, 45);
+      doc.text(theme.label, 14, y);
+      y += 6;
 
       theme.indicateurs.forEach((ind) => {
-        if (y > 270) {
+        if (y > 282) {
           doc.addPage();
-          y = 20;
+          y = 18;
         }
-        const val = monthData.find((r) => r.indicateur === ind.label)?.valeur ?? null;
-        const prev = prevData.find((r) => r.indicateur === ind.label)?.valeur ?? null;
 
-        doc.setFontSize(8.5);
+        const val = monthData.find((r) => r.indicateur === ind.label)?.valeur;
+        const prev = prevData.find((r) => r.indicateur === ind.label)?.valeur;
+        const diff = val !== null && val !== undefined && prev !== null && prev !== undefined ? val - prev : null;
+
         doc.setFont("helvetica", "normal");
-        doc.setTextColor(50, 50, 50);
-        const labelLines = doc.splitTextToSize(ind.label, 120) as string[];
-        doc.text(labelLines, 18, y);
+        doc.setFontSize(9);
+        doc.text(ind.label, 18, y);
+        const rightValue = val !== null && val !== undefined ? `${val}${ind.unite || ""}` : "—";
+        doc.text(rightValue, 185, y, { align: "right" });
 
-        // Value
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(0);
-        const valStr =
-          val !== null
-            ? `${Number.isInteger(val) ? val : val.toFixed(1)}${ind.unit || ""}`
-            : "—";
-        doc.text(valStr, 152, y, { align: "right" });
-
-        // Trend
-        if (val !== null && prev !== null) {
-          const diff = val - prev;
-          const r = diff > 0 ? 20 : diff < 0 ? 200 : 120;
-          const g = diff > 0 ? 150 : diff < 0 ? 30 : 120;
-          const b = 30;
-          doc.setFontSize(7.5);
-          doc.setTextColor(r, g, b);
-          doc.text(
-            `${diff > 0 ? "▲" : diff < 0 ? "▼" : "="} ${diff > 0 ? "+" : ""}${Number.isInteger(diff) ? diff : diff.toFixed(1)}`,
-            190,
-            y,
-            { align: "right" }
-          );
+        if (diff !== null) {
+          doc.setFontSize(8);
+          doc.setTextColor(diff > 0 ? 20 : diff < 0 ? 180 : 120, diff > 0 ? 130 : diff < 0 ? 50 : 120, diff > 0 ? 80 : diff < 0 ? 60 : 120);
+          doc.text(`Écart M-1 : ${diff > 0 ? "+" : ""}${diff}`, 185, y + 4, { align: "right" });
+          doc.setTextColor(45, 45, 45);
         }
 
-        y += labelLines.length > 1 ? 7 * labelLines.length : 6;
+        y += 8;
       });
-      y += 5;
+
+      y += 4;
     });
 
-    // Footer
     doc.setFontSize(8);
-    doc.setTextColor(170);
+    doc.setTextColor(120, 120, 120);
     doc.text(
       `Document généré le ${format(new Date(), "dd/MM/yyyy", { locale: fr })} — EHPAD La Fleur de l'Âge`,
       105,
@@ -824,44 +1035,28 @@ const IndicateursPage = () => {
       { align: "center" }
     );
 
-    doc.save(
-      `Indicateurs_${activeDomaine.id}_${format(new Date(selYear, selMonth - 1, 1), "yyyy-MM")}.pdf`
-    );
-  }, [activeDomaine, allData, activeTab, selectedDateStr, prevDateStr, selYear, selMonth]); // eslint-disable-line
-
-  // ── No access ──────────────────────────────────────────────────────────────
+    doc.save(`Indicateurs_${activeDomaine.id}_${format(new Date(selYear, selMonth - 1, 1), "yyyy-MM")}.pdf`);
+  }, [activeDomaine, activeThemes, activeTab, allData, selectedDateStr, prevDateStr, selYear, selMonth]);
 
   if (visibleDomaines.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <BarChart2 className="w-12 h-12 text-muted-foreground/30 mb-4" />
-        <p className="text-muted-foreground">
-          Vous n'avez pas accès à ce module.
-        </p>
+        <p className="text-muted-foreground">Vous n'avez pas accès à ce module.</p>
       </div>
     );
   }
 
-  const domData = getDomainData(activeTab);
-  const monthData = domData.filter((r) => r.date_mois === selectedDateStr);
-  const prevMonthData = domData.filter((r) => r.date_mois === prevDateStr);
-
   return (
     <div className="space-y-6">
-      {/* Page header */}
       <div>
         <div className="flex items-center gap-2 mb-1">
           <BarChart2 className="w-5 h-5 text-primary" />
-          <h1 className="text-xl font-display font-bold text-foreground">
-            Tableau de Bord — Indicateurs
-          </h1>
+          <h1 className="text-xl font-display font-bold text-foreground">Tableau de Bord — Indicateurs</h1>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Suivi mensuel des indicateurs qualité par domaine
-        </p>
+        <p className="text-sm text-muted-foreground">Suivi mensuel des indicateurs qualité par domaine</p>
       </div>
 
-      {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/40 p-1">
           {visibleDomaines.map((d) => (
@@ -869,137 +1064,135 @@ const IndicateursPage = () => {
               {d.tabLabel}
             </TabsTrigger>
           ))}
-          {isAdmin && (
-            <TabsTrigger value="personnalise" className="text-xs">
-              Personnalisé
-            </TabsTrigger>
-          )}
         </TabsList>
 
-        {visibleDomaines.map((domaine) => (
-          <TabsContent key={domaine.id} value={domaine.id} className="space-y-6 mt-4">
-            {/* Controls bar */}
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <select
-                  value={selMonth}
-                  onChange={(e) => setSelMonth(Number(e.target.value))}
-                  className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground"
-                >
-                  {MONTH_NAMES.map((m, i) => (
-                    <option key={i + 1} value={i + 1}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={selYear}
-                  onChange={(e) => setSelYear(Number(e.target.value))}
-                  className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground"
-                >
-                  {yearOptions.map((y) => (
-                    <option key={y} value={y}>
-                      {y}
-                    </option>
-                  ))}
-                </select>
+        {visibleDomaines.map((domaine) => {
+          const domainData = getDomainData(domaine.id);
+          const monthData = domainData.filter((r) => r.date_mois === selectedDateStr);
+          const prevMonthData = domainData.filter((r) => r.date_mois === prevDateStr);
+          const definitions = getDefinitionsForDomain(domaine.id);
+          const themes = buildThemesForDomain(domaine.id);
+          const isLoading = loadingDomain === domaine.id || loadingIndicateurs;
+
+          return (
+            <TabsContent key={domaine.id} value={domaine.id} className="space-y-6 mt-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <select
+                    value={selMonth}
+                    onChange={(e) => setSelMonth(Number(e.target.value))}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+                  >
+                    {MONTH_NAMES.map((m, i) => (
+                      <option key={i + 1} value={i + 1}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={selYear}
+                    onChange={(e) => setSelYear(Number(e.target.value))}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground"
+                  >
+                    {yearOptions.map((y) => (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  {isAdmin && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1.5 text-xs"
+                      onClick={() => openCreateDialog(domaine.id)}
+                    >
+                      <PencilLine className="w-3.5 h-3.5" />
+                      Ajouter un indicateur
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 gap-1.5 text-xs"
+                    onClick={handleExportPdf}
+                    disabled={isLoading || definitions.length === 0}
+                  >
+                    <FileDown className="w-3.5 h-3.5" />
+                    Exporter PDF
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    onClick={openSaisie}
+                    disabled={isLoading || definitions.length === 0 || activeTab !== domaine.id}
+                  >
+                    <PencilLine className="w-3.5 h-3.5" />
+                    Saisir les valeurs du mois
+                  </Button>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2 ml-auto">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 gap-1.5 text-xs"
-                  onClick={handleExportPdf}
-                  disabled={loadingDomain === domaine.id}
-                >
-                  <FileDown className="w-3.5 h-3.5" />
-                  Exporter PDF
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-8 gap-1.5 text-xs"
-                  onClick={openSaisie}
-                  disabled={loadingDomain === domaine.id}
-                >
-                  <PencilLine className="w-3.5 h-3.5" />
-                  Saisir les valeurs du mois
-                </Button>
-              </div>
-            </div>
+              {isLoading && (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                </div>
+              )}
 
-            {/* Loading */}
-            {loadingDomain === domaine.id && (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-6 h-6 animate-spin text-primary" />
-              </div>
-            )}
+              {!isLoading && definitions.length === 0 && (
+                <div className="rounded-xl border border-dashed border-border py-16 text-center">
+                  <BarChart2 className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground font-medium">Aucun indicateur dans cet onglet</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {isAdmin ? 'Ajoutez un indicateur pour commencer.' : 'Aucun indicateur n\'est encore configuré.'}
+                  </p>
+                </div>
+              )}
 
-            {/* Themes */}
-            {loadingDomain !== domaine.id &&
-              domaine.themes.map((theme) => (
+              {!isLoading && definitions.length > 0 && themes.map((theme) => (
                 <div key={theme.id} className="space-y-4">
-                  {/* Theme header */}
                   <div className="flex items-center gap-2">
                     <div className="h-1 w-4 rounded-full bg-primary" />
-                    <h2 className="text-sm font-semibold text-foreground">
-                      {theme.label}
-                    </h2>
+                    <h2 className="text-sm font-semibold text-foreground">{theme.label}</h2>
                     <div className="flex-1 h-px bg-border" />
                   </div>
 
-                  {/* KPI cards */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
                     {theme.indicateurs.map((ind) => (
-                      <KpiCard
-                        key={ind.label}
+                      <ManagedKpiCard
+                        key={ind.id}
                         label={ind.label}
                         value={getValue(monthData, ind.label, selectedDateStr)}
                         prevValue={getValue(prevMonthData, ind.label, prevDateStr)}
-                        unit={ind.unit}
+                        unit={ind.unite}
                         actionCount={linkedCounts[`${domaine.id}:${ind.label}`] || 0}
                         onLinkClick={() => openLinkDialog(domaine.id, ind.label)}
+                        service={ind.service}
+                        canDelete={isAdmin}
+                        onDeleteClick={() => setDeleteTarget(ind)}
                       />
                     ))}
                   </div>
 
-                  {/* Charts grid */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {theme.indicateurs.map((ind) => {
-                      const chartData = getChartData(ind.label, domData);
+                      const chartData = getChartData(ind.label, domainData);
                       const hasData = chartData.some((d) => d.value !== null);
                       if (!hasData) return null;
                       return (
-                        <div
-                          key={ind.label}
-                          className="rounded-lg border border-border/60 bg-card p-3"
-                        >
+                        <div key={ind.id} className="rounded-lg border border-border/60 bg-card p-3">
                           <p className="text-[10px] font-medium text-muted-foreground mb-2 leading-tight">
                             {ind.label}
-                            {ind.unit ? ` (${ind.unit})` : ""}
+                            {ind.unite ? ` (${ind.unite})` : ""}
                           </p>
                           <ResponsiveContainer width="100%" height={110}>
-                            <LineChart
-                              data={chartData}
-                              margin={{ top: 4, right: 8, left: -20, bottom: 0 }}
-                            >
-                              <CartesianGrid
-                                strokeDasharray="3 3"
-                                stroke="hsl(var(--border))"
-                                strokeOpacity={0.6}
-                              />
-                              <XAxis
-                                dataKey="month"
-                                tick={{ fontSize: 9 }}
-                                tickLine={false}
-                                axisLine={false}
-                              />
-                              <YAxis
-                                tick={{ fontSize: 9 }}
-                                tickLine={false}
-                                axisLine={false}
-                                width={28}
-                              />
+                            <LineChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.6} />
+                              <XAxis dataKey="month" tick={{ fontSize: 9 }} tickLine={false} axisLine={false} />
+                              <YAxis tick={{ fontSize: 9 }} tickLine={false} axisLine={false} width={28} />
                               <Tooltip
                                 contentStyle={{
                                   fontSize: 11,
@@ -1009,9 +1202,7 @@ const IndicateursPage = () => {
                                   color: "hsl(var(--foreground))",
                                 }}
                                 formatter={(val: number | null) =>
-                                  val !== null
-                                    ? [`${val}${ind.unit || ""}`, ind.label]
-                                    : ["—", ind.label]
+                                  val !== null ? [`${val}${ind.unite || ""}`, ind.label] : ["—", ind.label]
                                 }
                               />
                               <Line
@@ -1030,112 +1221,162 @@ const IndicateursPage = () => {
                     })}
                   </div>
 
-                  {/* No chart data notice */}
-                  {domData.length > 0 &&
-                    theme.indicateurs.every(
-                      (ind) =>
-                        !getChartData(ind.label, domData).some(
-                          (d) => d.value !== null
-                        )
-                    ) && (
+                  {domainData.length > 0 &&
+                    theme.indicateurs.every((ind) => !getChartData(ind.label, domainData).some((d) => d.value !== null)) && (
                       <p className="text-xs text-muted-foreground italic">
-                        Aucune donnée historique — saisissez les valeurs du mois
-                        pour faire apparaître les graphiques.
+                        Aucune donnée historique — saisissez les valeurs du mois pour faire apparaître les graphiques.
                       </p>
                     )}
                 </div>
               ))}
-
-            {/* Initial empty state */}
-            {loadingDomain !== domaine.id && domData.length === 0 && (
-              <div className="rounded-xl border border-dashed border-border py-16 text-center">
-                <BarChart2 className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground font-medium">
-                  Aucune donnée pour ce domaine
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Cliquez sur "Saisir les valeurs du mois" pour commencer.
-                </p>
-              </div>
-            )}
-          </TabsContent>
-        ))}
-
-        {/* Tab Personnalisé */}
-        {isAdmin && (
-          <TabsContent value="personnalise" className="space-y-4 mt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-semibold">Indicateurs personnalisés</h2>
-                <p className="text-xs text-muted-foreground">Créés depuis les actions PACQ</p>
-              </div>
-              <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5" onClick={fetchCustomIndicateurs} disabled={loadingCustom}>
-                {loadingCustom ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Actualiser"}
-              </Button>
-            </div>
-
-            {loadingCustom && (
-              <div className="flex justify-center py-12">
-                <Loader2 className="w-6 h-6 animate-spin text-primary" />
-              </div>
-            )}
-
-            {!loadingCustom && customIndicateurs.length === 0 && (
-              <div className="rounded-xl border border-dashed border-border py-16 text-center">
-                <BarChart2 className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground font-medium">Aucun indicateur personnalisé</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Créez des indicateurs depuis les actions PACQ (bouton "+ Créer" sur chaque action).
-                </p>
-              </div>
-            )}
-
-            {!loadingCustom && customIndicateurs.length > 0 && (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {customIndicateurs.map((ind) => (
-                  <Card key={ind.id}>
-                    <CardContent className="p-4 space-y-1.5">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-semibold leading-snug">{ind.label}</p>
-                        <Button
-                          variant="ghost" size="icon" className="w-7 h-7 text-muted-foreground hover:text-destructive shrink-0"
-                          onClick={() => setDeletingCustomInd(ind.id)}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                      {ind.unite && <p className="text-xs text-muted-foreground">Unité : {ind.unite}</p>}
-                      {ind.valeur_cible && <p className="text-xs text-muted-foreground">Cible : {ind.valeur_cible}</p>}
-                      {ind.frequence && <p className="text-xs text-muted-foreground">Fréquence : {ind.frequence}</p>}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </TabsContent>
-        )}
+            </TabsContent>
+          );
+        })}
       </Tabs>
 
-      {/* AlertDialog — Supprimer indicateur personnalisé */}
-      <AlertDialog open={!!deletingCustomInd} onOpenChange={v => { if (!v) setDeletingCustomInd(null); }}>
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Supprimer l'indicateur ?</AlertDialogTitle>
             <AlertDialogDescription>
-              Cet indicateur et toutes ses liaisons PACQ seront définitivement supprimés.
+              <strong>{deleteTarget?.label}</strong> sera définitivement supprimé, ainsi que ses valeurs mensuelles et ses liaisons PACQ.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <AlertDialogAction onClick={deleteCustomIndicateur} className="bg-destructive hover:bg-destructive/90">
-              Supprimer
+            <AlertDialogAction
+              onClick={handleDeleteIndicator}
+              className="bg-destructive hover:bg-destructive/90"
+              disabled={deletingIndicator}
+            >
+              {deletingIndicator ? "Suppression..." : "Supprimer"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Dialog Liaisons PACQ */}
-      <Dialog open={!!linkDialog?.open} onOpenChange={v => { if (!v) { setLinkDialog(null); setLinkSearch(""); } }}>
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Ajouter un indicateur</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Onglet / domaine</Label>
+              <Select
+                value={createForm.domaine}
+                onValueChange={(value) => {
+                  const nextThemes = getThemeOptionsForDomaine(value);
+                  setCreateForm((prev) => ({
+                    ...prev,
+                    domaine: value,
+                    theme: nextThemes[0] || (value === "personnalise" ? "Indicateurs personnalisés" : ""),
+                  }));
+                }}
+              >
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Choisir un onglet" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DOMAINES_META.map((domaine) => (
+                    <SelectItem key={domaine.id} value={domaine.id} className="text-xs">
+                      {domaine.tabLabel}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Thème / catégorie</Label>
+              <Select value={createForm.theme} onValueChange={(value) => setCreateForm((prev) => ({ ...prev, theme: value }))}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Choisir un thème" />
+                </SelectTrigger>
+                <SelectContent>
+                  {getThemeOptionsForDomaine(createForm.domaine).map((theme) => (
+                    <SelectItem key={theme} value={theme} className="text-xs">
+                      {theme}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Libellé *</Label>
+              <Input
+                className="h-9 text-xs"
+                placeholder="Ex. Taux de réunions éthiques tenues"
+                value={createForm.label}
+                onChange={(e) => setCreateForm((prev) => ({ ...prev, label: e.target.value }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Unité</Label>
+                <Input
+                  className="h-9 text-xs"
+                  placeholder="Ex. %"
+                  value={createForm.unite}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, unite: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Valeur cible</Label>
+                <Input
+                  className="h-9 text-xs"
+                  placeholder="Ex. 12"
+                  value={createForm.valeur_cible}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, valeur_cible: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Fréquence</Label>
+                <Input
+                  className="h-9 text-xs"
+                  placeholder="Ex. Mensuelle"
+                  value={createForm.frequence}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, frequence: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Service interne</Label>
+                <Select
+                  value={createForm.service || "aucun"}
+                  onValueChange={(value) => setCreateForm((prev) => ({ ...prev, service: value === "aucun" ? "" : value }))}
+                >
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Aucun" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="aucun" className="text-xs">Aucun</SelectItem>
+                    {SERVICE_OPTIONS.map((service) => (
+                      <SelectItem key={service} value={service} className="text-xs">
+                        {service}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleCreateIndicator} disabled={savingCreate || !createForm.label.trim()}>
+              {savingCreate ? "Enregistrement..." : "Créer l'indicateur"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!linkDialog?.open} onOpenChange={(v) => { if (!v) { setLinkDialog(null); setLinkSearch(""); } }}>
         <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
@@ -1148,200 +1389,115 @@ const IndicateursPage = () => {
               <Loader2 className="w-5 h-5 animate-spin text-primary" />
             </div>
           ) : (() => {
-            // Actions liées (tous types confondus)
-            const linkedOp = pacqActions.filter(a => linkedActions.some(r => r.action_id === a.id && r.action_type === 'operationnel'));
-            const linkedSt = pacqStrategiqeActions.filter(a => linkedActions.some(r => r.action_id === a.id && r.action_type === 'strategique'));
+            const linkedOp = pacqActions.filter((a) => linkedActions.some((r) => r.action_id === a.id && r.action_type === "operationnel"));
+            const linkedSt = pacqStrategiqeActions.filter((a) => linkedActions.some((r) => r.action_id === a.id && r.action_type === "strategique"));
             const hasLinked = linkedOp.length > 0 || linkedSt.length > 0;
-
-            // Actions non liées, filtrées par recherche
             const q = linkSearch.toLowerCase();
             const unlinkedOp = pacqActions
-              .filter(a => !linkedActions.some(r => r.action_id === a.id && r.action_type === 'operationnel'))
-              .filter(a => !q || a.titre.toLowerCase().includes(q));
+              .filter((a) => !linkedActions.some((r) => r.action_id === a.id && r.action_type === "operationnel"))
+              .filter((a) => !q || a.titre.toLowerCase().includes(q));
             const unlinkedSt = pacqStrategiqeActions
-              .filter(a => !linkedActions.some(r => r.action_id === a.id && r.action_type === 'strategique'))
-              .filter(a => !q || (a.intitule || '').toLowerCase().includes(q));
+              .filter((a) => !linkedActions.some((r) => r.action_id === a.id && r.action_type === "strategique"))
+              .filter((a) => !q || (a.intitule || "").toLowerCase().includes(q));
 
             return (
-              <div className="flex flex-col gap-3 min-h-0">
-                {/* Recherche */}
+              <>
                 <Input
                   placeholder="Rechercher une action..."
                   value={linkSearch}
-                  onChange={e => setLinkSearch(e.target.value)}
-                  className="h-8 text-xs"
+                  onChange={(e) => setLinkSearch(e.target.value)}
+                  className="text-xs"
                 />
+                <ScrollArea className="mt-3 h-[55vh] pr-3">
+                  <div className="space-y-4">
+                    {hasLinked && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Déjà liées</p>
+                        {[...linkedOp.map((a) => ({ id: a.id, title: a.titre, type: "operationnel" as const })), ...linkedSt.map((a) => ({ id: a.id, title: a.intitule || "Action stratégique", type: "strategique" as const }))].map((action) => (
+                          <div key={`${action.type}-${action.id}`} className="flex items-center justify-between rounded-lg border p-2">
+                            <p className="text-xs font-medium">{action.title}</p>
+                            <Button variant="ghost" size="sm" onClick={() => toggleLink(action.id, action.type)}>
+                              <X className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
-                <div className="max-h-96 overflow-y-auto space-y-4 pr-1">
-                  {/* Actions liées */}
-                  {hasLinked && (
-                    <div className="space-y-1.5">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70 px-1">
-                        Actions liées ({linkedOp.length + linkedSt.length})
-                      </p>
-                      {linkedOp.map(action => (
-                        <div key={action.id} className="flex items-center gap-2 rounded-lg border border-primary bg-primary/5 px-3 py-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium leading-tight truncate">{action.titre}</p>
-                            <p className="text-[10px] text-muted-foreground mt-0.5">Opérationnel · {action.statut} · {action.priorite}</p>
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">PACQ opérationnel</p>
+                      {unlinkedOp.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Aucune action disponible.</p>
+                      ) : unlinkedOp.map((action) => (
+                        <div key={action.id} className="flex items-center justify-between rounded-lg border p-2">
+                          <div>
+                            <p className="text-xs font-medium">{action.titre}</p>
+                            <p className="text-[10px] text-muted-foreground">{action.priorite} · {action.statut}</p>
                           </div>
-                          <button onClick={() => toggleLink(action.id, 'operationnel')} className="shrink-0 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                      {linkedSt.map(action => (
-                        <div key={action.id} className="flex items-center gap-2 rounded-lg border border-primary bg-primary/5 px-3 py-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium leading-tight truncate">{action.intitule || '—'}</p>
-                            <p className="text-[10px] text-muted-foreground mt-0.5">Stratégique · {action.avancement || 'Non initié'} · {action.priorite || 'Normale'}</p>
-                          </div>
-                          <button onClick={() => toggleLink(action.id, 'strategique')} className="shrink-0 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
+                          <Button size="sm" variant="outline" onClick={() => toggleLink(action.id, "operationnel")}>
+                            Lier
+                          </Button>
                         </div>
                       ))}
                     </div>
-                  )}
 
-                  {/* Ajouter une liaison */}
-                  <div className="space-y-1.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70 px-1">
-                      Ajouter une liaison
-                    </p>
-
-                    {/* Opérationnel */}
-                    {unlinkedOp.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-[10px] text-muted-foreground/60 px-1 italic">PACQ Opérationnel</p>
-                        {unlinkedOp.map(action => (
-                          <button
-                            key={action.id}
-                            onClick={() => toggleLink(action.id, 'operationnel')}
-                            className="w-full text-left rounded-lg border border-border bg-background hover:border-primary/40 px-3 py-2 transition-all flex items-start justify-between gap-2"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium leading-tight truncate">{action.titre}</p>
-                              <p className="text-[10px] text-muted-foreground mt-0.5">{action.statut} · {action.priorite}</p>
-                            </div>
-                            <span className="text-[10px] shrink-0 mt-0.5 font-medium text-muted-foreground">+ Lier</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Stratégique */}
-                    {unlinkedSt.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-[10px] text-muted-foreground/60 px-1 italic">PACQ Stratégique</p>
-                        {unlinkedSt.map(action => (
-                          <button
-                            key={action.id}
-                            onClick={() => toggleLink(action.id, 'strategique')}
-                            className="w-full text-left rounded-lg border border-border bg-background hover:border-primary/40 px-3 py-2 transition-all flex items-start justify-between gap-2"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium leading-tight truncate">{action.intitule || '—'}</p>
-                              <p className="text-[10px] text-muted-foreground mt-0.5">{action.avancement || 'Non initié'} · {action.priorite || 'Normale'}</p>
-                            </div>
-                            <span className="text-[10px] shrink-0 mt-0.5 font-medium text-muted-foreground">+ Lier</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {unlinkedOp.length === 0 && unlinkedSt.length === 0 && (
-                      <p className="text-xs text-muted-foreground text-center py-3">
-                        {q ? 'Aucune action ne correspond à la recherche.' : 'Toutes les actions disponibles sont déjà liées.'}
-                      </p>
-                    )}
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">PACQ stratégique</p>
+                      {unlinkedSt.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Aucune action disponible.</p>
+                      ) : unlinkedSt.map((action) => (
+                        <div key={action.id} className="flex items-center justify-between rounded-lg border p-2">
+                          <div>
+                            <p className="text-xs font-medium">{action.intitule || "Action stratégique"}</p>
+                            <p className="text-[10px] text-muted-foreground">{action.priorite || "—"} · {action.avancement || "—"}</p>
+                          </div>
+                          <Button size="sm" variant="outline" onClick={() => toggleLink(action.id, "strategique")}>
+                            Lier
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              </div>
+                </ScrollArea>
+              </>
             );
           })()}
-          <DialogFooter>
-            <Button size="sm" variant="outline" onClick={() => setLinkDialog(null)}>Fermer</Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Saisie modal */}
       <Dialog open={saisieOpen} onOpenChange={setSaisieOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0">
-          <DialogHeader className="px-6 pt-5 pb-3 border-b border-border shrink-0">
-            <DialogTitle className="text-base flex items-center gap-2">
-              <PencilLine className="w-4 h-4 text-primary" />
-              {activeDomaine?.label} —{" "}
-              {format(new Date(selYear, selMonth - 1, 1), "MMMM yyyy", {
-                locale: fr,
-              })}
-            </DialogTitle>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Saisissez les valeurs pour chaque indicateur. Laissez vide si la
-              donnée n'est pas disponible.
-            </p>
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Saisir les valeurs du mois</DialogTitle>
           </DialogHeader>
-
-          <ScrollArea className="flex-1 px-6 py-4">
-            <div className="space-y-6">
-              {activeDomaine?.themes.map((theme) => (
+          <ScrollArea className="flex-1 pr-3">
+            <div className="space-y-5 pb-2">
+              {activeThemes.map((theme) => (
                 <div key={theme.id} className="space-y-3">
                   <div className="flex items-center gap-2">
-                    <div className="h-0.5 w-3 rounded-full bg-primary" />
-                    <h3 className="text-xs font-bold text-foreground uppercase tracking-wide">
-                      {theme.label}
-                    </h3>
+                    <div className="h-1 w-4 rounded-full bg-primary" />
+                    <h3 className="text-sm font-semibold">{theme.label}</h3>
+                    <div className="flex-1 h-px bg-border" />
                   </div>
-                  <div className="space-y-2 pl-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {theme.indicateurs.map((ind) => {
-                      if (ind.calculated) {
-                        // Show computed read-only
-                        return (
-                          <div
-                            key={ind.label}
-                            className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-3 py-2"
-                          >
-                            <Label className="text-xs text-muted-foreground flex-1 leading-tight">
-                              {ind.label}{" "}
-                              <span className="text-[9px] text-primary ml-1">
-                                (calculé auto)
-                              </span>
-                            </Label>
-                            <span className="text-sm font-bold text-primary w-20 text-right">
-                              {locauxRatio !== null
-                                ? `${locauxRatio}%`
-                                : "—"}
-                            </span>
-                          </div>
-                        );
-                      }
+                      const isCalculated = activeTab === "locaux" && ind.label === "Ratio prévu/effectués (%)";
                       return (
-                        <div
-                          key={ind.label}
-                          className="flex items-center gap-3"
-                        >
-                          <Label className="text-xs text-muted-foreground flex-1 leading-tight">
-                            {ind.label}
-                            {ind.unit && (
-                              <span className="text-[9px] ml-1 text-muted-foreground/60">
-                                ({ind.unit})
-                              </span>
-                            )}
-                          </Label>
+                        <div key={ind.id} className="space-y-1.5 rounded-lg border p-3">
+                          <Label className="text-xs leading-snug">{ind.label}</Label>
                           <Input
                             type="number"
                             step="any"
-                            value={saisieValues[ind.label] ?? ""}
-                            onChange={(e) =>
-                              setSaisieValues((prev) => ({
-                                ...prev,
-                                [ind.label]: e.target.value,
-                              }))
-                            }
-                            className="w-24 h-7 text-xs text-right shrink-0"
-                            placeholder="—"
+                            inputMode="decimal"
+                            disabled={isCalculated}
+                            value={isCalculated ? (locauxRatio ?? "") : (saisieValues[ind.label] || "")}
+                            onChange={(e) => setSaisieValues((prev) => ({ ...prev, [ind.label]: e.target.value }))}
+                            placeholder={ind.unite ? `Valeur (${ind.unite})` : "Valeur"}
                           />
+                          <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                            <span>{ind.unite ? `Unité : ${ind.unite}` : "Sans unité"}</span>
+                            {ind.valeur_cible && <span>Cible : {ind.valeur_cible}</span>}
+                          </div>
                         </div>
                       );
                     })}
@@ -1350,14 +1506,8 @@ const IndicateursPage = () => {
               ))}
             </div>
           </ScrollArea>
-
-          <DialogFooter className="px-6 py-4 border-t border-border shrink-0">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setSaisieOpen(false)}
-              disabled={saving}
-            >
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setSaisieOpen(false)} disabled={saving}>
               Annuler
             </Button>
             <Button size="sm" onClick={handleSave} disabled={saving} className="gap-1.5">

@@ -42,6 +42,24 @@ type ActionCorrective = {
 };
 
 const SERVICES = ["Administration", "Cuisine", "Technique", "Lingerie", "Animation", "Soins/Hôtellerie", "Entretien"];
+const INDICATEUR_DOMAINES = [
+  { value: "animation", label: "Animation" },
+  { value: "ergo", label: "Ergothérapie" },
+  { value: "locaux", label: "Locaux" },
+  { value: "psy", label: "Psychologue" },
+  { value: "medecin", label: "Médecin co." },
+  { value: "rh_admin", label: "RH & Admin" },
+  { value: "personnalise", label: "Personnalisé" },
+] as const;
+const INDICATEUR_THEME_PAR_DOMAINE: Record<string, string> = {
+  animation: "Activités & Animations",
+  ergo: "Prise en charge non médicamenteuse",
+  locaux: "Conditions d'accueil",
+  psy: "Entretiens & bilans",
+  medecin: "Antibiothérapie",
+  rh_admin: "Qualité & gestion",
+  personnalise: "Indicateurs personnalisés",
+};
 
 const SOURCES_ACTION = [
   "Enquête de satisfaction", "Avis", "Plainte et réclamation", "Groupe de travail",
@@ -118,8 +136,16 @@ export default function PlanActionsCorrectives() {
   const [deleting, setDeleting] = useState(false);
   const [linkedIndicateurs, setLinkedIndicateurs] = useState<{id: string; indicateur_domaine: string; indicateur_label: string}[]>([]);
   const [allIndicateursMap, setAllIndicateursMap] = useState<Record<string, {id: string; indicateur_domaine: string; indicateur_label: string}[]>>({});
-  const [createIndDialog, setCreateIndDialog] = useState<{ actionId: string; actionTitre: string } | null>(null);
-  const [createIndForm, setCreateIndForm] = useState({ label: "", unite: "", valeur_cible: "", frequence: "" });
+  const [createIndDialog, setCreateIndDialog] = useState<{ actionId: string; actionTitre: string; actionService?: string | null } | null>(null);
+  const [createIndForm, setCreateIndForm] = useState({
+    domaine: "personnalise",
+    theme: "Indicateurs personnalisés",
+    label: "",
+    unite: "",
+    valeur_cible: "",
+    frequence: "",
+    service: "",
+  });
   const [savingInd, setSavingInd] = useState(false);
   const [unlinkIndConfirm, setUnlinkIndConfirm] = useState<{ linkId: string; label: string } | null>(null);
   const [deleteIndConfirm, setDeleteIndConfirm] = useState<{ linkId: string; label: string } | null>(null);
@@ -174,10 +200,27 @@ export default function PlanActionsCorrectives() {
   };
 
   const deleteIndicateur = async (linkId: string, label: string) => {
+    const link = (Object.values(allIndicateursMap).flat() as {id: string; indicateur_domaine: string; indicateur_label: string}[]).find((item) => item.id === linkId);
     await supabase.from("indicateurs_actions").delete().eq("id", linkId);
-    const { error } = await supabase.from("indicateurs").delete()
-      .eq("domaine", "Personnalisé").eq("label", label);
-    if (error) { toast.error("Erreur : " + error.message); return; }
+
+    if (link) {
+      await supabase.from("indicateurs_actions")
+        .delete()
+        .eq("indicateur_domaine", link.indicateur_domaine)
+        .eq("indicateur_label", label);
+
+      await supabase.from("indicateurs_valeurs")
+        .delete()
+        .eq("domaine", link.indicateur_domaine)
+        .eq("indicateur", label);
+
+      const { error } = await supabase.from("indicateurs")
+        .delete()
+        .eq("domaine", link.indicateur_domaine)
+        .eq("label", label);
+      if (error) { toast.error("Erreur : " + error.message); return; }
+    }
+
     toast.success("Indicateur supprimé");
     setDeleteIndConfirm(null);
     fetchAllIndicateursMap();
@@ -186,24 +229,75 @@ export default function PlanActionsCorrectives() {
   const handleCreateIndicateur = async () => {
     if (!createIndDialog || !createIndForm.label.trim()) return;
     setSavingInd(true);
-    const { error: indErr } = await supabase.from("indicateurs").insert({
-      domaine: "Personnalisé",
-      label: createIndForm.label.trim(),
-      unite: createIndForm.unite || null,
-      valeur_cible: createIndForm.valeur_cible || null,
-      frequence: createIndForm.frequence || null,
-    });
-    if (indErr) { toast.error("Erreur : " + indErr.message); setSavingInd(false); return; }
+
+    const domaine = createIndForm.domaine || "personnalise";
+    const theme = createIndForm.theme.trim() || INDICATEUR_THEME_PAR_DOMAINE[domaine] || "Indicateurs personnalisés";
+    const label = createIndForm.label.trim();
+
+    const { data: existingIndicateur, error: existingError } = await supabase
+      .from("indicateurs")
+      .select("id")
+      .eq("domaine", domaine)
+      .eq("label", label)
+      .maybeSingle();
+
+    if (existingError) {
+      toast.error("Erreur : " + existingError.message);
+      setSavingInd(false);
+      return;
+    }
+
+    let indicateurId = existingIndicateur?.id as string | undefined;
+
+    if (!indicateurId) {
+      const { data: insertedIndicateur, error: indErr } = await supabase
+        .from("indicateurs")
+        .insert({
+          domaine,
+          theme,
+          label,
+          unite: createIndForm.unite || null,
+          valeur_cible: createIndForm.valeur_cible || null,
+          frequence: createIndForm.frequence || null,
+          service: createIndForm.service || createIndDialog.actionService || null,
+        })
+        .select("id")
+        .single();
+
+      if (indErr) {
+        toast.error("Erreur : " + indErr.message);
+        setSavingInd(false);
+        return;
+      }
+
+      indicateurId = insertedIndicateur.id;
+    }
+
     const { error: linkErr } = await supabase.from("indicateurs_actions").insert({
-      indicateur_domaine: "Personnalisé",
-      indicateur_label: createIndForm.label.trim(),
+      indicateur_id: indicateurId,
+      indicateur_domaine: domaine,
+      indicateur_label: label,
       action_id: createIndDialog.actionId,
       action_type: "operationnel",
     });
-    if (linkErr) { toast.error("Erreur liaison : " + linkErr.message); setSavingInd(false); return; }
-    toast.success("Indicateur créé et lié");
+
+    if (linkErr && !linkErr.message.toLowerCase().includes("duplicate")) {
+      toast.error("Erreur liaison : " + linkErr.message);
+      setSavingInd(false);
+      return;
+    }
+
+    toast.success(existingIndicateur ? "Indicateur lié à l'action" : "Indicateur créé et lié");
     setCreateIndDialog(null);
-    setCreateIndForm({ label: "", unite: "", valeur_cible: "", frequence: "" });
+    setCreateIndForm({
+      domaine: "personnalise",
+      theme: "Indicateurs personnalisés",
+      label: "",
+      unite: "",
+      valeur_cible: "",
+      frequence: "",
+      service: "",
+    });
     setSavingInd(false);
     fetchAllIndicateursMap();
   };
@@ -560,7 +654,18 @@ export default function PlanActionsCorrectives() {
                           ))}
                           {isAdmin && (
                             <button
-                              onClick={() => { setCreateIndDialog({ actionId: action.id, actionTitre: action.titre }); setCreateIndForm({ label: "", unite: "", valeur_cible: "", frequence: "" }); }}
+                              onClick={() => {
+                                setCreateIndDialog({ actionId: action.id, actionTitre: action.titre, actionService: action.service });
+                                setCreateIndForm({
+                                  domaine: "personnalise",
+                                  theme: "Indicateurs personnalisés",
+                                  label: "",
+                                  unite: "",
+                                  valeur_cible: "",
+                                  frequence: "",
+                                  service: action.service || "",
+                                });
+                              }}
                               className="flex items-center gap-0.5 text-[10px] text-primary hover:text-primary/70 transition-colors"
                             >
                               <Plus className="w-3 h-3" /> Créer indicateur
@@ -791,6 +896,58 @@ export default function PlanActionsCorrectives() {
             )}
           </DialogHeader>
           <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Onglet / domaine d'affichage</Label>
+                <Select
+                  value={createIndForm.domaine}
+                  onValueChange={(value) => setCreateIndForm((f) => ({
+                    ...f,
+                    domaine: value,
+                    theme: INDICATEUR_THEME_PAR_DOMAINE[value] || f.theme,
+                  }))}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Choisir un onglet" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {INDICATEUR_DOMAINES.map((d) => (
+                      <SelectItem key={d.value} value={d.value} className="text-xs">
+                        {d.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Service opérationnel</Label>
+                <Select
+                  value={createIndForm.service || "aucun"}
+                  onValueChange={(value) => setCreateIndForm((f) => ({ ...f, service: value === "aucun" ? "" : value }))}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Aucun service" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="aucun" className="text-xs">Aucun service</SelectItem>
+                    {SERVICES.map((service) => (
+                      <SelectItem key={service} value={service} className="text-xs">
+                        {service}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Thème / catégorie</Label>
+              <Input
+                className="h-8 text-xs"
+                placeholder="ex. Qualité & gestion"
+                value={createIndForm.theme}
+                onChange={e => setCreateIndForm(f => ({ ...f, theme: e.target.value }))}
+              />
+            </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Libellé *</Label>
               <Input className="h-8 text-xs" placeholder="ex. Taux de chutes avec blessure"
