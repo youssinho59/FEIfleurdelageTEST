@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import jsPDF from 'jspdf';
 import { useAuditTerrain } from '@/hooks/useAuditTerrain';
 import { useAuditComplet } from '@/hooks/useAuditComplet';
 import { AUDIT_VALEURS, AuditValeur } from '@/types';
@@ -11,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Plus, Trash2, ClipboardList, BarChart3, FileText, Sparkles, ArrowRight, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, ClipboardList, BarChart3, FileText, Sparkles, ArrowRight, ChevronRight, FileDown, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { supabase } from '@/integrations/supabase/client';
@@ -57,8 +58,9 @@ export function AuditTerrain({ auditId, onClose }: Props) {
   const [comparatifAuditIds, setComparatifAuditIds] = useState<string[]>([auditId]);
   const [comparatifStats, setComparatifStats] = useState<Record<string, {pourcentage_global: number; criteres: Record<string, number>}>>({});
   const [loadingComparatif, setLoadingComparatif] = useState(false);
-  const [iaComparatif, setIaComparatif] = useState<{constat: string; propositions: Array<{titre: string; description: string; priorite: string}>} | null>(null);
+  const [iaComparatifTexte, setIaComparatifTexte] = useState<string | null>(null);
   const [loadingIAComparatif, setLoadingIAComparatif] = useState(false);
+  const [savingIAComparatif, setSavingIAComparatif] = useState(false);
 
   const handleAddCritere = async () => {
     if (!nouveauCritere.trim()) return;
@@ -254,6 +256,236 @@ export function AuditTerrain({ auditId, onClose }: Props) {
     URL.revokeObjectURL(url);
   };
 
+  // ── Export PDF ────────────────────────────────────────────────────────────────
+  const genererPdfAudit = () => {
+    const TC: [number, number, number] = [196, 107, 72];
+    const DARK: [number, number, number] = [41, 37, 33];
+    const MUTED_C: [number, number, number] = [140, 130, 120];
+    const BORDER_C: [number, number, number] = [220, 210, 200];
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const pageW = 210, pageH = 297, margin = 14, cW = pageW - margin * 2;
+    let y = 0;
+    let pageNum = 1;
+    const fmt = (d?: string | null) => d ? (() => { const dt = new Date(d); return isNaN(dt.getTime()) ? d : dt.toLocaleDateString('fr-FR'); })() : '—';
+    const footerText = `EHPAD La Fleur de l'Âge — Confidentiel — Audit ${audit?.titre || ''} — ${fmt(audit?.date_audit || audit?.date_fin)}`;
+
+    const addFooter = () => {
+      doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(...MUTED_C);
+      doc.text(footerText, margin, pageH - 6);
+      doc.text(`Page ${pageNum}`, pageW - margin - 10, pageH - 6, { align: 'right' });
+    };
+
+    const addPage = () => { doc.addPage(); pageNum++; y = 20; addFooter(); };
+
+    const checkY = (need: number) => { if (y + need > pageH - 15) addPage(); };
+
+    const sectionTitle = (title: string) => {
+      checkY(14);
+      doc.setFillColor(...TC); doc.rect(margin, y, cW, 8, 'F');
+      doc.setTextColor(255, 255, 255); doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+      doc.text(title, margin + 3, y + 5.5);
+      doc.setTextColor(...DARK); y += 12;
+    };
+
+    const labelValue = (label: string, value: string, lw = 42) => {
+      checkY(7);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...MUTED_C);
+      doc.text(label + ' :', margin, y);
+      const lines = doc.splitTextToSize(value || '—', cW - lw);
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(...DARK);
+      doc.text(lines, margin + lw, y);
+      y += Math.max(6, lines.length * 4.5);
+    };
+
+    // ── PAGE DE GARDE ───────────────────────────────────────────────────────────
+    doc.setFillColor(...TC); doc.rect(0, 0, pageW, 48, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(20); doc.setFont('helvetica', 'bold'); doc.text("EHPAD La Fleur de l'Âge", margin, 18);
+    doc.setFontSize(13); doc.text(`Rapport d'Audit — ${audit?.titre || ''}`, margin, 30);
+    doc.setFontSize(10); doc.setFont('helvetica', 'normal');
+    if (audit?.intitule) doc.text(audit.intitule, margin, 40);
+    addFooter(); y = 56;
+
+    const lieux = [audit?.lieu_pasa && 'PASA', audit?.lieu_rdc && 'RDC', audit?.lieu_etage && 'Étage', audit?.lieu_temporaire && 'Temporaire'].filter(Boolean).join(', ');
+    const echTypes = [audit?.echantillon_residents && 'Résidents', audit?.echantillon_professionnels && 'Professionnels', audit?.echantillon_partenaires && 'Partenaires'].filter(Boolean).join(', ');
+    const refs = [audit?.ref_has && 'HAS', audit?.ref_interne && 'Interne', audit?.ref_reglementation && 'Réglementation', audit?.ref_autres && (audit.ref_autres_detail || 'Autres')].filter(Boolean).join(' / ');
+
+    [['Date', fmt(audit?.date_audit || audit?.date_fin || audit?.date_debut)],
+     ['Auditeur', audit?.qui || audit?.auditeur || '—'],
+     ['Service', audit?.service || '—'],
+     ['Thème', audit?.theme || '—'],
+     ['Statut', audit?.statut || '—'],
+     ['Fréquence', audit?.frequence || '—'],
+     ...(lieux ? [['Lieux', lieux]] : []),
+     ...(audit?.nombre_echantillon ? [['Échantillon', `${audit.nombre_echantillon} personne(s)${echTypes ? ' (' + echTypes + ')' : ''}`]] : []),
+     ...(refs ? [['Références', refs]] : []),
+    ].forEach(([k, v]) => labelValue(String(k), String(v)));
+
+    // ── SECTION 1 — SAISIE TERRAIN ─────────────────────────────────────────────
+    addPage();
+    sectionTitle('SECTION 1 — SAISIE TERRAIN');
+
+    const colW = [10, 28, 24, 13, 42, 28, 37];
+    const colHeaders = ['N°', 'Agent', 'Service', 'Heure', 'Critère', 'Valeur', 'Commentaire'];
+    doc.setFillColor(...BORDER_C);
+    doc.rect(margin, y, cW, 6, 'F');
+    doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(...DARK);
+    let cx = margin;
+    colHeaders.forEach((h, i) => { doc.text(h, cx + 1, y + 4.5); cx += colW[i]; });
+    y += 6;
+
+    let rowIdx = 0;
+    observations.forEach((obs, obsIdx) => {
+      const resultats = obs.resultats || [];
+      criteres.forEach(crit => {
+        const r = resultats.find(rr => rr.critere_id === crit.id);
+        const vDef = AUDIT_VALEURS.find(v => v.value === (r?.valeur || 'non_evalue'));
+        const valLabel = vDef ? vDef.label : (r?.valeur || '—');
+        const comm = r?.commentaire || obs.commentaire_global || '';
+        const commLines = doc.splitTextToSize(comm.slice(0, 100), colW[6] - 2);
+        const rH = Math.max(5.5, commLines.length * 4 + 1.5);
+        checkY(rH);
+        if (rowIdx % 2 === 1) { doc.setFillColor(250, 248, 246); doc.rect(margin, y, cW, rH, 'F'); }
+        cx = margin;
+        doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(...DARK);
+        doc.text(String(obsIdx + 1), cx + 1, y + 4); cx += colW[0];
+        doc.text((obs.nom_agent || '—').slice(0, 18), cx + 1, y + 4); cx += colW[1];
+        doc.text((obs.service || '—').slice(0, 16), cx + 1, y + 4); cx += colW[2];
+        doc.text(obs.heure_observation || '—', cx + 1, y + 4); cx += colW[3];
+        doc.text(crit.intitule.slice(0, 30), cx + 1, y + 4); cx += colW[4];
+        doc.text(valLabel.slice(0, 18), cx + 1, y + 4); cx += colW[5];
+        if (commLines.length > 0) doc.text(commLines, cx + 1, y + 4);
+        doc.setDrawColor(...BORDER_C); doc.line(margin, y + rH, margin + cW, y + rH);
+        y += rH; rowIdx++;
+      });
+    });
+
+    y += 4; checkY(10);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...TC);
+    doc.text(`Conformité globale : ${pourcentageGlobal}% (${totalConformes} conformes sur ${totalEvalue} évalués)`, margin, y);
+    y += 10;
+
+    // ── SECTION 2 — CONSOLIDATION ──────────────────────────────────────────────
+    sectionTitle('SECTION 2 — CONSOLIDATION');
+
+    const textBlock = (label: string, value?: string | null) => {
+      if (!value) return;
+      checkY(12);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...MUTED_C);
+      doc.text(label + ' :', margin, y); y += 5;
+      const lines = doc.splitTextToSize(value, cW);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...DARK);
+      const chunk = lines.slice(0, 30);
+      chunk.forEach((line: string) => { checkY(5); doc.text(line, margin, y); y += 4.5; });
+      y += 3;
+    };
+
+    textBlock('Points forts', audit?.points_forts);
+    textBlock("Points d'amélioration", audit?.points_amelioration);
+    textBlock('Observations générales', audit?.observations as string | undefined);
+    textBlock('Constat IA', audit?.constat_ia);
+
+    if (audit?.propositions_ia && Array.isArray(audit.propositions_ia) && (audit.propositions_ia as unknown[]).length > 0) {
+      checkY(10);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...MUTED_C);
+      doc.text('Propositions IA :', margin, y); y += 5;
+      (audit.propositions_ia as Array<{titre: string; description: string; priorite: string}>).forEach((p, i) => {
+        checkY(12);
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...DARK);
+        doc.text(`${i + 1}. ${p.titre} [${p.priorite}]`, margin + 3, y); y += 4.5;
+        const dl = doc.splitTextToSize(p.description, cW - 8);
+        doc.setFont('helvetica', 'normal');
+        dl.slice(0, 4).forEach((l: string) => { checkY(5); doc.text(l, margin + 6, y); y += 4.5; });
+        y += 1;
+      });
+    }
+
+    // ── SECTION 3 — COMPARATIF ─────────────────────────────────────────────────
+    if (comparatifAuditIds.length >= 2 && Object.keys(comparatifStats).length > 0) {
+      addPage();
+      sectionTitle('SECTION 3 — COMPARATIF');
+      const precedentId = comparatifAuditIds.find(id => id !== auditId);
+      if (precedentId) {
+        const precedentAudit = availableAudits.find(x => x.id === precedentId);
+        const actPct = comparatifStats[auditId]?.pourcentage_global ?? 0;
+        const prevPct = comparatifStats[precedentId]?.pourcentage_global ?? 0;
+        const diff = actPct - prevPct;
+        checkY(10);
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...MUTED_C);
+        doc.text('Évolution conformité globale :', margin, y);
+        doc.setTextColor(diff >= 0 ? 34 : 239, diff >= 0 ? 197 : 68, diff >= 0 ? 94 : 68);
+        doc.text(`${prevPct}% → ${actPct}% (${diff >= 0 ? '+' : ''}${diff} pts)`, margin + 66, y);
+        doc.setTextColor(...DARK); y += 8;
+
+        const prevDateLabel = fmt(precedentAudit?.date_fin || precedentAudit?.date_debut || precedentAudit?.date_audit);
+        doc.setFillColor(...BORDER_C); doc.rect(margin, y, cW, 6, 'F');
+        doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(...DARK);
+        doc.text('Critère', margin + 1, y + 4.5);
+        doc.text('Résultat actuel', margin + 90, y + 4.5);
+        doc.text(`Précédent (${prevDateLabel})`, margin + 130, y + 4.5);
+        y += 6;
+
+        const allCrits = [...new Set([...Object.keys(comparatifStats[auditId]?.criteres || {}), ...Object.keys(comparatifStats[precedentId]?.criteres || {})])];
+        allCrits.forEach((crit, idx) => {
+          checkY(6);
+          const ap = comparatifStats[auditId]?.criteres?.[crit];
+          const pp = comparatifStats[precedentId]?.criteres?.[crit];
+          if (idx % 2 === 1) { doc.setFillColor(250, 248, 246); doc.rect(margin, y, cW, 6, 'F'); }
+          doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(...DARK);
+          doc.text(crit.slice(0, 48), margin + 1, y + 4);
+          const ac: [number, number, number] = ap === undefined ? [...MUTED_C] : ap >= 80 ? [34, 197, 94] : ap >= 60 ? [245, 158, 11] : [239, 68, 68];
+          doc.setTextColor(...ac); doc.text(ap !== undefined ? `${ap}%` : '—', margin + 90, y + 4);
+          const pc: [number, number, number] = pp === undefined ? [...MUTED_C] : pp >= 80 ? [34, 197, 94] : pp >= 60 ? [245, 158, 11] : [239, 68, 68];
+          doc.setTextColor(...pc); doc.text(pp !== undefined ? `${pp}%` : '—', margin + 130, y + 4);
+          doc.setTextColor(...DARK); doc.setDrawColor(...BORDER_C); doc.line(margin, y + 6, margin + cW, y + 6);
+          y += 6;
+        });
+        y += 4;
+      }
+
+      const rapportIA = iaComparatifTexte || audit?.rapport_ia;
+      if (rapportIA) {
+        checkY(12);
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...MUTED_C);
+        doc.text('Analyse IA comparative :', margin, y); y += 5;
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...DARK);
+        const lines = doc.splitTextToSize(rapportIA, cW);
+        lines.forEach((l: string) => { checkY(5); doc.text(l, margin, y); y += 4.5; });
+      }
+    }
+
+    // ── SECTION 4 — RAPPORT & COMMUNICATION ───────────────────────────────────
+    addPage();
+    sectionTitle('SECTION 4 — RAPPORT & COMMUNICATION');
+
+    labelValue('Rédacteur', `${audit?.redacteur_nom || '—'} — ${audit?.redacteur_fonction || '—'}`);
+    labelValue('Date de génération', new Date().toLocaleDateString('fr-FR'));
+    labelValue('Prochain audit', fmt(audit?.date_prochain_audit));
+
+    y += 3;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...MUTED_C);
+    doc.text('Communication prévue :', margin, y); y += 5;
+
+    const comms = [
+      audit?.comm_encadrement && `Encadrement${audit.comm_encadrement_date ? ' — ' + fmt(audit.comm_encadrement_date) : ''}`,
+      audit?.comm_cvs && 'CVS',
+      audit?.comm_cse && 'CSE',
+      audit?.comm_codir && 'CODIR',
+      audit?.comm_autres && (audit.comm_autres_detail || 'Autres'),
+    ].filter(Boolean) as string[];
+
+    if (comms.length > 0) {
+      comms.forEach(c => { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...DARK); doc.text(`• ${c}`, margin + 4, y); y += 5; });
+    } else {
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(...MUTED_C);
+      doc.text('Non renseigné', margin + 4, y); y += 5;
+    }
+
+    const safeTitre = (audit?.titre || 'audit').replace(/[^\w\-]/g, '_');
+    const safeDate = (audit?.date_audit || audit?.date_fin || new Date().toISOString()).split('T')[0];
+    doc.save(`Rapport_Audit_${safeTitre}_${safeDate}.pdf`);
+  };
+
   // ── Comparatif ───────────────────────────────────────────────────────────────
   const loadComparatifData = async (auditIds: string[]) => {
     if (auditIds.length === 0) return;
@@ -328,7 +560,12 @@ export function AuditTerrain({ auditId, onClose }: Props) {
             {observations.length} observation{observations.length > 1 ? 's' : ''} · {criteres.length} critère{criteres.length > 1 ? 's' : ''}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={onClose}>← Retour</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={genererPdfAudit}>
+            <FileDown className="w-3.5 h-3.5" /> Exporter PDF
+          </Button>
+          <Button variant="outline" size="sm" onClick={onClose}>← Retour</Button>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -823,22 +1060,37 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                           size="sm" variant="outline" className="gap-1 h-7 text-xs"
                           disabled={loadingIAComparatif}
                           onClick={async () => {
+                            const precedentId = comparatifAuditIds.find(id => id !== auditId);
+                            if (!precedentId) { toast.error('Sélectionnez au moins 2 audits pour comparer'); return; }
                             setLoadingIAComparatif(true);
                             try {
-                              const auditsData = comparatifAuditIds.map(aid => {
-                                const a = availableAudits.find(x => x.id === aid);
-                                return {
-                                  titre: a?.intitule || a?.titre || 'Audit',
-                                  date: a?.date_fin || a?.date_debut || a?.date_audit || a?.created_at || null,
-                                  pourcentage_global: comparatifStats[aid]?.pourcentage_global ?? 0,
-                                  criteres: Object.entries(comparatifStats[aid]?.criteres || {}).map(([intitule, pourcentage]) => ({ intitule, pourcentage })),
-                                };
-                              });
+                              const actuelAudit = availableAudits.find(x => x.id === auditId);
+                              const precedentAudit = availableAudits.find(x => x.id === precedentId);
+                              const actuelStats = comparatifStats[auditId];
+                              const precedentStats = comparatifStats[precedentId];
                               const { data, error } = await supabase.functions.invoke('suggest-actions', {
-                                body: { context_type: 'comparatif_audit', data: { theme: auditThemeLabel, audits: auditsData } },
+                                body: {
+                                  context_type: 'audit_comparatif',
+                                  data: {
+                                    audit_actuel: {
+                                      titre: actuelAudit?.intitule || actuelAudit?.titre || audit?.titre || '',
+                                      date_audit: actuelAudit?.date_fin || actuelAudit?.date_debut || actuelAudit?.date_audit || '',
+                                      service: audit?.service || '',
+                                      observations: Object.entries(actuelStats?.criteres || {}).map(([critere, pourcentage]) => ({ critere, pourcentage })),
+                                    },
+                                    audit_precedent: {
+                                      titre: precedentAudit?.intitule || precedentAudit?.titre || '',
+                                      date_audit: precedentAudit?.date_fin || precedentAudit?.date_debut || precedentAudit?.date_audit || '',
+                                      service: audit?.service || '',
+                                      observations: Object.entries(precedentStats?.criteres || {}).map(([critere, pourcentage]) => ({ critere, pourcentage })),
+                                    },
+                                    conformite_actuelle: actuelStats?.pourcentage_global ?? 0,
+                                    conformite_precedente: precedentStats?.pourcentage_global ?? 0,
+                                  },
+                                },
                               });
                               if (error) throw error;
-                              setIaComparatif(data);
+                              setIaComparatifTexte(data?.analyse || '');
                             } catch (e: unknown) {
                               toast.error('Erreur IA : ' + ((e as Error)?.message || 'inconnue'));
                             } finally { setLoadingIAComparatif(false); }
@@ -849,18 +1101,32 @@ export function AuditTerrain({ auditId, onClose }: Props) {
                         </Button>
                       </CardTitle>
                     </CardHeader>
-                    {iaComparatif && (
+                    {(iaComparatifTexte || audit?.rapport_ia) && (
                       <CardContent className="space-y-3">
-                        <div className="bg-blue-50 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap">{iaComparatif.constat}</div>
-                        {iaComparatif.propositions?.map((p, i) => (
-                          <div key={i} className="border rounded-lg p-3">
-                            <p className="text-xs font-medium">{p.titre}</p>
-                            <p className="text-xs text-gray-500 mt-0.5">{p.description}</p>
-                            <Badge className={`mt-1 text-xs ${p.priorite === 'haute' ? 'bg-red-100 text-red-700' : p.priorite === 'moyenne' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
-                              {p.priorite}
-                            </Badge>
-                          </div>
-                        ))}
+                        <div className="bg-blue-50 rounded-lg p-3 text-xs text-gray-700 space-y-2">
+                          {(iaComparatifTexte || audit?.rapport_ia || '').split('\n').filter(Boolean).map((para, i) => (
+                            <p key={i}>{para}</p>
+                          ))}
+                        </div>
+                        {iaComparatifTexte && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5 h-7 text-xs w-full"
+                            disabled={savingIAComparatif}
+                            onClick={async () => {
+                              setSavingIAComparatif(true);
+                              try {
+                                await saveAudit({ rapport_ia: iaComparatifTexte, rapport_genere_le: new Date().toISOString() });
+                                toast.success('Analyse sauvegardée ✅');
+                              } catch { toast.error('Erreur sauvegarde'); }
+                              finally { setSavingIAComparatif(false); }
+                            }}
+                          >
+                            <Save className="w-3 h-3" />
+                            {savingIAComparatif ? 'Sauvegarde...' : 'Sauvegarder l\'analyse'}
+                          </Button>
+                        )}
                       </CardContent>
                     )}
                   </Card>
