@@ -83,6 +83,15 @@ type ValeurRecord = {
   valeur: number | null;
 };
 
+type DbDomaine = {
+  slug: string;
+  label: string;
+  ordre: number;
+  is_system: boolean;
+  acces_roles: string[];
+  created_by: string | null;
+};
+
 // ── Access map ────────────────────────────────────────────────────────────────
 
 const DOMAINE_ACCESS: Record<string, string[]> = {
@@ -524,20 +533,57 @@ const ManagedKpiCard = ({
   );
 };
 
+const ROLE_OPTIONS = [
+  "admin", "animatrice", "ergothérapeute", "psychologue", "médecin",
+  "hôtellerie", "IDE", "aide-soignant", "AS", "ASH",
+];
+
 const IndicateursPage = () => {
-  const { isAdmin, userServices } = useAuth();
+  const { isAdmin, userServices, user } = useAuth();
   const [searchParams] = useSearchParams();
 
-  const visibleDomaines = useMemo(() => {
-    if (isAdmin) return DOMAINES_META;
-    return DOMAINES.filter((d) => {
-      const allowed = DOMAINE_ACCESS[d.id] || [];
-      if (allowed.length === 0) return false;
-      return userServices.some((s) =>
-        allowed.some((a) => a.toLowerCase() === s.toLowerCase())
-      );
-    });
-  }, [isAdmin, userServices]);
+  const [dbDomaines, setDbDomaines] = useState<DbDomaine[]>([]);
+  const [addDomainOpen, setAddDomainOpen] = useState(false);
+  const [addDomainForm, setAddDomainForm] = useState({ label: "", acces_roles: ["admin"] });
+  const [addingDomain, setAddingDomain] = useState(false);
+  const [deleteDomainTarget, setDeleteDomainTarget] = useState<DbDomaine | null>(null);
+  const [deletingDomain, setDeletingDomain] = useState(false);
+
+  const fetchDomaines = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("indicateurs_domaines")
+      .select("*")
+      .order("ordre", { ascending: true });
+    if (!error && data) setDbDomaines(data as DbDomaine[]);
+  }, []);
+
+  useEffect(() => { fetchDomaines(); }, [fetchDomaines]);
+
+  const visibleDomaines = useMemo((): DomaineDef[] => {
+    if (dbDomaines.length === 0) return [];
+    return dbDomaines
+      .filter((d) => {
+        if (isAdmin) return true;
+        if (d.is_system) {
+          const allowed = DOMAINE_ACCESS[d.slug] || [];
+          if (allowed.length === 0) return false;
+          return userServices.some((s) =>
+            allowed.some((a) => a.toLowerCase() === s.toLowerCase())
+          );
+        } else {
+          const allowed = d.acces_roles || [];
+          if (allowed.length === 0 || (allowed.length === 1 && allowed[0] === "admin")) return false;
+          return userServices.some((s) =>
+            allowed.some((a) => a.toLowerCase() === s.toLowerCase())
+          );
+        }
+      })
+      .map((d) => {
+        const systemDef = DOMAINES_META.find((sd) => sd.id === d.slug);
+        if (systemDef) return systemDef;
+        return { id: d.slug, label: d.label, tabLabel: d.label, themes: [] };
+      });
+  }, [dbDomaines, isAdmin, userServices]);
 
   const [activeTab, setActiveTab] = useState<string>("");
   const [allIndicateurs, setAllIndicateurs] = useState<DbIndicateur[]>([]);
@@ -893,7 +939,58 @@ const IndicateursPage = () => {
 
   const activeDefinitions = useMemo(() => getDefinitionsForDomain(activeTab), [activeTab, getDefinitionsForDomain]);
   const activeThemes = useMemo(() => buildThemesForDomain(activeTab), [activeTab, buildThemesForDomain]);
-  const activeDomaine = useMemo(() => DOMAINES_META.find((d) => d.id === activeTab) || null, [activeTab]);
+  const activeDomaine = useMemo(() => visibleDomaines.find((d) => d.id === activeTab) || null, [activeTab, visibleDomaines]);
+
+  const handleAddDomain = async () => {
+    if (!addDomainForm.label.trim()) return;
+    setAddingDomain(true);
+    try {
+      const slug = addDomainForm.label
+        .toLowerCase()
+        .replace(/\s+/g, "_")
+        .replace(/[^a-z0-9_]/g, "");
+      const maxOrdre = dbDomaines.reduce((m, d) => Math.max(m, d.ordre), 0);
+      const { error } = await supabase.from("indicateurs_domaines").insert({
+        slug,
+        label: addDomainForm.label.trim(),
+        ordre: maxOrdre + 1,
+        is_system: false,
+        acces_roles: addDomainForm.acces_roles,
+        created_by: user?.id || null,
+      });
+      if (error) throw error;
+      toast.success(`Domaine "${addDomainForm.label.trim()}" créé`);
+      setAddDomainOpen(false);
+      setAddDomainForm({ label: "", acces_roles: ["admin"] });
+      await fetchDomaines();
+    } catch (error: unknown) {
+      const msg = (error as { message?: string })?.message || String(error);
+      toast.error("Erreur création domaine : " + msg);
+    } finally {
+      setAddingDomain(false);
+    }
+  };
+
+  const handleDeleteDomain = async () => {
+    if (!deleteDomainTarget) return;
+    setDeletingDomain(true);
+    try {
+      const { error } = await supabase
+        .from("indicateurs_domaines")
+        .delete()
+        .eq("slug", deleteDomainTarget.slug);
+      if (error) throw error;
+      toast.success(`Domaine "${deleteDomainTarget.label}" supprimé`);
+      setDeleteDomainTarget(null);
+      if (activeTab === deleteDomainTarget.slug) setActiveTab("");
+      await fetchDomaines();
+    } catch (error: unknown) {
+      const msg = (error as { message?: string })?.message || String(error);
+      toast.error("Erreur suppression domaine : " + msg);
+    } finally {
+      setDeletingDomain(false);
+    }
+  };
 
   const openSaisie = useCallback(() => {
     if (!activeTab || activeDefinitions.length === 0) return;
@@ -1059,11 +1156,32 @@ const IndicateursPage = () => {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/40 p-1">
-          {visibleDomaines.map((d) => (
-            <TabsTrigger key={d.id} value={d.id} className="text-xs">
-              {d.tabLabel}
-            </TabsTrigger>
-          ))}
+          {visibleDomaines.map((d) => {
+            const dbDom = dbDomaines.find((db) => db.slug === d.id);
+            const isCustom = dbDom ? !dbDom.is_system : false;
+            return (
+              <TabsTrigger key={d.id} value={d.id} className="text-xs relative pr-5">
+                {d.tabLabel}
+                {isCustom && isAdmin && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeleteDomainTarget(dbDom!); }}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </TabsTrigger>
+            );
+          })}
+          {isAdmin && (
+            <button
+              onClick={() => setAddDomainOpen(true)}
+              className="flex items-center justify-center h-7 w-7 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="Ajouter un domaine"
+            >
+              <span className="text-base leading-none">+</span>
+            </button>
+          )}
         </TabsList>
 
         {visibleDomaines.map((domaine) => {
@@ -1073,6 +1191,8 @@ const IndicateursPage = () => {
           const definitions = getDefinitionsForDomain(domaine.id);
           const themes = buildThemesForDomain(domaine.id);
           const isLoading = loadingDomain === domaine.id || loadingIndicateurs;
+          const dbDom = dbDomaines.find((db) => db.slug === domaine.id);
+          const isCustomDomain = dbDom ? !dbDom.is_system : false;
 
           return (
             <TabsContent key={domaine.id} value={domaine.id} className="space-y-6 mt-4">
@@ -1103,7 +1223,7 @@ const IndicateursPage = () => {
                 </div>
 
                 <div className="ml-auto flex flex-wrap items-center gap-2">
-                  {isAdmin && (
+                  {(isAdmin || isCustomDomain) && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -1278,7 +1398,7 @@ const IndicateursPage = () => {
                   <SelectValue placeholder="Choisir un onglet" />
                 </SelectTrigger>
                 <SelectContent>
-                  {DOMAINES_META.map((domaine) => (
+                  {visibleDomaines.map((domaine) => (
                     <SelectItem key={domaine.id} value={domaine.id} className="text-xs">
                       {domaine.tabLabel}
                     </SelectItem>
@@ -1464,6 +1584,85 @@ const IndicateursPage = () => {
           })()}
         </DialogContent>
       </Dialog>
+
+      {/* Dialog création domaine personnalisé */}
+      <Dialog open={addDomainOpen} onOpenChange={(v) => { if (!v) { setAddDomainOpen(false); setAddDomainForm({ label: "", acces_roles: ["admin"] }); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Nouveau domaine</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Nom du domaine *</Label>
+              <Input
+                className="h-9 text-xs"
+                placeholder="Ex. Kinésithérapie"
+                value={addDomainForm.label}
+                onChange={(e) => setAddDomainForm((p) => ({ ...p, label: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Accès (rôles/services)</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {ROLE_OPTIONS.map((role) => {
+                  const checked = addDomainForm.acces_roles.includes(role);
+                  return (
+                    <button
+                      key={role}
+                      type="button"
+                      onClick={() =>
+                        setAddDomainForm((p) => ({
+                          ...p,
+                          acces_roles: checked
+                            ? p.acces_roles.filter((r) => r !== role)
+                            : [...p.acces_roles, role],
+                        }))
+                      }
+                      className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                        checked
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-muted text-muted-foreground border-border"
+                      }`}
+                    >
+                      {role}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddDomainOpen(false)}>
+              Annuler
+            </Button>
+            <Button onClick={handleAddDomain} disabled={addingDomain || !addDomainForm.label.trim()}>
+              {addingDomain ? "Création..." : "Créer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AlertDialog suppression domaine personnalisé */}
+      <AlertDialog open={!!deleteDomainTarget} onOpenChange={(v) => { if (!v) setDeleteDomainTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer le domaine {deleteDomainTarget?.label} ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Les indicateurs saisis seront conservés en base. Seul l'onglet sera supprimé.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingDomain}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteDomain}
+              disabled={deletingDomain}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {deletingDomain ? "Suppression..." : "Supprimer"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={saisieOpen} onOpenChange={setSaisieOpen}>
         <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">

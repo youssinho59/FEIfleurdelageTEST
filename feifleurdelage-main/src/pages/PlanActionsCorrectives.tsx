@@ -323,7 +323,10 @@ export default function PlanActionsCorrectives() {
         .from("indicateurs_actions")
         .insert({
           indicateur_id: indicateurId,
+          indicateur_domaine: domaine,
+          indicateur_label: libelle,
           action_id: createIndDialog.actionId,
+          action_type: "operationnel",
         });
 
       if (linkErr) {
@@ -331,14 +334,34 @@ export default function PlanActionsCorrectives() {
           await supabase.from("indicateurs").delete().eq("id", indicateurId);
         }
 
-        if (linkErr.message.toLowerCase().includes("duplicate") || String(linkErr.code) === "23505") {
+        if (String(linkErr.code) === "23505" || linkErr.message.toLowerCase().includes("duplicate")) {
           toast.info("Cet indicateur est déjà lié à cette action");
         } else {
+          console.error("Erreur liaison indicateurs_actions :", linkErr);
           toast.error("Erreur liaison : " + linkErr.message);
         }
 
         setSavingInd(false);
         return;
+      }
+
+      // Créer une valeur initiale (null) pour le mois courant dans indicateurs_valeurs
+      const now = new Date();
+      const dateMois = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      const { error: valErr } = await supabase
+        .from("indicateurs_valeurs")
+        .insert({
+          domaine,
+          theme: categorie,
+          indicateur: libelle,
+          date_mois: dateMois,
+          valeur: null,
+          action_corrective_id: createIndDialog.actionId,
+        });
+
+      if (valErr && String(valErr.code) !== "23505") {
+        // Ignorer les doublons (indicateur déjà saisi ce mois) — loguer les autres
+        console.error("Erreur insert indicateurs_valeurs :", valErr);
       }
 
       toast.success(createdNow ? "Indicateur créé et lié" : "Indicateur lié à l'action");
@@ -353,8 +376,10 @@ export default function PlanActionsCorrectives() {
         service: "",
       });
       fetchAllIndicateursMap();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Erreur inconnue";
+    } catch (error: unknown) {
+      const supaErr = error as { message?: string; details?: string };
+      const message = supaErr?.message || String(error) || "Erreur inconnue";
+      console.error("Erreur handleCreateIndicateur :", error);
       toast.error("Erreur : " + message);
     } finally {
       setSavingInd(false);
