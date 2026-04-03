@@ -479,7 +479,7 @@ export default function CartographieRisquesPage() {
     const echeance = new Date();
     echeance.setDate(echeance.getDate() + 90);
     const { error } = await supabase.from("actions_correctives").insert({
-      titre: r.intitule_risque,
+      titre: "[CARTO] " + r.intitule_risque,
       description: r.proposition_amelioration || r.descriptif || "",
       responsable: "À définir",
       date_echeance: echeance.toISOString().split("T")[0],

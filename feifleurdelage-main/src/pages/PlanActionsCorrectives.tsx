@@ -155,7 +155,7 @@ export default function PlanActionsCorrectives() {
     frequence: "",
     service: "",
   });
-  const [viewMode, setViewMode] = useState<"services" | "sources">("services");
+  const [sourceTab, setSourceTab] = useState<string>("Toutes");
   const [savingInd, setSavingInd] = useState(false);
   const [unlinkIndConfirm, setUnlinkIndConfirm] = useState<{ linkId: string; label: string } | null>(null);
   const [deleteIndConfirm, setDeleteIndConfirm] = useState<{ linkId: string; label: string } | null>(null);
@@ -393,20 +393,26 @@ export default function PlanActionsCorrectives() {
       if (filterService === "sans" && a.service) return false;
       if (filterService !== "sans" && a.service !== filterService) return false;
     }
-    if (filterSource !== "tous") {
-      if (filterSource === "sans" && a.source) return false;
-      if (filterSource !== "sans" && a.source !== filterSource) return false;
-    }
     return true;
   });
 
-  // Sources dynamiques présentes dans les données
-  const sourcesPresentes = Array.from(new Set(actions.map(a => a.source).filter(Boolean) as string[])).sort();
+  const SOURCE_TABS = [
+    "Toutes", "FEI", "DUERP", "Cartographie des risques",
+    "Enquête de satisfaction", "Plainte & Réclamation", "Avis",
+    "Audit interne", "Instance (CVS, CA...)", "Groupe de travail",
+    "Autre", "Sans source",
+  ];
+
+  const filteredByTab = sourceTab === "Toutes"
+    ? filtered
+    : sourceTab === "Sans source"
+      ? filtered.filter(a => !a.source)
+      : filtered.filter(a => a.source === sourceTab);
 
   // Groupement par service
   const serviceGroups: { service: string | null; actions: ActionCorrective[] }[] = [];
   const serviceMap = new Map<string, ActionCorrective[]>();
-  filtered.forEach(a => {
+  filteredByTab.forEach(a => {
     const key = a.service || "";
     if (!serviceMap.has(key)) serviceMap.set(key, []);
     serviceMap.get(key)!.push(a);
@@ -418,25 +424,6 @@ export default function PlanActionsCorrectives() {
     return a.localeCompare(b, "fr");
   });
   keys.forEach(k => serviceGroups.push({ service: k || null, actions: serviceMap.get(k)! }));
-
-  const ALL_SOURCES_ORDER = [
-    "Cartographie des risques", "Enquête de satisfaction", "Avis",
-    "Plainte et réclamation", "Groupe de travail", "Audit interne",
-    "Instance (CVS, CA...)", "FEI", "Autre",
-  ];
-
-  const sourceGroups: { source: string | null; actions: ActionCorrective[] }[] = [];
-  const sourceMap = new Map<string, ActionCorrective[]>();
-  filtered.forEach(a => {
-    const key = a.source || "";
-    if (!sourceMap.has(key)) sourceMap.set(key, []);
-    sourceMap.get(key)!.push(a);
-  });
-  // Sources connues en premier dans l'ordre défini, puis inconnues, puis "Sans source"
-  const knownKeys = ALL_SOURCES_ORDER.filter(s => sourceMap.has(s));
-  const unknownKeys = Array.from(sourceMap.keys()).filter(k => k !== "" && !ALL_SOURCES_ORDER.includes(k)).sort();
-  [...knownKeys, ...unknownKeys].forEach(k => sourceGroups.push({ source: k, actions: sourceMap.get(k)! }));
-  if (sourceMap.has("")) sourceGroups.push({ source: null, actions: sourceMap.get("")! });
 
   const toggleComments = (id: string) =>
     setExpandedComments(prev => {
@@ -625,39 +612,38 @@ export default function PlanActionsCorrectives() {
             <SelectItem value="sans">Sans service</SelectItem>
           </SelectContent>
         </Select>
-        {sourcesPresentes.length > 0 && (
-          <Select value={filterSource} onValueChange={setFilterSource}>
-            <SelectTrigger className="w-44 h-8 text-xs"><SelectValue placeholder="Toutes les sources" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="tous">Toutes les sources</SelectItem>
-              {sourcesPresentes.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              <SelectItem value="sans">Sans source</SelectItem>
-            </SelectContent>
-          </Select>
-        )}
-        {(filterStatut !== "tous" || filterPriorite !== "toutes" || filterResponsable !== "tous" || filterService !== "tous" || filterSource !== "tous") && (
+        {(filterStatut !== "tous" || filterPriorite !== "toutes" || filterResponsable !== "tous" || filterService !== "tous") && (
           <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground"
-            onClick={() => { setFilterStatut("tous"); setFilterPriorite("toutes"); setFilterResponsable("tous"); setFilterService("tous"); setFilterSource("tous"); }}>
+            onClick={() => { setFilterStatut("tous"); setFilterPriorite("toutes"); setFilterResponsable("tous"); setFilterService("tous"); }}>
             Réinitialiser
           </Button>
         )}
-        <span className="ml-auto text-xs text-muted-foreground">{filtered.length} action{filtered.length > 1 ? "s" : ""}</span>
+        <span className="ml-auto text-xs text-muted-foreground">{filteredByTab.length} action{filteredByTab.length > 1 ? "s" : ""}</span>
       </motion.div>
 
-      {/* Toggle vue */}
-      <div className="flex items-center gap-1 p-1 bg-muted/40 rounded-lg w-fit">
-        <button
-          onClick={() => setViewMode("services")}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${viewMode === "services" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          Par services
-        </button>
-        <button
-          onClick={() => setViewMode("sources")}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${viewMode === "sources" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          Par sources
-        </button>
+      {/* Onglets sources */}
+      <div className="flex gap-1 flex-wrap border-b border-border pb-0">
+        {SOURCE_TABS.map(tab => {
+          const count = tab === "Toutes"
+            ? filtered.length
+            : tab === "Sans source"
+              ? filtered.filter(a => !a.source).length
+              : filtered.filter(a => a.source === tab).length;
+          return (
+            <button
+              key={tab}
+              onClick={() => setSourceTab(tab)}
+              className={`px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+                sourceTab === tab
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tab}
+              {count > 0 && <span className="ml-1.5 text-[10px] opacity-60">{count}</span>}
+            </button>
+          );
+        })}
       </div>
 
       {/* Liste */}
@@ -671,12 +657,10 @@ export default function PlanActionsCorrectives() {
         </div>
       ) : (
         <motion.div variants={container} initial="hidden" animate="show" className="space-y-6">
-          {(viewMode === "services" ? serviceGroups : sourceGroups).map(({ service: groupKey, actions: groupActions } as { service: string | null; actions: ActionCorrective[] }) => {
+          {serviceGroups.map(({ service: groupKey, actions: groupActions }) => {
             const groupDone = groupActions.filter(a => a.statut === "realisee" || a.statut === "evaluee").length;
             const groupPct = groupActions.length > 0 ? Math.round((groupDone / groupActions.length) * 100) : 0;
-            const groupLabel = viewMode === "services"
-              ? (groupKey ?? "Sans service")
-              : (groupKey ?? "Sans source");
+            const groupLabel = groupKey ?? "Sans service";
             return (
               <div key={groupKey ?? "__sans__"} className="space-y-3">
                 {/* En-tête groupe */}

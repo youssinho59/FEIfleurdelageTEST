@@ -180,7 +180,8 @@ const itemVariant = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, t
 export default function DuerpPage() {
   const { user, isAdmin, isResponsable } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<"versions" | "risques" | "par_unite">("versions");
+  const [activeTab, setActiveTab] = useState<"versions" | "risques">("versions");
+  const [uniteFilter, setUniteFilter] = useState<string>("Tous");
   const [exportingPdf, setExportingPdf] = useState(false);
   const [versions, setVersions] = useState<DuerpVersion[]>([]);
   const [risques, setRisques] = useState<DuerpRisque[]>([]);
@@ -267,6 +268,11 @@ export default function DuerpPage() {
 
   const risquesVersionCritiques = risquesVersion.filter(r => (r.criticite ?? 0) > 8).length;
   const risquesVersionEnTraitement = risquesVersion.filter(r => r.statut === "en_traitement").length;
+
+  const unites = Array.from(new Set(risquesVersion.map(r => r.unite_travail))).sort((a, b) => a.localeCompare(b, "fr"));
+  const risquesVersionFiltered = uniteFilter === "Tous" ? risquesVersion : risquesVersion.filter(r => r.unite_travail === uniteFilter);
+  const risquesFilteredCritiques = risquesVersionFiltered.filter(r => (r.criticite ?? 0) > 8).length;
+  const risquesFilteredEnTraitement = risquesVersionFiltered.filter(r => r.statut === "en_traitement").length;
 
   // ── Version handlers ───────────────────────────────────────────────────────
 
@@ -437,13 +443,13 @@ export default function DuerpPage() {
     const { data: actionData, error: actionError } = await supabase
       .from("actions_correctives")
       .insert({
-        titre: pacqTitre.trim(),
+        titre: "[DUERP] " + pacqTitre.trim(),
         description: `Issu du DUERP — Unité de travail : ${pacqRisque.unite_travail}. Situation dangereuse : ${pacqRisque.situation_dangereuse}`,
         responsable: "À définir",
         date_echeance: echeance,
         priorite: pacqRisque.priorite === "critique" ? "haute" : pacqRisque.priorite === "haute" ? "haute" : "moyenne",
         statut: "a_faire",
-        source: "Cartographie des risques",
+        source: "DUERP",
         user_id: user.id,
       })
       .select("id")
@@ -835,7 +841,7 @@ export default function DuerpPage() {
 
       {/* Onglets */}
       <div className="flex gap-2 border-b border-border">
-        {(["versions", "risques", "par_unite"] as const).map(tab => (
+        {(["versions", "risques"] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -845,7 +851,7 @@ export default function DuerpPage() {
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
-            {tab === "versions" ? "Versions DUERP" : tab === "risques" ? "Évaluation des risques" : "Par unité de travail"}
+            {tab === "versions" ? "Versions DUERP" : "Évaluation des risques"}
           </button>
         ))}
       </div>
@@ -996,13 +1002,35 @@ export default function DuerpPage() {
               )}
             </div>
 
+            {/* Sous-onglets par unité de travail */}
+            {selectedVersionId && risquesVersion.length > 0 && (
+              <div className="flex gap-1 flex-wrap border-b border-border pb-0">
+                {["Tous", ...unites].map(u => (
+                  <button
+                    key={u}
+                    onClick={() => setUniteFilter(u)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-t-md transition-colors border-b-2 -mb-px ${
+                      uniteFilter === u
+                        ? "border-primary text-primary bg-primary/5"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {u}
+                    <span className="ml-1.5 text-[10px] opacity-60">
+                      {u === "Tous" ? risquesVersion.length : risquesVersion.filter(r => r.unite_travail === u).length}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* KPI locaux */}
             {selectedVersionId && (
               <div className="grid grid-cols-3 gap-3">
                 {[
-                  { label: "Risques", value: risquesVersion.length, color: "text-foreground" },
-                  { label: "Critiques", value: risquesVersionCritiques, color: "text-red-600" },
-                  { label: "En traitement", value: risquesVersionEnTraitement, color: "text-blue-600" },
+                  { label: "Risques", value: risquesVersionFiltered.length, color: "text-foreground" },
+                  { label: "Critiques", value: risquesFilteredCritiques, color: "text-red-600" },
+                  { label: "En traitement", value: risquesFilteredEnTraitement, color: "text-blue-600" },
                 ].map(kpi => (
                   <div key={kpi.label} className="rounded-xl border border-border bg-card px-4 py-3 text-center">
                     <p className={`text-2xl font-display font-bold ${kpi.color}`}>{kpi.value}</p>
@@ -1022,7 +1050,7 @@ export default function DuerpPage() {
               <div className="flex justify-center py-16">
                 <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
               </div>
-            ) : risquesVersion.length === 0 ? (
+            ) : risquesVersionFiltered.length === 0 ? (
               <div className="text-center py-16 text-muted-foreground space-y-3">
                 <ShieldAlert className="w-12 h-12 mx-auto opacity-20" />
                 <p className="font-medium">Aucun risque pour cette version</p>
@@ -1030,7 +1058,7 @@ export default function DuerpPage() {
               </div>
             ) : (
               <motion.div variants={container} initial="hidden" animate="show" className="space-y-3">
-                {risquesVersion.map(r => {
+                {risquesVersionFiltered.map(r => {
                   const critBadge = getCriticiteBadge(r.criticite);
                   const statutConfig = RISQUE_STATUT_CONFIG[r.statut];
                   const prio = PRIORITE_RISQUE_CONFIG[r.priorite];
@@ -1114,153 +1142,6 @@ export default function DuerpPage() {
           </motion.div>
         )}
 
-        {/* ─── Onglet Par unité de travail ────────────────────────────────────── */}
-        {activeTab === "par_unite" && (
-          <motion.div key="par_unite" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="space-y-4">
-
-            {/* Sélecteur de version */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <div className="flex-1 max-w-xs">
-                <Select
-                  value={selectedVersionId || ""}
-                  onValueChange={v => setSelectedVersionId(v || null)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner une version DUERP" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {versions.map(v => (
-                      <SelectItem key={v.id} value={v.id}>
-                        {v.annee} — {v.titre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {!selectedVersionId ? (
-              <div className="text-center py-16 text-muted-foreground space-y-3">
-                <Shield className="w-12 h-12 mx-auto opacity-20" />
-                <p className="font-medium">Aucune version sélectionnée</p>
-                <p className="text-sm">Sélectionnez une version pour afficher les risques par unité.</p>
-              </div>
-            ) : loadingRisques ? (
-              <div className="flex justify-center py-16">
-                <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
-              </div>
-            ) : risquesVersion.length === 0 ? (
-              <div className="text-center py-16 text-muted-foreground space-y-3">
-                <ShieldAlert className="w-12 h-12 mx-auto opacity-20" />
-                <p className="font-medium">Aucun risque dans cette version</p>
-              </div>
-            ) : (() => {
-              // Group by unite_travail
-              const grouped: Record<string, DuerpRisque[]> = {};
-              for (const r of risquesVersion) {
-                if (!grouped[r.unite_travail]) grouped[r.unite_travail] = [];
-                grouped[r.unite_travail].push(r);
-              }
-              return (
-                <div className="space-y-6">
-                  {Object.entries(grouped).map(([unite, unitRisques]) => {
-                    const maxCrit = Math.max(...unitRisques.map(r => r.criticite ?? 0));
-                    const critBadgeColor = maxCrit > 8
-                      ? "bg-red-100 text-red-700"
-                      : maxCrit >= 5
-                        ? "bg-amber-100 text-amber-700"
-                        : "bg-emerald-100 text-emerald-700";
-                    const nbCritiques = unitRisques.filter(r => (r.criticite ?? 0) > 8).length;
-                    const nbEnTraitement = unitRisques.filter(r => r.statut === "en_traitement").length;
-
-                    return (
-                      <div key={unite} className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-                        {/* Header */}
-                        <div className="flex flex-wrap items-center gap-3 px-5 py-3 bg-muted/40 border-b border-border">
-                          <h3 className="font-bold text-foreground text-sm">{unite}</h3>
-                          <span className="text-xs bg-muted rounded-full px-2 py-0.5 text-muted-foreground">
-                            {unitRisques.length} risque{unitRisques.length > 1 ? "s" : ""}
-                          </span>
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${critBadgeColor}`}>
-                            Criticité max : {maxCrit > 0 ? maxCrit : "N/A"}
-                          </span>
-                        </div>
-
-                        {/* Scrollable table */}
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-xs">
-                            <thead>
-                              <tr className="bg-muted/20 text-muted-foreground">
-                                <th className="px-3 py-2 text-left font-semibold w-8 whitespace-nowrap">N°</th>
-                                <th className="px-3 py-2 text-left font-semibold min-w-[160px]">Situation dangereuse</th>
-                                <th className="px-3 py-2 text-left font-semibold min-w-[120px]">Dangers</th>
-                                <th className="px-3 py-2 text-left font-semibold min-w-[100px]">P. exposées</th>
-                                <th className="px-3 py-2 text-center font-semibold w-12">Prob.</th>
-                                <th className="px-3 py-2 text-center font-semibold w-12">Grav.</th>
-                                <th className="px-3 py-2 text-center font-semibold w-16">Criticité</th>
-                                <th className="px-3 py-2 text-left font-semibold min-w-[130px]">Mesures existantes</th>
-                                <th className="px-3 py-2 text-left font-semibold min-w-[130px]">Mesures proposées</th>
-                                <th className="px-3 py-2 text-center font-semibold w-20">Priorité</th>
-                                <th className="px-3 py-2 text-center font-semibold w-24">Statut</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {unitRisques.map((r, idx) => {
-                                const crit = r.criticite;
-                                const critColor = crit === null
-                                  ? "bg-slate-100 text-slate-600"
-                                  : crit > 8
-                                    ? "bg-red-100 text-red-700"
-                                    : crit >= 5
-                                      ? "bg-amber-100 text-amber-700"
-                                      : "bg-emerald-100 text-emerald-700";
-                                const prio = PRIORITE_RISQUE_CONFIG[r.priorite];
-                                const statut = RISQUE_STATUT_CONFIG[r.statut];
-                                return (
-                                  <tr key={r.id} className={`border-t border-border/40 ${idx % 2 === 1 ? "bg-muted/10" : ""}`}>
-                                    <td className="px-3 py-2 text-center font-medium text-muted-foreground">{idx + 1}</td>
-                                    <td className="px-3 py-2 font-medium text-foreground">{r.situation_dangereuse}</td>
-                                    <td className="px-3 py-2 text-muted-foreground">{r.dangers ?? "—"}</td>
-                                    <td className="px-3 py-2 text-muted-foreground">{r.personnes_exposees ?? "—"}</td>
-                                    <td className="px-3 py-2 text-center">{r.probabilite !== null ? r.probabilite : "—"}</td>
-                                    <td className="px-3 py-2 text-center">{r.gravite !== null ? r.gravite : "—"}</td>
-                                    <td className="px-3 py-2 text-center">
-                                      <span className={`inline-block px-2 py-0.5 rounded font-bold ${critColor}`}>
-                                        {crit !== null ? crit : "N/A"}
-                                      </span>
-                                    </td>
-                                    <td className="px-3 py-2 text-muted-foreground">{r.mesures_existantes ?? "—"}</td>
-                                    <td className="px-3 py-2 text-muted-foreground">{r.mesures_proposees ?? "—"}</td>
-                                    <td className="px-3 py-2 text-center">
-                                      <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${prio.color}`}>{prio.label}</span>
-                                    </td>
-                                    <td className="px-3 py-2 text-center">
-                                      <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${statut.color}`}>{statut.label}</span>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* Footer KPIs */}
-                        <div className="flex gap-4 px-5 py-2.5 border-t border-border/40 bg-muted/10 text-xs text-muted-foreground">
-                          <span>
-                            <span className="font-semibold text-red-600">{nbCritiques}</span> critique{nbCritiques !== 1 ? "s" : ""}
-                          </span>
-                          <span>
-                            <span className="font-semibold text-blue-600">{nbEnTraitement}</span> en traitement
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-          </motion.div>
-        )}
       </AnimatePresence>
 
       {/* ─── Dialog Version ────────────────────────────────────────────────────── */}
