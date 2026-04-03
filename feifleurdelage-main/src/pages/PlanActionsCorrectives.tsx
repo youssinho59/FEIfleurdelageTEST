@@ -138,8 +138,8 @@ export default function PlanActionsCorrectives() {
   linkId: string;
   actionId: string;
   indicateurId: string;
-  onglet: string;
-  libelle: string;
+  domaine: string;
+  label: string;
   service: string | null;
 };
 
@@ -191,50 +191,33 @@ export default function PlanActionsCorrectives() {
   const fetchAllIndicateursMap = async () => {
     const { data: links, error: linksError } = await supabase
       .from("indicateurs_actions")
-      .select("id, action_id, indicateur_id");
+      .select("id, action_id, indicateur_id, indicateurs(id, domaine, label, service)");
 
     if (linksError) {
       toast.error("Erreur chargement indicateurs liés : " + linksError.message);
       return;
     }
 
-    const typedLinks = (links || []) as { id: string; action_id: string; indicateur_id: string }[];
-    const indicateurIds = Array.from(new Set(typedLinks.map((l) => l.indicateur_id).filter(Boolean)));
-
-    if (indicateurIds.length === 0) {
-      setAllIndicateursMap({});
-      return;
-    }
-
-    const { data: indicateursData, error: indicateursError } = await supabase
-      .from("indicateurs")
-      .select("id, onglet, libelle, service")
-      .in("id", indicateurIds);
-
-    if (indicateursError) {
-      toast.error("Erreur chargement indicateurs : " + indicateursError.message);
-      return;
-    }
-
-    const indicateursById = new Map(
-      ((indicateursData || []) as { id: string; onglet: string; libelle: string; service: string | null }[]).map((ind) => [ind.id, ind])
-    );
+    type RawLink = {
+      id: string;
+      action_id: string;
+      indicateur_id: string;
+      indicateurs: { id: string; domaine: string; label: string; service: string | null } | null;
+    };
 
     const map: Record<string, LinkedIndicateur[]> = {};
 
-    typedLinks.forEach((link) => {
-      const indicateur = indicateursById.get(link.indicateur_id);
-      if (!indicateur) return;
-
+    ((links || []) as RawLink[]).forEach((link) => {
+      const ind = link.indicateurs;
+      if (!ind) return;
       const item: LinkedIndicateur = {
         linkId: link.id,
         actionId: link.action_id,
         indicateurId: link.indicateur_id,
-        onglet: indicateur.onglet || "Personnalisé",
-        libelle: indicateur.libelle || "Indicateur",
-        service: indicateur.service || null,
+        domaine: ind.domaine || "personnalise",
+        label: ind.label || "Indicateur",
+        service: ind.service || null,
       };
-
       (map[link.action_id] = map[link.action_id] || []).push(item);
     });
 
@@ -710,25 +693,25 @@ export default function PlanActionsCorrectives() {
                         </div>
                         <div className="flex flex-wrap gap-1 mt-2 items-center">
                           {(allIndicateursMap[action.id] || []).map(ind => (
-                            <span key={ind.id} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 border border-primary/20 group">
+                            <span key={ind.linkId} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 border border-primary/20 group">
                               <button
-                                onClick={() => navigate(`/indicateurs?domaine=${INDICATEUR_DOMAINES.find((d) => d.label === ind.onglet)?.value || "personnalise"}`)}
+                                onClick={() => navigate(`/indicateurs?domaine=${ind.domaine || "personnalise"}`)}
                                 className="hover:underline flex items-center gap-1"
                                 title="Voir dans Indicateurs"
                               >
-                                📊 {ind.onglet} — {ind.libelle}
+                                📊 {ind.label} ({ind.domaine})
                                 <ExternalLink className="w-2.5 h-2.5 opacity-0 group-hover:opacity-60 transition-opacity" />
                               </button>
                               <button
-                                onClick={() => setUnlinkIndConfirm({ linkId: ind.linkId, label: ind.libelle })}
+                                onClick={() => setUnlinkIndConfirm({ linkId: ind.linkId, label: ind.label })}
                                 className="hover:text-destructive transition-colors ml-0.5 opacity-50 hover:opacity-100"
                                 title="Délier"
                               >
                                 <X className="w-2.5 h-2.5" />
                               </button>
-                              {ind.onglet === "Personnalisé" && (
+                              {ind.domaine === "personnalise" && (
                                 <button
-                                  onClick={() => setDeleteIndConfirm({ linkId: ind.linkId, label: ind.libelle })}
+                                  onClick={() => setDeleteIndConfirm({ linkId: ind.linkId, label: ind.label })}
                                   className="hover:text-destructive transition-colors opacity-50 hover:opacity-100"
                                   title="Supprimer l'indicateur"
                                 >
@@ -953,8 +936,8 @@ export default function PlanActionsCorrectives() {
                 <Label className="text-xs text-muted-foreground">Indicateurs liés</Label>
                 <div className="flex flex-wrap gap-1.5">
                   {linkedIndicateurs.map(ind => (
-                    <span key={ind.id} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 border border-primary/20">
-                      📊 {ind.onglet} — {ind.libelle}
+                    <span key={ind.linkId} className="inline-flex items-center gap-1 text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 border border-primary/20">
+                      📊 {ind.label} ({ind.domaine})
                     </span>
                   ))}
                 </div>
