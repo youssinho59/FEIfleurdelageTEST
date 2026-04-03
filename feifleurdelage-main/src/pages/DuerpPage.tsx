@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import jsPDF from "jspdf";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -179,7 +180,8 @@ const itemVariant = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, t
 export default function DuerpPage() {
   const { user, isAdmin, isResponsable } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<"versions" | "risques">("versions");
+  const [activeTab, setActiveTab] = useState<"versions" | "risques" | "par_unite">("versions");
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [versions, setVersions] = useState<DuerpVersion[]>([]);
   const [risques, setRisques] = useState<DuerpRisque[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
@@ -559,6 +561,228 @@ export default function DuerpPage() {
 
   const canWrite = isAdmin || isResponsable;
 
+  // ── PDF export ─────────────────────────────────────────────────────────────
+
+  const handleExportDuerpPdf = () => {
+    if (!selectedVersionId) {
+      toast.error("Sélectionnez une version pour exporter");
+      return;
+    }
+    setExportingPdf(true);
+    try {
+      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const today = new Date().toLocaleDateString("fr-FR");
+      const versionInfo = selectedVersion;
+
+      // ── Page de garde ──────────────────────────────────────────────────────
+      doc.setFillColor(220, 230, 242);
+      doc.rect(0, 0, pageW, 60, "F");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(30, 60, 100);
+      doc.text("Document Unique d'Évaluation des Risques Professionnels (DUERP)", pageW / 2, 22, { align: "center" });
+
+      doc.setFontSize(12);
+      doc.setTextColor(50, 80, 130);
+      doc.text("EHPAD La Fleur de l'Âge", pageW / 2, 32, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(60, 60, 80);
+      if (versionInfo) {
+        doc.text(`Version : ${versionInfo.annee} — ${versionInfo.titre}`, pageW / 2, 42, { align: "center" });
+        if (versionInfo.date_validation) {
+          doc.text(`Validé le : ${new Date(versionInfo.date_validation).toLocaleDateString("fr-FR")}`, pageW / 2, 49, { align: "center" });
+        }
+      }
+      doc.text(`Date d'édition : ${today}`, pageW / 2, 56, { align: "center" });
+
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 120);
+      doc.text("Conformément à l'article R.4121-1 du Code du travail", pageW / 2, pageH - 10, { align: "center" });
+
+      // ── Sections par unité de travail ──────────────────────────────────────
+      const grouped: Record<string, DuerpRisque[]> = {};
+      for (const r of risquesVersion) {
+        if (!grouped[r.unite_travail]) grouped[r.unite_travail] = [];
+        grouped[r.unite_travail].push(r);
+      }
+
+      const cols = [
+        { header: "N°",              width: 8  },
+        { header: "Situation",       width: 52 },
+        { header: "Dangers",         width: 38 },
+        { header: "Prob",            width: 10 },
+        { header: "Grav",            width: 10 },
+        { header: "Crit",            width: 10 },
+        { header: "Mesures proposées", width: 52 },
+        { header: "Priorité",        width: 18 },
+        { header: "Statut",          width: 18 },
+      ];
+      const tableWidth = cols.reduce((s, c) => s + c.width, 0);
+      const marginLeft = (pageW - tableWidth) / 2;
+      const rowH = 8;
+      const headerH = 9;
+
+      for (const [unite, unitRisques] of Object.entries(grouped)) {
+        doc.addPage();
+
+        // Section header
+        doc.setFillColor(220, 230, 242);
+        doc.rect(marginLeft, 10, tableWidth, 10, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(30, 60, 100);
+        doc.text(`Unité de travail : ${unite}   (${unitRisques.length} risque${unitRisques.length > 1 ? "s" : ""})`, marginLeft + 3, 17);
+
+        // Table header
+        let x = marginLeft;
+        const headerY = 24;
+        doc.setFillColor(240, 244, 250);
+        doc.rect(marginLeft, headerY, tableWidth, headerH, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7);
+        doc.setTextColor(50, 60, 80);
+        for (const col of cols) {
+          doc.rect(x, headerY, col.width, headerH);
+          doc.text(col.header, x + col.width / 2, headerY + 6, { align: "center" });
+          x += col.width;
+        }
+
+        // Table rows
+        let y = headerY + headerH;
+        unitRisques.forEach((r, idx) => {
+          if (y + rowH > pageH - 15) {
+            doc.addPage();
+            y = 15;
+            // Repeat header
+            x = marginLeft;
+            doc.setFillColor(240, 244, 250);
+            doc.rect(marginLeft, y, tableWidth, headerH, "F");
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(7);
+            doc.setTextColor(50, 60, 80);
+            for (const col of cols) {
+              doc.rect(x, y, col.width, headerH);
+              doc.text(col.header, x + col.width / 2, y + 6, { align: "center" });
+              x += col.width;
+            }
+            y += headerH;
+          }
+
+          const crit = r.criticite ?? null;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(6.5);
+          doc.setTextColor(30, 30, 30);
+
+          x = marginLeft;
+          const cellData = [
+            String(idx + 1),
+            r.situation_dangereuse,
+            r.dangers ?? "",
+            r.probabilite !== null ? String(r.probabilite) : "",
+            r.gravite !== null ? String(r.gravite) : "",
+            crit !== null ? String(crit) : "",
+            r.mesures_proposees ?? "",
+            PRIORITE_RISQUE_CONFIG[r.priorite].label,
+            RISQUE_STATUT_CONFIG[r.statut].label,
+          ];
+
+          cols.forEach((col, ci) => {
+            doc.rect(x, y, col.width, rowH);
+            // Color criticité cell
+            if (ci === 5 && crit !== null) {
+              if (crit > 8) doc.setTextColor(180, 30, 30);
+              else if (crit >= 5) doc.setTextColor(180, 100, 20);
+              else doc.setTextColor(30, 120, 60);
+            } else {
+              doc.setTextColor(30, 30, 30);
+            }
+            const cellText = doc.splitTextToSize(cellData[ci], col.width - 2);
+            doc.text(cellText[0] ?? "", x + col.width / 2, y + 5, { align: "center" });
+            x += col.width;
+          });
+          doc.setTextColor(30, 30, 30);
+          y += rowH;
+        });
+      }
+
+      // ── Page de synthèse ───────────────────────────────────────────────────
+      doc.addPage();
+
+      doc.setFillColor(220, 230, 242);
+      doc.rect(0, 0, pageW, 18, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(30, 60, 100);
+      doc.text("Synthèse par unité de travail", pageW / 2, 12, { align: "center" });
+
+      const synthCols = [
+        { header: "Unité de travail",  width: 60 },
+        { header: "Total risques",     width: 28 },
+        { header: "Critiques (>8)",    width: 32 },
+        { header: "En traitement",     width: 32 },
+        { header: "Clos",              width: 22 },
+      ];
+      const synthTableWidth = synthCols.reduce((s, c) => s + c.width, 0);
+      const synthMarginLeft = (pageW - synthTableWidth) / 2;
+      let sy = 24;
+      const sHeaderH = 9;
+      const sRowH = 8;
+
+      // Header row
+      let sx = synthMarginLeft;
+      doc.setFillColor(240, 244, 250);
+      doc.rect(synthMarginLeft, sy, synthTableWidth, sHeaderH, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(50, 60, 80);
+      for (const col of synthCols) {
+        doc.rect(sx, sy, col.width, sHeaderH);
+        doc.text(col.header, sx + col.width / 2, sy + 6, { align: "center" });
+        sx += col.width;
+      }
+      sy += sHeaderH;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(30, 30, 30);
+      for (const [unite, unitRisques] of Object.entries(grouped)) {
+        const total = unitRisques.length;
+        const critiques = unitRisques.filter(r => (r.criticite ?? 0) > 8).length;
+        const enTraitement = unitRisques.filter(r => r.statut === "en_traitement").length;
+        const clos = unitRisques.filter(r => r.statut === "clos").length;
+        sx = synthMarginLeft;
+        const rowData = [unite, String(total), String(critiques), String(enTraitement), String(clos)];
+        synthCols.forEach((col, ci) => {
+          doc.rect(sx, sy, col.width, sRowH);
+          doc.text(rowData[ci], sx + col.width / 2, sy + 5.5, { align: "center" });
+          sx += col.width;
+        });
+        sy += sRowH;
+      }
+
+      sy += 10;
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(9);
+      doc.setTextColor(80, 80, 100);
+      doc.text(`Document établi par la Direction — Mis à jour le ${today}`, pageW / 2, sy, { align: "center" });
+      doc.text("Ce document doit être mis à jour au moins une fois par an", pageW / 2, sy + 7, { align: "center" });
+
+      const fileName = `DUERP_${versionInfo ? versionInfo.annee : "export"}_${today.replace(/\//g, "-")}.pdf`;
+      doc.save(fileName);
+      toast.success("PDF exporté avec succès");
+    } catch (e) {
+      console.error(e);
+      toast.error("Erreur lors de l'export PDF");
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-8">
 
@@ -573,6 +797,15 @@ export default function DuerpPage() {
             <p className="text-xs text-muted-foreground">Document Unique d'Évaluation des Risques Professionnels</p>
           </div>
         </div>
+        <Button
+          variant="outline"
+          onClick={handleExportDuerpPdf}
+          disabled={exportingPdf || !selectedVersionId}
+          className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
+        >
+          {exportingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldAlert className="w-4 h-4" />}
+          {exportingPdf ? "Export…" : "Exporter DUERP PDF"}
+        </Button>
       </motion.div>
 
       {/* KPI cards */}
@@ -602,7 +835,7 @@ export default function DuerpPage() {
 
       {/* Onglets */}
       <div className="flex gap-2 border-b border-border">
-        {(["versions", "risques"] as const).map(tab => (
+        {(["versions", "risques", "par_unite"] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -612,7 +845,7 @@ export default function DuerpPage() {
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
-            {tab === "versions" ? "Versions DUERP" : "Évaluation des risques"}
+            {tab === "versions" ? "Versions DUERP" : tab === "risques" ? "Évaluation des risques" : "Par unité de travail"}
           </button>
         ))}
       </div>
@@ -878,6 +1111,154 @@ export default function DuerpPage() {
                 })}
               </motion.div>
             )}
+          </motion.div>
+        )}
+
+        {/* ─── Onglet Par unité de travail ────────────────────────────────────── */}
+        {activeTab === "par_unite" && (
+          <motion.div key="par_unite" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="space-y-4">
+
+            {/* Sélecteur de version */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex-1 max-w-xs">
+                <Select
+                  value={selectedVersionId || ""}
+                  onValueChange={v => setSelectedVersionId(v || null)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner une version DUERP" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {versions.map(v => (
+                      <SelectItem key={v.id} value={v.id}>
+                        {v.annee} — {v.titre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {!selectedVersionId ? (
+              <div className="text-center py-16 text-muted-foreground space-y-3">
+                <Shield className="w-12 h-12 mx-auto opacity-20" />
+                <p className="font-medium">Aucune version sélectionnée</p>
+                <p className="text-sm">Sélectionnez une version pour afficher les risques par unité.</p>
+              </div>
+            ) : loadingRisques ? (
+              <div className="flex justify-center py-16">
+                <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
+              </div>
+            ) : risquesVersion.length === 0 ? (
+              <div className="text-center py-16 text-muted-foreground space-y-3">
+                <ShieldAlert className="w-12 h-12 mx-auto opacity-20" />
+                <p className="font-medium">Aucun risque dans cette version</p>
+              </div>
+            ) : (() => {
+              // Group by unite_travail
+              const grouped: Record<string, DuerpRisque[]> = {};
+              for (const r of risquesVersion) {
+                if (!grouped[r.unite_travail]) grouped[r.unite_travail] = [];
+                grouped[r.unite_travail].push(r);
+              }
+              return (
+                <div className="space-y-6">
+                  {Object.entries(grouped).map(([unite, unitRisques]) => {
+                    const maxCrit = Math.max(...unitRisques.map(r => r.criticite ?? 0));
+                    const critBadgeColor = maxCrit > 8
+                      ? "bg-red-100 text-red-700"
+                      : maxCrit >= 5
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-emerald-100 text-emerald-700";
+                    const nbCritiques = unitRisques.filter(r => (r.criticite ?? 0) > 8).length;
+                    const nbEnTraitement = unitRisques.filter(r => r.statut === "en_traitement").length;
+
+                    return (
+                      <div key={unite} className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+                        {/* Header */}
+                        <div className="flex flex-wrap items-center gap-3 px-5 py-3 bg-muted/40 border-b border-border">
+                          <h3 className="font-bold text-foreground text-sm">{unite}</h3>
+                          <span className="text-xs bg-muted rounded-full px-2 py-0.5 text-muted-foreground">
+                            {unitRisques.length} risque{unitRisques.length > 1 ? "s" : ""}
+                          </span>
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${critBadgeColor}`}>
+                            Criticité max : {maxCrit > 0 ? maxCrit : "N/A"}
+                          </span>
+                        </div>
+
+                        {/* Scrollable table */}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="bg-muted/20 text-muted-foreground">
+                                <th className="px-3 py-2 text-left font-semibold w-8 whitespace-nowrap">N°</th>
+                                <th className="px-3 py-2 text-left font-semibold min-w-[160px]">Situation dangereuse</th>
+                                <th className="px-3 py-2 text-left font-semibold min-w-[120px]">Dangers</th>
+                                <th className="px-3 py-2 text-left font-semibold min-w-[100px]">P. exposées</th>
+                                <th className="px-3 py-2 text-center font-semibold w-12">Prob.</th>
+                                <th className="px-3 py-2 text-center font-semibold w-12">Grav.</th>
+                                <th className="px-3 py-2 text-center font-semibold w-16">Criticité</th>
+                                <th className="px-3 py-2 text-left font-semibold min-w-[130px]">Mesures existantes</th>
+                                <th className="px-3 py-2 text-left font-semibold min-w-[130px]">Mesures proposées</th>
+                                <th className="px-3 py-2 text-center font-semibold w-20">Priorité</th>
+                                <th className="px-3 py-2 text-center font-semibold w-24">Statut</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {unitRisques.map((r, idx) => {
+                                const crit = r.criticite;
+                                const critColor = crit === null
+                                  ? "bg-slate-100 text-slate-600"
+                                  : crit > 8
+                                    ? "bg-red-100 text-red-700"
+                                    : crit >= 5
+                                      ? "bg-amber-100 text-amber-700"
+                                      : "bg-emerald-100 text-emerald-700";
+                                const prio = PRIORITE_RISQUE_CONFIG[r.priorite];
+                                const statut = RISQUE_STATUT_CONFIG[r.statut];
+                                return (
+                                  <tr key={r.id} className={`border-t border-border/40 ${idx % 2 === 1 ? "bg-muted/10" : ""}`}>
+                                    <td className="px-3 py-2 text-center font-medium text-muted-foreground">{idx + 1}</td>
+                                    <td className="px-3 py-2 font-medium text-foreground">{r.situation_dangereuse}</td>
+                                    <td className="px-3 py-2 text-muted-foreground">{r.dangers ?? "—"}</td>
+                                    <td className="px-3 py-2 text-muted-foreground">{r.personnes_exposees ?? "—"}</td>
+                                    <td className="px-3 py-2 text-center">{r.probabilite !== null ? r.probabilite : "—"}</td>
+                                    <td className="px-3 py-2 text-center">{r.gravite !== null ? r.gravite : "—"}</td>
+                                    <td className="px-3 py-2 text-center">
+                                      <span className={`inline-block px-2 py-0.5 rounded font-bold ${critColor}`}>
+                                        {crit !== null ? crit : "N/A"}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2 text-muted-foreground">{r.mesures_existantes ?? "—"}</td>
+                                    <td className="px-3 py-2 text-muted-foreground">{r.mesures_proposees ?? "—"}</td>
+                                    <td className="px-3 py-2 text-center">
+                                      <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${prio.color}`}>{prio.label}</span>
+                                    </td>
+                                    <td className="px-3 py-2 text-center">
+                                      <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${statut.color}`}>{statut.label}</span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Footer KPIs */}
+                        <div className="flex gap-4 px-5 py-2.5 border-t border-border/40 bg-muted/10 text-xs text-muted-foreground">
+                          <span>
+                            <span className="font-semibold text-red-600">{nbCritiques}</span> critique{nbCritiques !== 1 ? "s" : ""}
+                          </span>
+                          <span>
+                            <span className="font-semibold text-blue-600">{nbEnTraitement}</span> en traitement
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </motion.div>
         )}
       </AnimatePresence>

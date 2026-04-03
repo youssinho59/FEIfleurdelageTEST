@@ -155,6 +155,7 @@ export default function PlanActionsCorrectives() {
     frequence: "",
     service: "",
   });
+  const [viewMode, setViewMode] = useState<"services" | "sources">("services");
   const [savingInd, setSavingInd] = useState(false);
   const [unlinkIndConfirm, setUnlinkIndConfirm] = useState<{ linkId: string; label: string } | null>(null);
   const [deleteIndConfirm, setDeleteIndConfirm] = useState<{ linkId: string; label: string } | null>(null);
@@ -418,6 +419,25 @@ export default function PlanActionsCorrectives() {
   });
   keys.forEach(k => serviceGroups.push({ service: k || null, actions: serviceMap.get(k)! }));
 
+  const ALL_SOURCES_ORDER = [
+    "Cartographie des risques", "Enquête de satisfaction", "Avis",
+    "Plainte et réclamation", "Groupe de travail", "Audit interne",
+    "Instance (CVS, CA...)", "FEI", "Autre",
+  ];
+
+  const sourceGroups: { source: string | null; actions: ActionCorrective[] }[] = [];
+  const sourceMap = new Map<string, ActionCorrective[]>();
+  filtered.forEach(a => {
+    const key = a.source || "";
+    if (!sourceMap.has(key)) sourceMap.set(key, []);
+    sourceMap.get(key)!.push(a);
+  });
+  // Sources connues en premier dans l'ordre défini, puis inconnues, puis "Sans source"
+  const knownKeys = ALL_SOURCES_ORDER.filter(s => sourceMap.has(s));
+  const unknownKeys = Array.from(sourceMap.keys()).filter(k => k !== "" && !ALL_SOURCES_ORDER.includes(k)).sort();
+  [...knownKeys, ...unknownKeys].forEach(k => sourceGroups.push({ source: k, actions: sourceMap.get(k)! }));
+  if (sourceMap.has("")) sourceGroups.push({ source: null, actions: sourceMap.get("")! });
+
   const toggleComments = (id: string) =>
     setExpandedComments(prev => {
       const next = new Set(prev);
@@ -624,6 +644,22 @@ export default function PlanActionsCorrectives() {
         <span className="ml-auto text-xs text-muted-foreground">{filtered.length} action{filtered.length > 1 ? "s" : ""}</span>
       </motion.div>
 
+      {/* Toggle vue */}
+      <div className="flex items-center gap-1 p-1 bg-muted/40 rounded-lg w-fit">
+        <button
+          onClick={() => setViewMode("services")}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${viewMode === "services" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          Par services
+        </button>
+        <button
+          onClick={() => setViewMode("sources")}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${viewMode === "sources" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          Par sources
+        </button>
+      </div>
+
       {/* Liste */}
       {loading ? (
         <div className="flex justify-center py-16"><div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" /></div>
@@ -635,14 +671,17 @@ export default function PlanActionsCorrectives() {
         </div>
       ) : (
         <motion.div variants={container} initial="hidden" animate="show" className="space-y-6">
-          {serviceGroups.map(({ service, actions: groupActions }) => {
+          {(viewMode === "services" ? serviceGroups : sourceGroups).map(({ service: groupKey, actions: groupActions } as { service: string | null; actions: ActionCorrective[] }) => {
             const groupDone = groupActions.filter(a => a.statut === "realisee" || a.statut === "evaluee").length;
             const groupPct = groupActions.length > 0 ? Math.round((groupDone / groupActions.length) * 100) : 0;
+            const groupLabel = viewMode === "services"
+              ? (groupKey ?? "Sans service")
+              : (groupKey ?? "Sans source");
             return (
-              <div key={service ?? "__sans__"} className="space-y-3">
-                {/* En-tête groupe service */}
+              <div key={groupKey ?? "__sans__"} className="space-y-3">
+                {/* En-tête groupe */}
                 <div className="flex items-center gap-3 pb-1 border-b border-border">
-                  <span className="text-sm font-semibold text-foreground">{service ?? "Sans service"}</span>
+                  <span className="text-sm font-semibold text-foreground">{groupLabel}</span>
                   <span className="text-xs text-muted-foreground bg-muted/60 rounded-full px-2 py-0.5">{groupActions.length} action{groupActions.length > 1 ? "s" : ""}</span>
                   <div className="flex items-center gap-1.5 ml-auto">
                     <Progress value={groupPct} className="h-1.5 w-20" />
@@ -675,11 +714,9 @@ export default function PlanActionsCorrectives() {
                           <Badge variant="outline" className={`text-[11px] ${prio.color} border-0 flex items-center gap-1`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${prio.dot}`} />{prio.label}
                           </Badge>
-                          {action.source && (
-                            <Badge variant="outline" className="text-[11px] bg-violet-50 text-violet-700 border-violet-200">
-                              {action.source}
-                            </Badge>
-                          )}
+                          <Badge variant="outline" className={`text-[11px] border-0 ${action.source ? "bg-violet-50 text-violet-700" : "bg-muted text-muted-foreground"}`}>
+                            {action.source ?? "Sans source"}
+                          </Badge>
                         </div>
                         <h3 className="font-display font-semibold text-foreground text-sm leading-snug mb-1">{action.titre}</h3>
                         {action.description && <p className="text-xs text-muted-foreground leading-relaxed mb-3">{action.description}</p>}

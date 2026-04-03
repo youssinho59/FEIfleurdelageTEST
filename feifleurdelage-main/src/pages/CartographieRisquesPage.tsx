@@ -485,6 +485,7 @@ export default function CartographieRisquesPage() {
       date_echeance: echeance.toISOString().split("T")[0],
       priorite: r.criticite_residuelle >= 75 ? "haute" : "moyenne",
       statut: "a_faire",
+      source: "Cartographie des risques",
       user_id: user?.id,
     });
     if (error) {

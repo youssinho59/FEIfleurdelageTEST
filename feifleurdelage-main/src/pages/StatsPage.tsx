@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   BarChart3,
   Download,
@@ -26,6 +27,8 @@ import {
   Star,
   Activity,
   Bell,
+  Smile,
+  Briefcase,
 } from "lucide-react";
 import { THEMATIQUES_ESSMS } from "@/lib/pacqStrategique";
 import { Link } from "react-router-dom";
@@ -153,24 +156,41 @@ const StatsPage = () => {
   const currentYear = new Date().getFullYear();
   const [dateFrom, setDateFrom] = useState(`${currentYear - 1}-01-01`);
   const [dateTo, setDateTo] = useState(`${currentYear}-12-31`);
+  const [activeStatTab, setActiveStatTab] = useState("general");
   const [feiData, setFeiData] = useState<any[]>([]);
   const [plaintesData, setPlaintesData] = useState<any[]>([]);
   const [pacqActions, setPacqActions] = useState<any[]>([]);
   const [pacqStrategique, setPacqStrategique] = useState<any[]>([]);
   const [classeurProcedures, setClasseurProcedures] = useState<any[]>([]);
   const [classeurEmargements, setClasseurEmargements] = useState<any[]>([]);
+  const [auditsData, setAuditsData] = useState<any[]>([]);
+  const [questionnaireData, setQuestionnaireData] = useState<any[]>([]);
+  const [rhIndicateurs, setRhIndicateurs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
-    const [feiResult, plaintesResult, pacqResult, pacqSResult, classeurPResult, classeurEResult] = await Promise.allSettled([
+    const [
+      feiResult,
+      plaintesResult,
+      pacqResult,
+      pacqSResult,
+      classeurPResult,
+      classeurEResult,
+      auditsResult,
+      questionnaireResult,
+      rhResult,
+    ] = await Promise.allSettled([
       supabase.from("fei").select("*").gte("date_evenement", dateFrom).lte("date_evenement", dateTo).order("date_evenement", { ascending: true }),
       supabase.from("plaintes").select("*").gte("date_plainte", dateFrom).lte("date_plainte", dateTo).order("date_plainte", { ascending: true }),
       supabase.from("actions_correctives").select("*").order("date_echeance", { ascending: true }),
       supabase.from("pacq_strategique_actions").select("*, pacq_strategique_objectifs(thematique, titre)"),
       supabase.from("classeur_procedures").select("*, classeur_categories(nom)"),
       supabase.from("classeur_emargements").select("*"),
+      supabase.from("audits").select("id, titre, statut, score_global, date_audit"),
+      supabase.from("questionnaire_responses").select("*").order("created_at", { ascending: false }),
+      supabase.from("indicateurs_valeurs").select("*").eq("domaine", "rh_admin").order("date_mois", { ascending: false }),
     ]);
     setFeiData(feiResult.status === "fulfilled" ? (feiResult.value.data || []) : []);
     setPlaintesData(plaintesResult.status === "fulfilled" ? (plaintesResult.value.data || []) : []);
@@ -178,6 +198,9 @@ const StatsPage = () => {
     setPacqStrategique(pacqSResult.status === "fulfilled" ? (pacqSResult.value.data || []) : []);
     setClasseurProcedures(classeurPResult.status === "fulfilled" ? (classeurPResult.value.data || []) : []);
     setClasseurEmargements(classeurEResult.status === "fulfilled" ? (classeurEResult.value.data || []) : []);
+    setAuditsData(auditsResult.status === "fulfilled" ? (auditsResult.value.data || []) : []);
+    setQuestionnaireData(questionnaireResult.status === "fulfilled" ? (questionnaireResult.value.data || []) : []);
+    setRhIndicateurs(rhResult.status === "fulfilled" ? (rhResult.value.data || []) : []);
     setLoading(false);
   };
 
@@ -366,6 +389,55 @@ const StatsPage = () => {
     };
   }, [feiData, plaintesData, pacqActions, pacqStrategique, classeurProcedures, classeurEmargements]);
 
+  // ─── Qualite stats ─────────────────────────────────────────────────────────
+  const qualiteStats = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const totalActions = pacqActions.length;
+    const actionsEnRetard = pacqActions.filter((a) => {
+      if (a.statut === "realisee" || a.statut === "evaluee") return false;
+      return a.date_echeance && new Date(a.date_echeance) < today;
+    }).length;
+    const actionsRealisees = pacqActions.filter((a) => a.statut === "realisee" || a.statut === "evaluee").length;
+    const tauxRealisation = totalActions > 0 ? Math.round((actionsRealisees / totalActions) * 100) : 0;
+
+    // Group by source
+    const bySource: Record<string, number> = {};
+    pacqActions.forEach((a) => {
+      const src = a.source || "Non renseigné";
+      bySource[src] = (bySource[src] || 0) + 1;
+    });
+    const actionsBySource = Object.entries(bySource)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+
+    return { totalActions, actionsEnRetard, actionsRealisees, tauxRealisation, actionsBySource };
+  }, [pacqActions]);
+
+  // ─── Satisfaction stats ────────────────────────────────────────────────────
+  const satisfactionStats = useMemo(() => {
+    const total = questionnaireData.length;
+    const notesGlobales = questionnaireData
+      .map((r) => r.note_globale)
+      .filter((n) => typeof n === "number" && !isNaN(n));
+    const scoreMoyen = notesGlobales.length > 0
+      ? (notesGlobales.reduce((s, n) => s + n, 0) / notesGlobales.length).toFixed(1)
+      : null;
+
+    // Responses per month (last 12 months)
+    const now = new Date();
+    const monthlyReponses: { month: string; Réponses: number }[] = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const label = d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" });
+      const count = questionnaireData.filter((r) => r.created_at && r.created_at.slice(0, 7) === key).length;
+      monthlyReponses.push({ month: label, Réponses: count });
+    }
+
+    return { total, scoreMoyen, monthlyReponses };
+  }, [questionnaireData]);
+
   // Chart data
   const typeChartData = Object.entries(stats.byType).map(([name, value]) => ({ name, value }));
 
@@ -449,7 +521,7 @@ const StatsPage = () => {
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
 
       {/* ── Header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -532,806 +604,999 @@ const StatsPage = () => {
           </CardContent>
         </Card>
       ) : (
-        <>
-          {/* ══════════════════════════════════════════════════════════════════
-              KPI — FEI
-          ════════════════════════════════════════════════════════════════════ */}
-          <div>
-            <SectionTitle icon={FileText} title="Indicateurs FEI" />
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <KpiCard
-                label="Total FEI déclarées"
-                value={stats.totalFei}
-                icon={FileText}
-                color="text-primary"
-                bg="bg-primary/10"
-              />
-              <KpiCard
-                label="Gravité moyenne"
-                value={stats.avgGravite !== "—" ? `${stats.avgGravite}/5` : "—"}
-                sub="Sur 5 niveaux"
-                icon={AlertTriangle}
-                color="text-orange-500"
-                bg="bg-orange-500/10"
-              />
-              <KpiCard
-                label="FEI clôturées"
-                value={`${stats.tauxCloture}%`}
-                sub={`${stats.clotures} sur ${stats.totalFei}`}
-                icon={CheckCircle}
-                color="text-emerald-500"
-                bg="bg-emerald-500/10"
-              />
-              <KpiCard
-                label="FEI critiques (≥4)"
-                value={stats.critiques}
-                sub={stats.totalFei > 0 ? `${Math.round((stats.critiques / stats.totalFei) * 100)}% du total` : undefined}
-                icon={XCircle}
-                color="text-destructive"
-                bg="bg-destructive/10"
-              />
-            </div>
-          </div>
+        <Tabs value={activeStatTab} onValueChange={setActiveStatTab}>
+          <TabsList className="flex flex-wrap h-auto gap-1 w-full justify-start bg-muted/50 p-1">
+            <TabsTrigger value="general" className="gap-1.5 text-xs sm:text-sm">
+              <BarChart3 className="w-3.5 h-3.5" /> Vue générale
+            </TabsTrigger>
+            <TabsTrigger value="fei" className="gap-1.5 text-xs sm:text-sm">
+              <FileText className="w-3.5 h-3.5" /> FEI &amp; Incidents
+            </TabsTrigger>
+            <TabsTrigger value="plaintes" className="gap-1.5 text-xs sm:text-sm">
+              <MessageSquareWarning className="w-3.5 h-3.5" /> Plaintes
+            </TabsTrigger>
+            <TabsTrigger value="qualite" className="gap-1.5 text-xs sm:text-sm">
+              <Shield className="w-3.5 h-3.5" /> Qualité &amp; Audits
+            </TabsTrigger>
+            <TabsTrigger value="actions" className="gap-1.5 text-xs sm:text-sm">
+              <Target className="w-3.5 h-3.5" /> Actions correctives
+            </TabsTrigger>
+            <TabsTrigger value="satisfaction" className="gap-1.5 text-xs sm:text-sm">
+              <Smile className="w-3.5 h-3.5" /> Satisfaction
+            </TabsTrigger>
+            {isAdmin && (
+              <TabsTrigger value="rh" className="gap-1.5 text-xs sm:text-sm">
+                <Briefcase className="w-3.5 h-3.5" /> RH &amp; Activité
+              </TabsTrigger>
+            )}
+          </TabsList>
 
-          {/* ══════════════════════════════════════════════════════════════════
-              KPI — Plaintes
-          ════════════════════════════════════════════════════════════════════ */}
-          <div>
-            <SectionTitle icon={MessageSquareWarning} title="Indicateurs Plaintes & Réclamations" color="text-accent-foreground" />
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <KpiCard
-                label="Total plaintes"
-                value={stats.totalPlaintes}
-                icon={MessageSquareWarning}
-                color="text-accent-foreground"
-                bg="bg-accent/30"
-              />
-              <KpiCard
-                label="Plaintes en cours"
-                value={stats.plaintesEnCours}
-                sub="Nouveau + En cours"
-                icon={Clock}
-                color="text-yellow-600"
-                bg="bg-yellow-500/10"
-              />
-              <KpiCard
-                label="Taux de résolution"
-                value={`${stats.tauxResolution}%`}
-                sub={`${stats.plaintesTraitees} traitées`}
-                icon={Shield}
-                color="text-emerald-500"
-                bg="bg-emerald-500/10"
-              />
-              <KpiCard
-                label="Déclarants actifs"
-                value={stats.totalDeclarants}
-                sub="FEI + Plaintes"
-                icon={Users}
-                color="text-blue-500"
-                bg="bg-blue-500/10"
-              />
-            </div>
-          </div>
+          {/* ════════════════════════════════════════════════════════
+              TAB 1 — Vue générale
+          ════════════════════════════════════════════════════════ */}
+          <TabsContent value="general" className="space-y-8 mt-6">
 
-          {/* ══════════════════════════════════════════════════════════════════
-              Évolution mensuelle
-          ════════════════════════════════════════════════════════════════════ */}
-          {stats.monthlyData.length > 0 && (
+            {/* KPI FEI + Plaintes résumé */}
             <div>
-              <SectionTitle icon={TrendingUp} title="Évolution mensuelle" />
+              <SectionTitle icon={BarChart3} title="Résumé général" />
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <KpiCard label="Total FEI déclarées" value={stats.totalFei} icon={FileText} color="text-primary" bg="bg-primary/10" />
+                <KpiCard label="FEI clôturées" value={`${stats.tauxCloture}%`} sub={`${stats.clotures} sur ${stats.totalFei}`} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
+                <KpiCard label="Total plaintes" value={stats.totalPlaintes} icon={MessageSquareWarning} color="text-accent-foreground" bg="bg-accent/30" />
+                <KpiCard label="Taux de résolution" value={`${stats.tauxResolution}%`} sub={`${stats.plaintesTraitees} traitées`} icon={Shield} color="text-emerald-500" bg="bg-emerald-500/10" />
+              </div>
+            </div>
+
+            {/* Actions correctives résumé */}
+            <div>
+              <SectionTitle icon={Target} title="Actions correctives (résumé)" color="text-emerald-600" />
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <KpiCard label="Total actions PACQS" value={extraStats.totalPacq} icon={ClipboardList} color="text-primary" bg="bg-primary/10" />
+                <KpiCard label="Avancement PACQS" value={`${extraStats.tauxPacqOp}%`} sub={extraStats.totalPacq > 0 ? `${extraStats.pacqRealisees} / ${extraStats.totalPacq} actions` : "Aucune action"} icon={Target} color="text-emerald-600" bg="bg-emerald-500/10" />
+                <KpiCard label="Actions en retard" value={extraStats.pacqEnRetard.length} icon={AlertTriangle} color="text-destructive" bg="bg-destructive/10" />
+                <KpiCard label="Déclarants actifs" value={stats.totalDeclarants} sub="FEI + Plaintes" icon={Users} color="text-blue-500" bg="bg-blue-500/10" />
+              </div>
+            </div>
+
+            {/* Évolution mensuelle — synthèse 12 mois */}
+            {stats.monthlyData.length > 0 && (
+              <div>
+                <SectionTitle icon={TrendingUp} title="Évolution mensuelle — FEI & Plaintes" />
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <CardTitle className="font-display text-base">FEI & Plaintes par mois</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-2 pb-4">
+                    <ResponsiveContainer width="100%" height={260}>
+                      <LineChart data={stats.monthlyData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                        <Line type="monotone" dataKey="FEI" stroke="#c46b48" strokeWidth={2.5} dot={{ r: 4, fill: "#c46b48" }} activeDot={{ r: 6 }} />
+                        <Line type="monotone" dataKey="Plaintes" stroke="#d4956e" strokeWidth={2} strokeDasharray="5 3" dot={{ r: 3, fill: "#d4956e" }} activeDot={{ r: 5 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Alertes qualité */}
+            <div>
+              <SectionTitle icon={Bell} title="Alertes qualité" color="text-destructive" />
+              {extraStats.alertes.length === 0 ? (
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                  <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />
+                  <p className="text-sm font-medium text-emerald-700">Aucune alerte qualité — situation sous contrôle</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {extraStats.alertes.map((a, i) => (
+                    <div
+                      key={i}
+                      className={`flex items-center gap-3 p-3.5 rounded-xl border ${
+                        a.severity === "high"
+                          ? "bg-destructive/10 border-destructive/20 text-destructive"
+                          : "bg-orange-500/10 border-orange-500/20 text-orange-700"
+                      }`}
+                    >
+                      <AlertTriangle className={`w-4 h-4 shrink-0 ${a.severity === "high" ? "text-destructive" : "text-orange-500"}`} />
+                      <p className="text-sm font-medium">{a.label}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Score qualité global */}
+            <div>
+              <SectionTitle icon={Star} title="Score qualité global" color="text-yellow-600" />
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                <KpiCard label="Taux clôture FEI" value={`${extraStats.tauxClotureFei}%`} icon={FileText} color="text-primary" bg="bg-primary/10" />
+                <KpiCard label="Taux résolution plaintes" value={`${extraStats.tauxResolutionPlaintes}%`} icon={MessageSquareWarning} color="text-accent-foreground" bg="bg-accent/30" />
+                <KpiCard label="Avancement PACQS opérationnel" value={`${extraStats.tauxPacqOp}%`} sub={extraStats.totalPacq > 0 ? `${extraStats.pacqRealisees} / ${extraStats.totalPacq} actions` : "Aucune action"} icon={Target} color="text-emerald-600" bg="bg-emerald-500/10" />
+                <KpiCard label="Taux émargement classeur" value={`${extraStats.tauxEmargement}%`} sub={extraStats.totalProcs > 0 ? `${extraStats.procsWithEmarg} / ${extraStats.totalProcs} procédures` : "Aucune procédure"} icon={BookOpen} color="text-blue-500" bg="bg-blue-500/10" />
+              </div>
               <Card>
-                <CardHeader className="pb-2 pt-4 px-5">
-                  <CardTitle className="font-display text-base">FEI & Plaintes par mois</CardTitle>
-                </CardHeader>
-                <CardContent className="px-2 pb-4">
-                  <ResponsiveContainer width="100%" height={260}>
-                    <LineChart data={stats.monthlyData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                      <Line type="monotone" dataKey="FEI" stroke="#c46b48" strokeWidth={2.5} dot={{ r: 4, fill: "#c46b48" }} activeDot={{ r: 6 }} />
-                      <Line type="monotone" dataKey="Plaintes" stroke="#d4956e" strokeWidth={2} strokeDasharray="5 3" dot={{ r: 3, fill: "#d4956e" }} activeDot={{ r: 5 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm font-medium text-muted-foreground">Score moyen pondéré</p>
+                    <p
+                      className="text-3xl font-display font-bold"
+                      style={{
+                        color: extraStats.scoreGlobal >= 75 ? "#22c55e" : extraStats.scoreGlobal >= 50 ? "#f59e0b" : "#ef4444",
+                      }}
+                    >
+                      {extraStats.scoreGlobal}%
+                    </p>
+                  </div>
+                  <div className="h-3 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-700"
+                      style={{
+                        width: `${extraStats.scoreGlobal}%`,
+                        background: extraStats.scoreGlobal >= 75 ? "#22c55e" : extraStats.scoreGlobal >= 50 ? "#f59e0b" : "#ef4444",
+                      }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-muted-foreground mt-1.5">
+                    <span>0%</span>
+                    <span className={extraStats.scoreGlobal >= 75 ? "text-emerald-600 font-semibold" : extraStats.scoreGlobal >= 50 ? "text-yellow-600 font-semibold" : "text-destructive font-semibold"}>
+                      {extraStats.scoreGlobal >= 75 ? "Bon niveau" : extraStats.scoreGlobal >= 50 ? "À améliorer" : "Insuffisant"}
+                    </span>
+                    <span>100%</span>
+                  </div>
                 </CardContent>
               </Card>
             </div>
-          )}
 
-          {/* ══════════════════════════════════════════════════════════════════
-              Analyse FEI — Charts 2×2
-          ════════════════════════════════════════════════════════════════════ */}
-          {feiData.length > 0 && (
+            {/* PACQS Stratégique */}
             <div>
-              <SectionTitle icon={BarChart3} title="Analyse détaillée des FEI" />
-              <div className="grid gap-5 lg:grid-cols-2">
-
-                {/* Type FEI — Pie */}
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="font-display text-base">Répartition par type d'événement</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-col sm:flex-row items-center gap-4">
-                      <ResponsiveContainer width={200} height={200}>
-                        <PieChart>
-                          <Pie data={typeChartData} cx="50%" cy="50%" outerRadius={88} dataKey="value" labelLine={false} label={renderPieLabel}>
-                            {typeChartData.map((_, i) => (
-                              <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip content={<CustomTooltip />} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                      <div className="flex flex-col gap-1.5 min-w-0">
-                        {typeChartData.map((d, i) => (
-                          <div key={d.name} className="flex items-center gap-2 text-xs">
-                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                            <span className="text-muted-foreground truncate">{d.name}</span>
-                            <span className="ml-auto font-bold text-foreground">{d.value}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Gravité — Bars */}
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="font-display text-base">Distribution des niveaux de gravité</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <BarChart data={graviteChartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                        <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Bar dataKey="value" name="FEI" radius={[4, 4, 0, 0]}>
-                          {graviteChartData.map((d, i) => (
-                            <Cell key={i} fill={d.fill} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-
-                {/* Statut FEI — Horizontal Bar */}
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="font-display text-base">Statut de traitement des FEI</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <BarChart data={statutChartData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                        <YAxis dataKey="name" type="category" width={110} tick={{ fontSize: 11 }} />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Bar dataKey="value" name="FEI" radius={[0, 4, 4, 0]}>
-                          {statutChartData.map((d, i) => (
-                            <Cell key={i} fill={d.fill} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                    {/* Légende statuts */}
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {statutChartData.map((d) => (
-                        <Badge
-                          key={d.name}
-                          variant="outline"
-                          className="text-xs gap-1.5"
-                          style={{ borderColor: d.fill, color: d.fill }}
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: d.fill }} />
-                          {d.name} ({d.value})
-                        </Badge>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Top lieux — Horizontal Bar */}
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="font-display text-base">Lieux les plus touchés</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {lieuChartData.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={220}>
-                        <BarChart data={lieuChartData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+              <SectionTitle icon={TrendingUp} title="PACQS Stratégique — Thématiques ESSMS" color="text-purple-600" />
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
+                <KpiCard label="Total actions stratégiques" value={extraStats.totalPacqS} icon={Target} color="text-purple-600" bg="bg-purple-500/10" />
+                <KpiCard label="En cours" value={extraStats.pacqSEnCours} icon={Activity} color="text-yellow-600" bg="bg-yellow-500/10" />
+                <KpiCard label="Réalisées" value={extraStats.pacqSRealises} sub={`Taux ${extraStats.tauxPacqS}%`} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
+              </div>
+              {extraStats.pacqSByThematique.length > 0 ? (
+                <>
+                  <Card className="mb-4">
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="font-display text-base">Actions par thématique</CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-2 pb-4">
+                      <ResponsiveContainer width="100%" height={Math.max(200, extraStats.pacqSByThematique.length * 48)}>
+                        <BarChart data={extraStats.pacqSByThematique} layout="vertical" margin={{ top: 4, right: 30, left: 12, bottom: 4 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                           <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                          <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 10 }} />
+                          <YAxis dataKey="name" type="category" width={170} tick={{ fontSize: 10 }} />
                           <Tooltip content={<CustomTooltip />} />
-                          <Bar dataKey="value" name="Incidents" fill="hsl(16, 55%, 52%)" radius={[0, 4, 4, 0]} />
+                          <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                          <Bar dataKey="enCours" name="En cours" fill="#f59e0b" radius={[0, 0, 0, 0]} stackId="a" />
+                          <Bar dataKey="realises" name="Réalisées" fill="#22c55e" radius={[0, 4, 4, 0]} stackId="a" />
                         </BarChart>
                       </ResponsiveContainer>
-                    ) : (
-                      <p className="text-sm text-muted-foreground text-center py-8">Pas de données de lieu</p>
-                    )}
-                  </CardContent>
-                </Card>
-
-              </div>
-            </div>
-          )}
-
-          {/* ══════════════════════════════════════════════════════════════════
-              Top déclarants
-          ════════════════════════════════════════════════════════════════════ */}
-          {declarantChartData.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2 pt-4 px-5">
-                <CardTitle className="font-display text-base flex items-center gap-2">
-                  <Users className="w-4 h-4 text-primary" />
-                  Top déclarants (FEI)
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={Math.max(150, declarantChartData.length * 38)}>
-                  <BarChart data={declarantChartData} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                    <YAxis dataKey="name" type="category" width={150} tick={{ fontSize: 11 }} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="value" name="Déclarations" fill="hsl(16, 55%, 52%)" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* ══════════════════════════════════════════════════════════════════
-              Analyse Plaintes
-          ════════════════════════════════════════════════════════════════════ */}
-          {plaintesData.length > 0 && (
-            <div>
-              <SectionTitle icon={MessageSquareWarning} title="Analyse des Plaintes & Réclamations" color="text-accent-foreground" />
-              <div className="grid gap-5 lg:grid-cols-2">
-
-                {/* Demandeur — Pie */}
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="font-display text-base">Plaintes par type de demandeur</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-col sm:flex-row items-center gap-4">
-                      <ResponsiveContainer width={190} height={190}>
-                        <PieChart>
-                          <Pie data={demandeurChartData} cx="50%" cy="50%" outerRadius={82} dataKey="value" labelLine={false} label={renderPieLabel}>
-                            {demandeurChartData.map((_, i) => (
-                              <Cell key={i} fill={PIE_COLORS[(i + 2) % PIE_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip content={<CustomTooltip />} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                      <div className="flex flex-col gap-1.5">
-                        {demandeurChartData.map((d, i) => (
-                          <div key={d.name} className="flex items-center gap-2 text-xs">
-                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[(i + 2) % PIE_COLORS.length] }} />
-                            <span className="text-muted-foreground">{d.name}</span>
-                            <span className="ml-auto font-bold text-foreground">{d.value}</span>
+                    </CardContent>
+                  </Card>
+                  <div className="space-y-3">
+                    {extraStats.pacqSByThematique.map((t) => (
+                      <Card key={t.fullName}>
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between gap-3 mb-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="w-3 h-3 rounded-full shrink-0" style={{ background: t.hex }} />
+                              <p className="text-sm font-medium truncate">{t.fullName}</p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-xs text-muted-foreground">{t.realises}/{t.total}</span>
+                              <span className="text-xs font-bold" style={{ color: t.taux >= 75 ? "#22c55e" : t.taux >= 40 ? "#f59e0b" : "#ef4444" }}>
+                                {t.taux}%
+                              </span>
+                            </div>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Statut plaintes — Horizontal Bar */}
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="font-display text-base">Statut des plaintes</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <ResponsiveContainer width="100%" height={160}>
-                      <BarChart data={statutPlaintesData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                        <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11 }} />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Bar dataKey="value" name="Plaintes" radius={[0, 4, 4, 0]}>
-                          {statutPlaintesData.map((d, i) => (
-                            <Cell key={i} fill={d.fill} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                    {/* Jauge résolution */}
-                    <div className="space-y-1.5">
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Taux de résolution</span>
-                        <span className="font-semibold text-foreground">{stats.tauxResolution}%</span>
-                      </div>
-                      <div className="h-2.5 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all duration-700"
-                          style={{ width: `${stats.tauxResolution}%`, background: "#22c55e" }}
-                        />
-                      </div>
-                      <div className="flex justify-between text-[10px] text-muted-foreground">
-                        <span>{stats.plaintesTraitees} traitée{stats.plaintesTraitees > 1 ? "s" : ""}</span>
-                        <span>{stats.plaintesEnCours} en attente</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-              </div>
-
-              {/* ── Répartition par famille ── */}
-              {familleChartData.length > 0 && (
-                <Card className="lg:col-span-2">
-                  <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="font-display text-base flex items-center gap-2">
-                      <MessageSquareWarning className="w-4 h-4 text-accent-foreground" />
-                      Répartition par famille de plainte
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-col sm:flex-row items-center gap-6">
-                      <ResponsiveContainer width={220} height={220}>
-                        <PieChart>
-                          <Pie
-                            data={familleChartData}
-                            cx="50%"
-                            cy="50%"
-                            outerRadius={96}
-                            innerRadius={40}
-                            dataKey="value"
-                            labelLine={false}
-                            label={renderPieLabel}
-                          >
-                            {familleChartData.map((d, i) => (
-                              <Cell key={i} fill={d.fill} />
-                            ))}
-                          </Pie>
-                          <Tooltip content={<CustomTooltip />} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                      <div className="flex flex-col gap-2 flex-1 min-w-0">
-                        {familleChartData.map((d) => (
-                          <div key={d.name} className="flex items-center gap-2.5">
-                            <span className="w-3 h-3 rounded-full shrink-0" style={{ background: d.fill }} />
-                            <span className="text-xs text-muted-foreground flex-1 truncate">{d.name}</span>
-                            <span className="text-xs font-bold text-foreground tabular-nums">{d.value}</span>
-                            <span className="text-[10px] text-muted-foreground/70 tabular-nums w-8 text-right">
-                              {stats.totalPlaintes > 0 ? Math.round((d.value / stats.totalPlaintes) * 100) : 0}%
-                            </span>
+                          <div className="h-2 bg-muted rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${t.taux}%`, background: t.hex }} />
                           </div>
-                        ))}
-                      </div>
-                    </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <Card>
+                  <CardContent className="py-10 text-center text-muted-foreground text-sm">
+                    Aucune action PACQS stratégique enregistrée
                   </CardContent>
                 </Card>
               )}
+            </div>
 
-              {/* ── Répartition par catégorie ── */}
-              {categorieChartData.length > 0 && (
-                <Card className="lg:col-span-2">
+            {/* Classeur documentaire */}
+            <div>
+              <SectionTitle icon={BookOpen} title="Classeur documentaire — Émargements" color="text-blue-600" />
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
+                <KpiCard label="Procédures au total" value={extraStats.totalProcs} icon={BookOpen} color="text-blue-500" bg="bg-blue-500/10" />
+                <KpiCard label="Procédures émargées" value={extraStats.procsWithEmarg} sub={`Taux ${extraStats.tauxEmargement}%`} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
+                <KpiCard label="Procédures non lues" value={extraStats.procsZero.length} icon={XCircle} color="text-destructive" bg="bg-destructive/10" />
+              </div>
+              {extraStats.top10Procs.length > 0 && (
+                <Card className="mb-4">
                   <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="font-display text-base flex items-center gap-2">
-                      <MessageSquareWarning className="w-4 h-4 text-accent-foreground" />
-                      Détail des catégories de plainte
-                    </CardTitle>
+                    <CardTitle className="font-display text-base">Top 10 procédures les plus émargées</CardTitle>
                   </CardHeader>
                   <CardContent className="px-2 pb-4">
-                    <div className="flex flex-wrap gap-1.5 px-3 mb-3">
-                      {PLAINTE_CATEGORIES.filter((f) => (stats.byFamille[f.famille] || 0) > 0).map((f) => (
-                        <span
-                          key={f.famille}
-                          className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full"
-                          style={{ background: f.color + "18", color: f.color, border: `1px solid ${f.color}40` }}
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: f.color }} />
-                          {f.famille}
-                        </span>
-                      ))}
-                    </div>
-                    <ResponsiveContainer width="100%" height={Math.max(180, categorieChartData.length * 32)}>
-                      <BarChart
-                        data={categorieChartData}
-                        layout="vertical"
-                        margin={{ top: 4, right: 40, left: 12, bottom: 4 }}
-                      >
+                    <ResponsiveContainer width="100%" height={Math.max(180, extraStats.top10Procs.length * 36)}>
+                      <BarChart data={extraStats.top10Procs} layout="vertical" margin={{ top: 4, right: 30, left: 12, bottom: 4 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                         <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                        <YAxis dataKey="name" type="category" width={200} tick={{ fontSize: 11 }} />
+                        <YAxis dataKey="name" type="category" width={180} tick={{ fontSize: 10 }} />
                         <Tooltip
                           content={({ active, payload }) => {
                             if (!active || !payload?.length) return null;
                             const d = payload[0].payload;
                             return (
                               <div className="bg-background border border-border rounded-lg px-3 py-2 shadow-lg text-xs space-y-0.5">
-                                <p className="font-semibold text-foreground">{d.name}</p>
-                                <p style={{ color: d.fill }}>{d.famille}</p>
-                                <p className="font-bold">{d.value} plainte{d.value > 1 ? "s" : ""}</p>
+                                <p className="font-semibold">{d.fullName}</p>
+                                {d.categorie && <p className="text-muted-foreground">{d.categorie}</p>}
+                                <p className="font-bold text-blue-500">{d.value} émargement(s)</p>
                               </div>
                             );
                           }}
                         />
-                        <Bar dataKey="value" name="Plaintes" radius={[0, 4, 4, 0]}>
-                          {categorieChartData.map((d, i) => (
-                            <Cell key={i} fill={d.fill} />
-                          ))}
-                        </Bar>
+                        <Bar dataKey="value" name="Émargements" fill="#3b82f6" radius={[0, 4, 4, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </CardContent>
                 </Card>
               )}
-
-            </div>
-          )}
-
-          {/* ══════════════════════════════════════════════════════════════════
-              Alertes qualitélertes qualité
-          ════════════════════════════════════════════════════════════════════ */}
-          <div>
-            <SectionTitle icon={Bell} title="Alertes qualité" color="text-destructive" />
-            {extraStats.alertes.length === 0 ? (
-              <div className="flex items-center gap-3 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />
-                <p className="text-sm font-medium text-emerald-700">Aucune alerte qualité — situation sous contrôle</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {extraStats.alertes.map((a, i) => (
-                  <div
-                    key={i}
-                    className={`flex items-center gap-3 p-3.5 rounded-xl border ${
-                      a.severity === "high"
-                        ? "bg-destructive/10 border-destructive/20 text-destructive"
-                        : "bg-orange-500/10 border-orange-500/20 text-orange-700"
-                    }`}
-                  >
-                    <AlertTriangle className={`w-4 h-4 shrink-0 ${a.severity === "high" ? "text-destructive" : "text-orange-500"}`} />
-                    <p className="text-sm font-medium">{a.label}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* ══════════════════════════════════════════════════════════════════
-              Score qualité global
-          ════════════════════════════════════════════════════════════════════ */}
-          <div>
-            <SectionTitle icon={Star} title="Score qualité global" color="text-yellow-600" />
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-              <KpiCard
-                label="Taux clôture FEI"
-                value={`${extraStats.tauxClotureFei}%`}
-                icon={FileText}
-                color="text-primary"
-                bg="bg-primary/10"
-              />
-              <KpiCard
-                label="Taux résolution plaintes"
-                value={`${extraStats.tauxResolutionPlaintes}%`}
-                icon={MessageSquareWarning}
-                color="text-accent-foreground"
-                bg="bg-accent/30"
-              />
-              <KpiCard
-                label="Avancement PACQS opérationnel"
-                value={`${extraStats.tauxPacqOp}%`}
-                sub={extraStats.totalPacq > 0 ? `${extraStats.pacqRealisees} / ${extraStats.totalPacq} actions` : "Aucune action"}
-                icon={Target}
-                color="text-emerald-600"
-                bg="bg-emerald-500/10"
-              />
-              <KpiCard
-                label="Taux émargement classeur"
-                value={`${extraStats.tauxEmargement}%`}
-                sub={extraStats.totalProcs > 0 ? `${extraStats.procsWithEmarg} / ${extraStats.totalProcs} procédures` : "Aucune procédure"}
-                icon={BookOpen}
-                color="text-blue-500"
-                bg="bg-blue-500/10"
-              />
-            </div>
-            <Card>
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-medium text-muted-foreground">Score moyen pondéré</p>
-                  <p
-                    className="text-3xl font-display font-bold"
-                    style={{
-                      color: extraStats.scoreGlobal >= 75 ? "#22c55e" : extraStats.scoreGlobal >= 50 ? "#f59e0b" : "#ef4444",
-                    }}
-                  >
-                    {extraStats.scoreGlobal}%
-                  </p>
-                </div>
-                <div className="h-3 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-700"
-                    style={{
-                      width: `${extraStats.scoreGlobal}%`,
-                      background: extraStats.scoreGlobal >= 75 ? "#22c55e" : extraStats.scoreGlobal >= 50 ? "#f59e0b" : "#ef4444",
-                    }}
-                  />
-                </div>
-                <div className="flex justify-between text-[10px] text-muted-foreground mt-1.5">
-                  <span>0%</span>
-                  <span className={extraStats.scoreGlobal >= 75 ? "text-emerald-600 font-semibold" : extraStats.scoreGlobal >= 50 ? "text-yellow-600 font-semibold" : "text-destructive font-semibold"}>
-                    {extraStats.scoreGlobal >= 75 ? "Bon niveau" : extraStats.scoreGlobal >= 50 ? "À améliorer" : "Insuffisant"}
-                  </span>
-                  <span>100%</span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* ══════════════════════════════════════════════════════════════════
-              PACQS Opérationnel
-          ════════════════════════════════════════════════════════════════════ */}
-          <div>
-            <SectionTitle icon={Target} title="PACQS Opérationnel — Plan d'actions correctives" color="text-emerald-600" />
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-              <KpiCard label="Total actions" value={extraStats.totalPacq} icon={ClipboardList} color="text-primary" bg="bg-primary/10" />
-              <KpiCard label="À faire" value={extraStats.pacqAFaire} icon={Clock} color="text-slate-500" bg="bg-slate-500/10" />
-              <KpiCard label="En cours" value={extraStats.pacqEnCours} icon={Activity} color="text-yellow-600" bg="bg-yellow-500/10" />
-              <KpiCard label="Réalisées / Évaluées" value={extraStats.pacqRealisees} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
-            </div>
-            {extraStats.totalPacq > 0 && (
-              <div className="grid gap-5 lg:grid-cols-2">
-                <Card>
-                  <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="font-display text-base">Répartition par statut</CardTitle>
+              {extraStats.procsZero.length > 0 && (
+                <Card className="border-orange-500/30">
+                  <CardHeader className="pb-3 pt-4 px-5">
+                    <CardTitle className="font-display text-base flex items-center gap-2 text-orange-600">
+                      <AlertTriangle className="w-4 h-4" />
+                      Procédures sans émargement
+                      <Badge className="ml-auto bg-orange-500/15 text-orange-700 border-orange-500/30 text-xs font-normal">
+                        {extraStats.procsZero.length}
+                      </Badge>
+                    </CardTitle>
                   </CardHeader>
-                  <CardContent className="px-2 pb-4">
-                    <ResponsiveContainer width="100%" height={180}>
-                      <BarChart data={extraStats.pacqByStatut} layout="vertical" margin={{ top: 4, right: 30, left: 10, bottom: 4 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                        <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11 }} />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Bar dataKey="value" name="Actions" radius={[0, 4, 4, 0]}>
-                          {extraStats.pacqByStatut.map((d, i) => <Cell key={i} fill={d.fill} />)}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
+                  <CardContent className="px-5 pb-5">
+                    <div className="grid sm:grid-cols-2 gap-2">
+                      {extraStats.procsZero.slice(0, 10).map((p: any) => (
+                        <div key={p.id} className="flex items-center gap-2 p-2 rounded-lg bg-orange-500/5 border border-orange-500/15">
+                          <XCircle className="w-3.5 h-3.5 text-orange-500 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium truncate">{p.titre}</p>
+                            {p.classeur_categories?.nom && (
+                              <p className="text-[10px] text-muted-foreground">{p.classeur_categories.nom}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {extraStats.procsZero.length > 10 && (
+                      <p className="text-xs text-muted-foreground text-center pt-2">+ {extraStats.procsZero.length - 10} autre(s)</p>
+                    )}
                   </CardContent>
                 </Card>
+              )}
+            </div>
+
+          </TabsContent>
+
+          {/* ════════════════════════════════════════════════════════
+              TAB 2 — FEI & Incidents
+          ════════════════════════════════════════════════════════ */}
+          <TabsContent value="fei" className="space-y-8 mt-6">
+
+            {/* KPI FEI */}
+            <div>
+              <SectionTitle icon={FileText} title="Indicateurs FEI" />
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <KpiCard label="Total FEI déclarées" value={stats.totalFei} icon={FileText} color="text-primary" bg="bg-primary/10" />
+                <KpiCard
+                  label="Gravité moyenne"
+                  value={stats.avgGravite !== "—" ? `${stats.avgGravite}/5` : "—"}
+                  sub="Sur 5 niveaux"
+                  icon={AlertTriangle}
+                  color="text-orange-500"
+                  bg="bg-orange-500/10"
+                />
+                <KpiCard label="FEI clôturées" value={`${stats.tauxCloture}%`} sub={`${stats.clotures} sur ${stats.totalFei}`} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
+                <KpiCard
+                  label="FEI critiques (≥4)"
+                  value={stats.critiques}
+                  sub={stats.totalFei > 0 ? `${Math.round((stats.critiques / stats.totalFei) * 100)}% du total` : undefined}
+                  icon={XCircle}
+                  color="text-destructive"
+                  bg="bg-destructive/10"
+                />
+              </div>
+            </div>
+
+            {/* Évolution mensuelle FEI */}
+            {stats.monthlyData.length > 0 && (
+              <div>
+                <SectionTitle icon={TrendingUp} title="Évolution mensuelle FEI" />
                 <Card>
                   <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="font-display text-base">Répartition par priorité</CardTitle>
+                    <CardTitle className="font-display text-base">FEI par mois</CardTitle>
                   </CardHeader>
                   <CardContent className="px-2 pb-4">
-                    <ResponsiveContainer width="100%" height={180}>
-                      <BarChart data={extraStats.pacqByPriorite} layout="vertical" margin={{ top: 4, right: 30, left: 10, bottom: 4 }}>
+                    <ResponsiveContainer width="100%" height={240}>
+                      <LineChart data={stats.monthlyData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                        <YAxis dataKey="name" type="category" width={70} tick={{ fontSize: 11 }} />
+                        <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                         <Tooltip content={<CustomTooltip />} />
-                        <Bar dataKey="value" name="Actions" radius={[0, 4, 4, 0]}>
-                          {extraStats.pacqByPriorite.map((d, i) => <Cell key={i} fill={d.fill} />)}
-                        </Bar>
-                      </BarChart>
+                        <Line type="monotone" dataKey="FEI" stroke="#c46b48" strokeWidth={2.5} dot={{ r: 4, fill: "#c46b48" }} activeDot={{ r: 6 }} />
+                      </LineChart>
                     </ResponsiveContainer>
                   </CardContent>
                 </Card>
               </div>
             )}
-            {extraStats.pacqEnRetard.length > 0 && (
-              <Card className="mt-5 border-destructive/30">
-                <CardHeader className="pb-3 pt-4 px-5">
-                  <CardTitle className="font-display text-base flex items-center gap-2 text-destructive">
-                    <AlertTriangle className="w-4 h-4" />
-                    Actions en retard
-                    <Badge variant="destructive" className="ml-auto text-xs font-normal">
-                      {extraStats.pacqEnRetard.length}
-                    </Badge>
+
+            {/* Charts FEI */}
+            {feiData.length > 0 && (
+              <div>
+                <SectionTitle icon={BarChart3} title="Analyse détaillée des FEI" />
+                <div className="grid gap-5 lg:grid-cols-2">
+
+                  {/* Type FEI — Pie */}
+                  <Card>
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="font-display text-base">Répartition par type d'événement</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-col sm:flex-row items-center gap-4">
+                        <ResponsiveContainer width={200} height={200}>
+                          <PieChart>
+                            <Pie data={typeChartData} cx="50%" cy="50%" outerRadius={88} dataKey="value" labelLine={false} label={renderPieLabel}>
+                              {typeChartData.map((_, i) => (
+                                <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip content={<CustomTooltip />} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="flex flex-col gap-1.5 min-w-0">
+                          {typeChartData.map((d, i) => (
+                            <div key={d.name} className="flex items-center gap-2 text-xs">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                              <span className="text-muted-foreground truncate">{d.name}</span>
+                              <span className="ml-auto font-bold text-foreground">{d.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Gravité — Bars */}
+                  <Card>
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="font-display text-base">Distribution des niveaux de gravité</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={220}>
+                        <BarChart data={graviteChartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                          <Tooltip content={<CustomTooltip />} />
+                          <Bar dataKey="value" name="FEI" radius={[4, 4, 0, 0]}>
+                            {graviteChartData.map((d, i) => (
+                              <Cell key={i} fill={d.fill} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+
+                  {/* Statut FEI — Horizontal Bar */}
+                  <Card>
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="font-display text-base">Statut de traitement des FEI</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={statutChartData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                          <YAxis dataKey="name" type="category" width={110} tick={{ fontSize: 11 }} />
+                          <Tooltip content={<CustomTooltip />} />
+                          <Bar dataKey="value" name="FEI" radius={[0, 4, 4, 0]}>
+                            {statutChartData.map((d, i) => (
+                              <Cell key={i} fill={d.fill} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {statutChartData.map((d) => (
+                          <Badge
+                            key={d.name}
+                            variant="outline"
+                            className="text-xs gap-1.5"
+                            style={{ borderColor: d.fill, color: d.fill }}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ background: d.fill }} />
+                            {d.name} ({d.value})
+                          </Badge>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Top lieux — Horizontal Bar */}
+                  <Card>
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="font-display text-base">Lieux les plus touchés</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {lieuChartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={220}>
+                          <BarChart data={lieuChartData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                            <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 10 }} />
+                            <Tooltip content={<CustomTooltip />} />
+                            <Bar dataKey="value" name="Incidents" fill="hsl(16, 55%, 52%)" radius={[0, 4, 4, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-8">Pas de données de lieu</p>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                </div>
+              </div>
+            )}
+
+            {/* Top déclarants */}
+            {declarantChartData.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5">
+                  <CardTitle className="font-display text-base flex items-center gap-2">
+                    <Users className="w-4 h-4 text-primary" />
+                    Top déclarants (FEI)
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="px-5 pb-5 space-y-2">
-                  {extraStats.pacqEnRetard.slice(0, 5).map((a: any) => (
-                    <div key={a.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-destructive/5 border border-destructive/15">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{a.titre}</p>
-                        <p className="text-[11px] text-muted-foreground">{a.responsable}</p>
-                      </div>
-                      <Badge variant="outline" className="shrink-0 text-destructive border-destructive/40 text-xs">
-                        {new Date(a.date_echeance).toLocaleDateString("fr-FR")}
-                      </Badge>
-                    </div>
-                  ))}
-                  {extraStats.pacqEnRetard.length > 5 && (
-                    <p className="text-xs text-muted-foreground text-center pt-1">+ {extraStats.pacqEnRetard.length - 5} autre(s)</p>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          {/* ══════════════════════════════════════════════════════════════════
-              PACQS Stratégique
-          ════════════════════════════════════════════════════════════════════ */}
-          <div>
-            <SectionTitle icon={TrendingUp} title="PACQS Stratégique — Thématiques ESSMS" color="text-purple-600" />
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
-              <KpiCard label="Total actions stratégiques" value={extraStats.totalPacqS} icon={Target} color="text-purple-600" bg="bg-purple-500/10" />
-              <KpiCard label="En cours" value={extraStats.pacqSEnCours} icon={Activity} color="text-yellow-600" bg="bg-yellow-500/10" />
-              <KpiCard label="Réalisées" value={extraStats.pacqSRealises} sub={`Taux ${extraStats.tauxPacqS}%`} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
-            </div>
-            {extraStats.pacqSByThematique.length > 0 ? (
-              <>
-                <Card className="mb-4">
-                  <CardHeader className="pb-2 pt-4 px-5">
-                    <CardTitle className="font-display text-base">Actions par thématique</CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-2 pb-4">
-                    <ResponsiveContainer width="100%" height={Math.max(200, extraStats.pacqSByThematique.length * 48)}>
-                      <BarChart data={extraStats.pacqSByThematique} layout="vertical" margin={{ top: 4, right: 30, left: 12, bottom: 4 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                        <YAxis dataKey="name" type="category" width={170} tick={{ fontSize: 10 }} />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                        <Bar dataKey="enCours" name="En cours" fill="#f59e0b" radius={[0, 0, 0, 0]} stackId="a" />
-                        <Bar dataKey="realises" name="Réalisées" fill="#22c55e" radius={[0, 4, 4, 0]} stackId="a" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-                <div className="space-y-3">
-                  {extraStats.pacqSByThematique.map((t) => (
-                    <Card key={t.fullName}>
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between gap-3 mb-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="w-3 h-3 rounded-full shrink-0" style={{ background: t.hex }} />
-                            <p className="text-sm font-medium truncate">{t.fullName}</p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-xs text-muted-foreground">{t.realises}/{t.total}</span>
-                            <span className="text-xs font-bold" style={{ color: t.taux >= 75 ? "#22c55e" : t.taux >= 40 ? "#f59e0b" : "#ef4444" }}>
-                              {t.taux}%
-                            </span>
-                          </div>
-                        </div>
-                        <div className="h-2 bg-muted rounded-full overflow-hidden">
-                          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${t.taux}%`, background: t.hex }} />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <Card>
-                <CardContent className="py-10 text-center text-muted-foreground text-sm">
-                  Aucune action PACQS stratégique enregistrée
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          {/* ══════════════════════════════════════════════════════════════════
-              Classeur documentaire
-          ════════════════════════════════════════════════════════════════════ */}
-          <div>
-            <SectionTitle icon={BookOpen} title="Classeur documentaire — Émargements" color="text-blue-600" />
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
-              <KpiCard label="Procédures au total" value={extraStats.totalProcs} icon={BookOpen} color="text-blue-500" bg="bg-blue-500/10" />
-              <KpiCard label="Procédures émargées" value={extraStats.procsWithEmarg} sub={`Taux ${extraStats.tauxEmargement}%`} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
-              <KpiCard label="Procédures non lues" value={extraStats.procsZero.length} icon={XCircle} color="text-destructive" bg="bg-destructive/10" />
-            </div>
-            {extraStats.top10Procs.length > 0 && (
-              <Card className="mb-4">
-                <CardHeader className="pb-2 pt-4 px-5">
-                  <CardTitle className="font-display text-base">Top 10 procédures les plus émargées</CardTitle>
-                </CardHeader>
-                <CardContent className="px-2 pb-4">
-                  <ResponsiveContainer width="100%" height={Math.max(180, extraStats.top10Procs.length * 36)}>
-                    <BarChart data={extraStats.top10Procs} layout="vertical" margin={{ top: 4, right: 30, left: 12, bottom: 4 }}>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={Math.max(150, declarantChartData.length * 38)}>
+                    <BarChart data={declarantChartData} layout="vertical" margin={{ top: 5, right: 40, left: 10, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                       <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-                      <YAxis dataKey="name" type="category" width={180} tick={{ fontSize: 10 }} />
-                      <Tooltip
-                        content={({ active, payload }) => {
-                          if (!active || !payload?.length) return null;
-                          const d = payload[0].payload;
-                          return (
-                            <div className="bg-background border border-border rounded-lg px-3 py-2 shadow-lg text-xs space-y-0.5">
-                              <p className="font-semibold">{d.fullName}</p>
-                              {d.categorie && <p className="text-muted-foreground">{d.categorie}</p>}
-                              <p className="font-bold text-blue-500">{d.value} émargement(s)</p>
-                            </div>
-                          );
-                        }}
-                      />
-                      <Bar dataKey="value" name="Émargements" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                      <YAxis dataKey="name" type="category" width={150} tick={{ fontSize: 11 }} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Bar dataKey="value" name="Déclarations" fill="hsl(16, 55%, 52%)" radius={[0, 4, 4, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
             )}
-            {extraStats.procsZero.length > 0 && (
-              <Card className="border-orange-500/30">
+
+            {/* Actions correctives renseignées dans les FEI */}
+            {feiData.length > 0 && (
+              <Card>
                 <CardHeader className="pb-3 pt-4 px-5">
-                  <CardTitle className="font-display text-base flex items-center gap-2 text-orange-600">
-                    <AlertTriangle className="w-4 h-4" />
-                    Procédures sans émargement
-                    <Badge className="ml-auto bg-orange-500/15 text-orange-700 border-orange-500/30 text-xs font-normal">
-                      {extraStats.procsZero.length}
+                  <CardTitle className="font-display text-base flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-emerald-500" />
+                    Actions correctives renseignées
+                    <Badge variant="secondary" className="ml-auto font-normal text-xs">
+                      {feiData.filter((f) => f.actions_correctives).length} / {feiData.length} FEI
                     </Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 pb-5">
-                  <div className="grid sm:grid-cols-2 gap-2">
-                    {extraStats.procsZero.slice(0, 10).map((p: any) => (
-                      <div key={p.id} className="flex items-center gap-2 p-2 rounded-lg bg-orange-500/5 border border-orange-500/15">
-                        <XCircle className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium truncate">{p.titre}</p>
-                          {p.classeur_categories?.nom && (
-                            <p className="text-[10px] text-muted-foreground">{p.classeur_categories.nom}</p>
-                          )}
+                  {feiData.filter((f) => f.actions_correctives).length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-6">Aucune action corrective renseignée</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {feiData.filter((f) => f.actions_correctives).map((f) => (
+                        <div key={f.id} className="p-3 rounded-xl bg-secondary/50 border border-border/50">
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary" className="text-xs">{f.type_fei}</Badge>
+                              <span
+                                className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                                style={{ background: GRAVITE_COLORS[f.gravite - 1] + "20", color: GRAVITE_COLORS[f.gravite - 1] }}
+                              >
+                                G{f.gravite}
+                              </span>
+                            </div>
+                            <span className="text-xs text-muted-foreground shrink-0">
+                              {new Date(f.date_evenement).toLocaleDateString("fr-FR")}
+                            </span>
+                          </div>
+                          <p className="text-xs text-foreground leading-relaxed">{f.actions_correctives}</p>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                  {extraStats.procsZero.length > 10 && (
-                    <p className="text-xs text-muted-foreground text-center pt-2">+ {extraStats.procsZero.length - 10} autre(s)</p>
+                      ))}
+                    </div>
                   )}
                 </CardContent>
               </Card>
             )}
-          </div>
 
-          {/* ══════════════════════════════════════════════════════════════════
-              Actions correctives
-          ════════════════════════════════════════════════════════════════════ */}
-          {feiData.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3 pt-4 px-5">
-                <CardTitle className="font-display text-base flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-emerald-500" />
-                  Actions correctives renseignées
-                  <Badge variant="secondary" className="ml-auto font-normal text-xs">
-                    {feiData.filter((f) => f.actions_correctives).length} / {feiData.length} FEI
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-5 pb-5">
-                {feiData.filter((f) => f.actions_correctives).length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-6">Aucune action corrective renseignée</p>
-                ) : (
-                  <div className="space-y-3">
-                    {feiData.filter((f) => f.actions_correctives).map((f) => (
-                      <div key={f.id} className="p-3 rounded-xl bg-secondary/50 border border-border/50">
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="secondary" className="text-xs">{f.type_fei}</Badge>
-                            <span
-                              className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                              style={{ background: GRAVITE_COLORS[f.gravite - 1] + "20", color: GRAVITE_COLORS[f.gravite - 1] }}
-                            >
-                              G{f.gravite}
-                            </span>
-                          </div>
-                          <span className="text-xs text-muted-foreground shrink-0">
-                            {new Date(f.date_evenement).toLocaleDateString("fr-FR")}
-                          </span>
+          </TabsContent>
+
+          {/* ════════════════════════════════════════════════════════
+              TAB 3 — Plaintes & Réclamations
+          ════════════════════════════════════════════════════════ */}
+          <TabsContent value="plaintes" className="space-y-8 mt-6">
+
+            {/* KPI Plaintes */}
+            <div>
+              <SectionTitle icon={MessageSquareWarning} title="Indicateurs Plaintes & Réclamations" color="text-accent-foreground" />
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <KpiCard label="Total plaintes" value={stats.totalPlaintes} icon={MessageSquareWarning} color="text-accent-foreground" bg="bg-accent/30" />
+                <KpiCard label="Plaintes en cours" value={stats.plaintesEnCours} sub="Nouveau + En cours" icon={Clock} color="text-yellow-600" bg="bg-yellow-500/10" />
+                <KpiCard label="Taux de résolution" value={`${stats.tauxResolution}%`} sub={`${stats.plaintesTraitees} traitées`} icon={Shield} color="text-emerald-500" bg="bg-emerald-500/10" />
+                <KpiCard label="Déclarants actifs" value={stats.totalDeclarants} sub="FEI + Plaintes" icon={Users} color="text-blue-500" bg="bg-blue-500/10" />
+              </div>
+            </div>
+
+            {/* Évolution mensuelle Plaintes */}
+            {stats.monthlyData.length > 0 && (
+              <div>
+                <SectionTitle icon={TrendingUp} title="Évolution mensuelle plaintes" />
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-5">
+                    <CardTitle className="font-display text-base">Plaintes par mois</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-2 pb-4">
+                    <ResponsiveContainer width="100%" height={240}>
+                      <LineChart data={stats.monthlyData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Line type="monotone" dataKey="Plaintes" stroke="#d4956e" strokeWidth={2} dot={{ r: 3, fill: "#d4956e" }} activeDot={{ r: 5 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Charts Plaintes */}
+            {plaintesData.length > 0 && (
+              <div>
+                <SectionTitle icon={MessageSquareWarning} title="Analyse des Plaintes & Réclamations" color="text-accent-foreground" />
+                <div className="grid gap-5 lg:grid-cols-2">
+
+                  {/* Demandeur — Pie */}
+                  <Card>
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="font-display text-base">Plaintes par type de demandeur</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-col sm:flex-row items-center gap-4">
+                        <ResponsiveContainer width={190} height={190}>
+                          <PieChart>
+                            <Pie data={demandeurChartData} cx="50%" cy="50%" outerRadius={82} dataKey="value" labelLine={false} label={renderPieLabel}>
+                              {demandeurChartData.map((_, i) => (
+                                <Cell key={i} fill={PIE_COLORS[(i + 2) % PIE_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip content={<CustomTooltip />} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="flex flex-col gap-1.5">
+                          {demandeurChartData.map((d, i) => (
+                            <div key={d.name} className="flex items-center gap-2 text-xs">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: PIE_COLORS[(i + 2) % PIE_COLORS.length] }} />
+                              <span className="text-muted-foreground">{d.name}</span>
+                              <span className="ml-auto font-bold text-foreground">{d.value}</span>
+                            </div>
+                          ))}
                         </div>
-                        <p className="text-xs text-foreground leading-relaxed">{f.actions_correctives}</p>
                       </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Statut plaintes — Horizontal Bar */}
+                  <Card>
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="font-display text-base">Statut des plaintes</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <ResponsiveContainer width="100%" height={160}>
+                        <BarChart data={statutPlaintesData} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                          <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11 }} />
+                          <Tooltip content={<CustomTooltip />} />
+                          <Bar dataKey="value" name="Plaintes" radius={[0, 4, 4, 0]}>
+                            {statutPlaintesData.map((d, i) => (
+                              <Cell key={i} fill={d.fill} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                      {/* Jauge résolution */}
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Taux de résolution</span>
+                          <span className="font-semibold text-foreground">{stats.tauxResolution}%</span>
+                        </div>
+                        <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{ width: `${stats.tauxResolution}%`, background: "#22c55e" }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-[10px] text-muted-foreground">
+                          <span>{stats.plaintesTraitees} traitée{stats.plaintesTraitees > 1 ? "s" : ""}</span>
+                          <span>{stats.plaintesEnCours} en attente</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                </div>
+
+                {/* Répartition par famille */}
+                {familleChartData.length > 0 && (
+                  <Card className="lg:col-span-2 mt-5">
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="font-display text-base flex items-center gap-2">
+                        <MessageSquareWarning className="w-4 h-4 text-accent-foreground" />
+                        Répartition par famille de plainte
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-col sm:flex-row items-center gap-6">
+                        <ResponsiveContainer width={220} height={220}>
+                          <PieChart>
+                            <Pie
+                              data={familleChartData}
+                              cx="50%"
+                              cy="50%"
+                              outerRadius={96}
+                              innerRadius={40}
+                              dataKey="value"
+                              labelLine={false}
+                              label={renderPieLabel}
+                            >
+                              {familleChartData.map((d, i) => (
+                                <Cell key={i} fill={d.fill} />
+                              ))}
+                            </Pie>
+                            <Tooltip content={<CustomTooltip />} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        <div className="flex flex-col gap-2 flex-1 min-w-0">
+                          {familleChartData.map((d) => (
+                            <div key={d.name} className="flex items-center gap-2.5">
+                              <span className="w-3 h-3 rounded-full shrink-0" style={{ background: d.fill }} />
+                              <span className="text-xs text-muted-foreground flex-1 truncate">{d.name}</span>
+                              <span className="text-xs font-bold text-foreground tabular-nums">{d.value}</span>
+                              <span className="text-[10px] text-muted-foreground/70 tabular-nums w-8 text-right">
+                                {stats.totalPlaintes > 0 ? Math.round((d.value / stats.totalPlaintes) * 100) : 0}%
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Répartition par catégorie */}
+                {categorieChartData.length > 0 && (
+                  <Card className="lg:col-span-2 mt-5">
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="font-display text-base flex items-center gap-2">
+                        <MessageSquareWarning className="w-4 h-4 text-accent-foreground" />
+                        Détail des catégories de plainte
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-2 pb-4">
+                      <div className="flex flex-wrap gap-1.5 px-3 mb-3">
+                        {PLAINTE_CATEGORIES.filter((f) => (stats.byFamille[f.famille] || 0) > 0).map((f) => (
+                          <span
+                            key={f.famille}
+                            className="inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full"
+                            style={{ background: f.color + "18", color: f.color, border: `1px solid ${f.color}40` }}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ background: f.color }} />
+                            {f.famille}
+                          </span>
+                        ))}
+                      </div>
+                      <ResponsiveContainer width="100%" height={Math.max(180, categorieChartData.length * 32)}>
+                        <BarChart
+                          data={categorieChartData}
+                          layout="vertical"
+                          margin={{ top: 4, right: 40, left: 12, bottom: 4 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                          <YAxis dataKey="name" type="category" width={200} tick={{ fontSize: 11 }} />
+                          <Tooltip
+                            content={({ active, payload }) => {
+                              if (!active || !payload?.length) return null;
+                              const d = payload[0].payload;
+                              return (
+                                <div className="bg-background border border-border rounded-lg px-3 py-2 shadow-lg text-xs space-y-0.5">
+                                  <p className="font-semibold text-foreground">{d.name}</p>
+                                  <p style={{ color: d.fill }}>{d.famille}</p>
+                                  <p className="font-bold">{d.value} plainte{d.value > 1 ? "s" : ""}</p>
+                                </div>
+                              );
+                            }}
+                          />
+                          <Bar dataKey="value" name="Plaintes" radius={[0, 4, 4, 0]}>
+                            {categorieChartData.map((d, i) => (
+                              <Cell key={i} fill={d.fill} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+
+              </div>
+            )}
+
+          </TabsContent>
+
+          {/* ════════════════════════════════════════════════════════
+              TAB 4 — Qualité & Audits
+          ════════════════════════════════════════════════════════ */}
+          <TabsContent value="qualite" className="space-y-8 mt-6">
+
+            <div>
+              <SectionTitle icon={Shield} title="Actions correctives — Vue qualité" color="text-emerald-600" />
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                <KpiCard label="Actions correctives totales" value={qualiteStats.totalActions} icon={ClipboardList} color="text-primary" bg="bg-primary/10" />
+                <KpiCard label="Actions en retard" value={qualiteStats.actionsEnRetard} sub="Échéance dépassée" icon={AlertTriangle} color="text-destructive" bg="bg-destructive/10" />
+                <KpiCard label="Taux de réalisation" value={`${qualiteStats.tauxRealisation}%`} sub={`${qualiteStats.actionsRealisees} réalisées`} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
+              </div>
+            </div>
+
+            {/* Actions by source */}
+            {qualiteStats.actionsBySource.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5">
+                  <CardTitle className="font-display text-base">Actions par source</CardTitle>
+                </CardHeader>
+                <CardContent className="px-2 pb-4">
+                  <ResponsiveContainer width="100%" height={Math.max(150, qualiteStats.actionsBySource.length * 40)}>
+                    <BarChart data={qualiteStats.actionsBySource} layout="vertical" margin={{ top: 4, right: 30, left: 12, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                      <YAxis dataKey="name" type="category" width={140} tick={{ fontSize: 11 }} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Bar dataKey="value" name="Actions" fill="#22c55e" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Audits */}
+            <div>
+              <SectionTitle icon={Star} title="Audits & Non-conformités" color="text-yellow-600" />
+              {auditsData.length === 0 ? (
+                <Card>
+                  <CardContent className="py-10 text-center text-muted-foreground text-sm space-y-1">
+                    <Star className="w-10 h-10 mx-auto opacity-20 mb-2" />
+                    <p className="font-medium">Module audits NC à venir</p>
+                    <p className="text-xs">Les données d'audit apparaîtront ici une fois disponibles.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  {auditsData.map((a: any) => (
+                    <Card key={a.id}>
+                      <CardContent className="p-4">
+                        <p className="text-sm font-medium truncate">{a.titre}</p>
+                        <p className="text-xs text-muted-foreground">{a.date_audit ? new Date(a.date_audit).toLocaleDateString("fr-FR") : "—"}</p>
+                        {a.score_global != null && (
+                          <p className="text-xl font-bold text-primary mt-1">{a.score_global}%</p>
+                        )}
+                        <Badge variant="secondary" className="text-xs mt-1">{a.statut}</Badge>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+
+          </TabsContent>
+
+          {/* ════════════════════════════════════════════════════════
+              TAB 5 — Actions correctives (PACQS opérationnel)
+          ════════════════════════════════════════════════════════ */}
+          <TabsContent value="actions" className="space-y-8 mt-6">
+
+            <div>
+              <SectionTitle icon={Target} title="PACQS Opérationnel — Plan d'actions correctives" color="text-emerald-600" />
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+                <KpiCard label="Total actions" value={extraStats.totalPacq} icon={ClipboardList} color="text-primary" bg="bg-primary/10" />
+                <KpiCard label="À faire" value={extraStats.pacqAFaire} icon={Clock} color="text-slate-500" bg="bg-slate-500/10" />
+                <KpiCard label="En cours" value={extraStats.pacqEnCours} icon={Activity} color="text-yellow-600" bg="bg-yellow-500/10" />
+                <KpiCard label="Réalisées / Évaluées" value={extraStats.pacqRealisees} icon={CheckCircle} color="text-emerald-500" bg="bg-emerald-500/10" />
+              </div>
+              {extraStats.totalPacq > 0 && (
+                <div className="grid gap-5 lg:grid-cols-2">
+                  <Card>
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="font-display text-base">Répartition par statut</CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-2 pb-4">
+                      <ResponsiveContainer width="100%" height={180}>
+                        <BarChart data={extraStats.pacqByStatut} layout="vertical" margin={{ top: 4, right: 30, left: 10, bottom: 4 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                          <YAxis dataKey="name" type="category" width={80} tick={{ fontSize: 11 }} />
+                          <Tooltip content={<CustomTooltip />} />
+                          <Bar dataKey="value" name="Actions" radius={[0, 4, 4, 0]}>
+                            {extraStats.pacqByStatut.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="font-display text-base">Répartition par priorité</CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-2 pb-4">
+                      <ResponsiveContainer width="100%" height={180}>
+                        <BarChart data={extraStats.pacqByPriorite} layout="vertical" margin={{ top: 4, right: 30, left: 10, bottom: 4 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                          <YAxis dataKey="name" type="category" width={70} tick={{ fontSize: 11 }} />
+                          <Tooltip content={<CustomTooltip />} />
+                          <Bar dataKey="value" name="Actions" radius={[0, 4, 4, 0]}>
+                            {extraStats.pacqByPriorite.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+              {extraStats.pacqEnRetard.length > 0 && (
+                <Card className="mt-5 border-destructive/30">
+                  <CardHeader className="pb-3 pt-4 px-5">
+                    <CardTitle className="font-display text-base flex items-center gap-2 text-destructive">
+                      <AlertTriangle className="w-4 h-4" />
+                      Actions en retard
+                      <Badge variant="destructive" className="ml-auto text-xs font-normal">
+                        {extraStats.pacqEnRetard.length}
+                      </Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-5 pb-5 space-y-2">
+                    {extraStats.pacqEnRetard.slice(0, 5).map((a: any) => (
+                      <div key={a.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-destructive/5 border border-destructive/15">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{a.titre}</p>
+                          <p className="text-[11px] text-muted-foreground">{a.responsable}</p>
+                        </div>
+                        <Badge variant="outline" className="shrink-0 text-destructive border-destructive/40 text-xs">
+                          {new Date(a.date_echeance).toLocaleDateString("fr-FR")}
+                        </Badge>
+                      </div>
+                    ))}
+                    {extraStats.pacqEnRetard.length > 5 && (
+                      <p className="text-xs text-muted-foreground text-center pt-1">+ {extraStats.pacqEnRetard.length - 5} autre(s)</p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+          </TabsContent>
+
+          {/* ════════════════════════════════════════════════════════
+              TAB 6 — Satisfaction
+          ════════════════════════════════════════════════════════ */}
+          <TabsContent value="satisfaction" className="space-y-8 mt-6">
+
+            <div>
+              <SectionTitle icon={Smile} title="Données de satisfaction" color="text-blue-500" />
+              {questionnaireData.length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center text-muted-foreground space-y-1">
+                    <Smile className="w-10 h-10 mx-auto opacity-20 mb-2" />
+                    <p className="font-medium">Aucune donnée de satisfaction disponible</p>
+                    <p className="text-xs">Les réponses aux questionnaires apparaîtront ici.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+                    <KpiCard
+                      label="Nombre de réponses"
+                      value={satisfactionStats.total}
+                      icon={Users}
+                      color="text-blue-500"
+                      bg="bg-blue-500/10"
+                    />
+                    <KpiCard
+                      label="Score moyen"
+                      value={satisfactionStats.scoreMoyen !== null ? `${satisfactionStats.scoreMoyen}/10` : "N/A"}
+                      sub={satisfactionStats.scoreMoyen !== null ? "Note globale moyenne" : "Champ note_globale absent"}
+                      icon={Star}
+                      color="text-yellow-600"
+                      bg="bg-yellow-500/10"
+                    />
+                    <KpiCard
+                      label="Dernière réponse"
+                      value={questionnaireData[0]?.created_at ? new Date(questionnaireData[0].created_at).toLocaleDateString("fr-FR") : "—"}
+                      icon={Clock}
+                      color="text-emerald-500"
+                      bg="bg-emerald-500/10"
+                    />
+                  </div>
+                  <Card>
+                    <CardHeader className="pb-2 pt-4 px-5">
+                      <CardTitle className="font-display text-base">Réponses par mois (12 derniers mois)</CardTitle>
+                    </CardHeader>
+                    <CardContent className="px-2 pb-4">
+                      <ResponsiveContainer width="100%" height={240}>
+                        <LineChart data={satisfactionStats.monthlyReponses} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                          <Tooltip content={<CustomTooltip />} />
+                          <Line type="monotone" dataKey="Réponses" stroke="#3b82f6" strokeWidth={2.5} dot={{ r: 4, fill: "#3b82f6" }} activeDot={{ r: 6 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                </>
+              )}
+            </div>
+
+          </TabsContent>
+
+          {/* ════════════════════════════════════════════════════════
+              TAB 7 — RH & Activité (admin only)
+          ════════════════════════════════════════════════════════ */}
+          {isAdmin && (
+            <TabsContent value="rh" className="space-y-8 mt-6">
+              <div>
+                <SectionTitle icon={Briefcase} title="Indicateurs RH & Activité" color="text-purple-600" />
+                {rhIndicateurs.length === 0 ? (
+                  <Card>
+                    <CardContent className="py-12 text-center text-muted-foreground space-y-1">
+                      <Briefcase className="w-10 h-10 mx-auto opacity-20 mb-2" />
+                      <p className="font-medium">Aucun indicateur RH saisi pour le moment</p>
+                      <p className="text-xs">Les indicateurs du domaine RH/Admin apparaîtront ici.</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    {rhIndicateurs.map((ind: any) => (
+                      <KpiCard
+                        key={ind.id}
+                        label={ind.indicateur_id || ind.libelle || "Indicateur"}
+                        value={ind.valeur != null ? ind.valeur : "—"}
+                        sub={ind.date_mois ? new Date(ind.date_mois + "-01").toLocaleDateString("fr-FR", { month: "long", year: "numeric" }) : undefined}
+                        icon={Activity}
+                        color="text-purple-600"
+                        bg="bg-purple-500/10"
+                      />
                     ))}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </TabsContent>
           )}
-        </>
+
+        </Tabs>
       )}
     </div>
   );
