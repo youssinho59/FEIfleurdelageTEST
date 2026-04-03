@@ -158,6 +158,7 @@ export default function PlanActionsCorrectives() {
   const [savingInd, setSavingInd] = useState(false);
   const [unlinkIndConfirm, setUnlinkIndConfirm] = useState<{ linkId: string; label: string } | null>(null);
   const [deleteIndConfirm, setDeleteIndConfirm] = useState<{ linkId: string; label: string } | null>(null);
+  const [indDomaines, setIndDomaines] = useState<{ slug: string; label: string }[]>([]);
 
   const fetchActions = async () => {
     setLoading(true);
@@ -276,17 +277,16 @@ export default function PlanActionsCorrectives() {
     setSavingInd(true);
 
     const domaine = createIndForm.domaine || "personnalise";
-    const ongletLabel = INDICATEUR_DOMAINES.find((d) => d.value === domaine)?.label || "Personnalisé";
-    const categorie = createIndForm.theme.trim() || INDICATEUR_THEME_PAR_DOMAINE[domaine] || "Indicateurs personnalisés";
-    const libelle = createIndForm.label.trim();
+    const theme = createIndForm.theme.trim() || INDICATEUR_THEME_PAR_DOMAINE[domaine] || "Indicateurs personnalisés";
+    const label = createIndForm.label.trim();
     const service = createIndForm.service || createIndDialog.actionService || null;
 
     try {
       const { data: existingIndicateurs, error: existingError } = await supabase
         .from("indicateurs")
         .select("id")
-        .eq("onglet", ongletLabel)
-        .eq("libelle", libelle)
+        .eq("domaine", domaine)
+        .eq("label", label)
         .limit(1);
 
       if (existingError) throw existingError;
@@ -296,15 +296,13 @@ export default function PlanActionsCorrectives() {
 
       if (!indicateurId) {
         const payload = {
-          libelle,
-          onglet: ongletLabel,
-          service,
-          categorie,
+          domaine,
+          theme,
+          label,
           unite: createIndForm.unite.trim() || null,
-          valeur_cible: createIndForm.valeur_cible !== "" ? Number(createIndForm.valeur_cible) : null,
-          frequence_suivi: createIndForm.frequence.trim() || null,
-          actif: true,
-          cree_depuis_pacq: true,
+          valeur_cible: createIndForm.valeur_cible.trim() || null,
+          frequence: createIndForm.frequence.trim() || null,
+          service,
         };
 
         const { data: insertedIndicateur, error: indErr } = await supabase
@@ -323,10 +321,7 @@ export default function PlanActionsCorrectives() {
         .from("indicateurs_actions")
         .insert({
           indicateur_id: indicateurId,
-          indicateur_domaine: domaine,
-          indicateur_label: libelle,
           action_id: createIndDialog.actionId,
-          action_type: "operationnel",
         });
 
       if (linkErr) {
@@ -352,8 +347,8 @@ export default function PlanActionsCorrectives() {
         .from("indicateurs_valeurs")
         .insert({
           domaine,
-          theme: categorie,
-          indicateur: libelle,
+          theme,
+          indicateur: label,
           date_mois: dateMois,
           valeur: null,
           action_corrective_id: createIndDialog.actionId,
@@ -387,6 +382,14 @@ export default function PlanActionsCorrectives() {
   };
 
   useEffect(() => { fetchActions(); fetchComments(); fetchRefs(); fetchAllIndicateursMap(); }, []);
+
+  useEffect(() => {
+    supabase
+      .from("indicateurs_domaines")
+      .select("slug, label")
+      .order("ordre", { ascending: true })
+      .then(({ data }) => { if (data) setIndDomaines(data as { slug: string; label: string }[]); });
+  }, []);
 
   // Stats
   const total = actions.length;
@@ -993,8 +996,8 @@ export default function PlanActionsCorrectives() {
                     <SelectValue placeholder="Choisir un onglet" />
                   </SelectTrigger>
                   <SelectContent>
-                    {INDICATEUR_DOMAINES.map((d) => (
-                      <SelectItem key={d.value} value={d.value} className="text-xs">
+                    {indDomaines.map((d) => (
+                      <SelectItem key={d.slug} value={d.slug} className="text-xs">
                         {d.label}
                       </SelectItem>
                     ))}
