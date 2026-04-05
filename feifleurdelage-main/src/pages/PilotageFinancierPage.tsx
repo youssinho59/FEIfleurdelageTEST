@@ -19,15 +19,18 @@ import { toast } from "sonner";
 import {
   TrendingUp, Upload, FileText, BarChart3, Search,
   Download, Loader2, ChevronLeft, ChevronRight, Sparkles,
-  Euro, ArrowUpDown,
+  Euro, ArrowUpDown, Trash2, RefreshCw, FileDown,
 } from "lucide-react";
 import {
   LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
+import {
+  buildAndSavePdf, captureById, pdfPage, pdfKpis, pdfSectionTitle,
+  pdfTextBlock, pdfTable, pdfImage, C, esc,
+} from "@/lib/pdfExportUtils";
 
 // ── Worker pdfjs ──────────────────────────────────────────────────────────────
-// Worker servi localement via Vite (?url) — élimine le CORS en production
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -47,6 +50,16 @@ type Mandat = {
   groupe_fonctionnel: string | null;
   libelle_compte: string | null;
   categorie: string | null;
+  import_id?: string | null;
+};
+
+type MandatImport = {
+  id: string;
+  nom_fichier: string;
+  annee: number | null;
+  nb_lignes: number | null;
+  montant_total: number | null;
+  imported_at: string;
 };
 
 type CompteRef = {
@@ -67,7 +80,7 @@ type ParsedRow = {
   date_emission: string | null;
   retour_tresorerie: string | null;
   isDuplicate?: boolean;
-  isInvalid?: boolean;   // montant aberrant ou compte vide
+  isInvalid?: boolean;
 };
 
 type MonthlyPoint = {
@@ -81,10 +94,49 @@ type MonthlyPoint = {
 // ── Constantes ────────────────────────────────────────────────────────────────
 
 const GF_COLORS = { GF1: "#3b82f6", GF2: "#22c55e", GF3: "#f97316" };
-const GF_LABELS = { GF1: "GF1 — Soins & hébergement", GF2: "GF2 — Personnel", GF3: "GF3 — Gestion courante" };
+const GF_LABELS = {
+  GF1: "GF1 — Soins & hébergement",
+  GF2: "GF2 — Personnel & dépendance",
+  GF3: "GF3 — Structure & gestion",
+};
 const PAGE_SIZE = 25;
-const MONTANT_MAX = 9_999_999; // au-delà = colonnes fusionnées lors du parsing
+const MONTANT_MAX = 9_999_999;
 const HEADER_KEYWORDS = ["bordereau", "piece", "pièce", "tiers", "objet", "compte", "montant", "emission", "retour", "total", "sous-total", "report"];
+
+// ── Mapping groupe fonctionnel par compte EPRD EHPAD ─────────────────────────
+
+function getGroupeFonctionnel(compte: string): string {
+  const c = compte.toString().trim();
+  if (!c) return "Non classé";
+
+  if (c === "multi" || c.toLowerCase().includes("salaire") || c.toLowerCase().includes("cotisation"))
+    return "GF2";
+
+  const prefix3 = c.substring(0, Math.min(3, c.length));
+  const num = parseInt(prefix3);
+  if (isNaN(num)) return "Non classé";
+
+  // GF3 — Structure (comptes de bilan / financement / immobilisations)
+  if (c.startsWith("1") || c.startsWith("2")) return "GF3";
+  if (num === 635 || num === 671 || num === 681) return "GF3";
+  if ((num >= 160 && num <= 169) || (num >= 211 && num <= 218)) return "GF3";
+
+  // GF1 — Soins (financé ARS/CPAM)
+  if ((num >= 611 && num <= 616) || (num >= 621 && num <= 622)) return "GF1";
+  if (c.startsWith("6411") || c.startsWith("6413") || c.startsWith("6414")) return "GF1";
+  if (num === 651) return "GF1";
+  if ((num >= 602 && num <= 604)) return "GF1";
+
+  // GF2 — Personnel & dépendance
+  if (num === 652) return "GF2";
+  if (c.startsWith("6412") || c.startsWith("6415") || c.startsWith("6416")) return "GF2";
+  if ((num >= 606 && num <= 608)) return "GF2";
+  if (num === 613 || num === 614 || num === 615) return "GF2";
+  if (num === 623 || num === 625 || num === 626 || num === 627 || num === 628) return "GF2";
+  if (num === 631 || num === 633 || num === 641) return "GF2";
+
+  return "Non classé";
+}
 
 // ── Utilitaires PDF ───────────────────────────────────────────────────────────
 
@@ -105,13 +157,11 @@ function isHeaderOrTotal(line: string): boolean {
   return HEADER_KEYWORDS.some(k => lower.includes(k)) || /^page\s+\d/i.test(line);
 }
 
-/** Extrait les items d'une page PDF triés en lignes (groupement par y-position). */
 async function extractPageRows(page: any): Promise<string[]> {
   const textContent = await page.getTextContent();
   const items = (textContent.items as Array<{ str: string; transform: number[] }>)
     .filter(i => i.str.trim().length > 0);
 
-  // Grouper par y (arrondi à 2 unités près)
   const byY = new Map<number, Array<{ x: number; str: string }>>();
   for (const item of items) {
     const y = Math.round(item.transform[5] / 2) * 2;
@@ -119,9 +169,8 @@ async function extractPageRows(page: any): Promise<string[]> {
     byY.get(y)!.push({ x: item.transform[4], str: item.str });
   }
 
-  // Trier chaque ligne par x, puis assembler en chaînes
   return Array.from(byY.entries())
-    .sort((a, b) => b[0] - a[0]) // y décroissant = ordre de lecture
+    .sort((a, b) => b[0] - a[0])
     .map(([, items]) =>
       items
         .sort((a, b) => a.x - b.x)
@@ -133,15 +182,12 @@ async function extractPageRows(page: any): Promise<string[]> {
     .filter(l => l.length > 0);
 }
 
-/** Tente de parser une ligne en ParsedRow. Retourne null si pas une ligne de mandat. */
 function parseMandatLine(line: string): ParsedRow | null {
   const trimmed = line.trim();
 
-  // La ligne doit commencer par deux entiers (bordereau, pièce)
   const startMatch = trimmed.match(/^(\d{1,6})\s+(\d{1,6})\s+/);
   if (!startMatch) return null;
 
-  // Doit contenir une date dd/mm/yyyy
   const dateMatch = trimmed.match(/(\d{2}\/\d{2}\/\d{4})(.*)?$/);
   if (!dateMatch) return null;
 
@@ -150,13 +196,11 @@ function parseMandatLine(line: string): ParsedRow | null {
   const date_emission = parseDate(dateMatch[1]);
   const retour_tresorerie = dateMatch[2]?.trim() || null;
 
-  // Partie centrale : entre les deux nombres de départ et la date
   const afterStart = trimmed.substring(startMatch[0].length);
   const dateIdx = afterStart.indexOf(dateMatch[1]);
   if (dateIdx < 0) return null;
   const middle = afterStart.substring(0, dateIdx).trim();
 
-  // Trouver les deux montants depuis la droite (pattern: chiffres avec espaces, virgule, 2 chiffres)
   const amountRegex = /(\d[\d\u00a0\s]*,\d{2})\s*€?\s*/g;
   const allAmounts: Array<{ value: number; idx: number; len: number }> = [];
   let am: RegExpExecArray | null;
@@ -170,10 +214,8 @@ function parseMandatLine(line: string): ParsedRow | null {
   const htEntry = allAmounts[allAmounts.length - 2];
   const ttcEntry = allAmounts[allAmounts.length - 1];
 
-  // Texte avant les montants
   const beforeAmounts = middle.substring(0, htEntry.idx).trim();
 
-  // Extraire le code compte (dernier token numérique ou "multi")
   const tokens = beforeAmounts.split(/\s+/).filter(t => t.length > 0);
   let compteIdx = -1;
   for (let i = tokens.length - 1; i >= 0; i--) {
@@ -189,11 +231,9 @@ function parseMandatLine(line: string): ParsedRow | null {
     compte = tokens[compteIdx];
     tiersObjet = tokens.slice(0, compteIdx).join(" ");
   } else {
-    // Pas de code compte reconnu → ligne de total/virement, ignorer
     return null;
   }
 
-  // Séparer tiers et objet (objet commence souvent par "Facture", "Virement", etc.)
   const objetKeywords = ["Facture", "Virement", "Règlement", "Remboursement", "Avance", "Acompte", "Salaire", "Paie", "Cotis"];
   let tiers = tiersObjet;
   let objet = "";
@@ -206,7 +246,6 @@ function parseMandatLine(line: string): ParsedRow | null {
     }
   }
 
-  // Ignorer les lignes qui ressemblent à des totaux
   if (isHeaderOrTotal(tiers + " " + objet)) return null;
 
   const isInvalid =
@@ -226,7 +265,6 @@ function parseMandatLine(line: string): ParsedRow | null {
   };
 }
 
-/** Parse complet d'un fichier PDF. */
 async function parsePDF(file: File): Promise<ParsedRow[]> {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -294,12 +332,19 @@ export default function PilotageFinancierPage() {
   const [importStats, setImportStats] = useState<{ new: number; dup: number; invalid: number } | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
+  // ── Historique imports ───────────────────────────────────────────────────────
+  const [imports, setImports] = useState<MandatImport[]>([]);
+  const [importsLoading, setImportsLoading] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   // ── Dashboard ────────────────────────────────────────────────────────────────
   const [mandats, setMandats] = useState<Mandat[]>([]);
   const [anneesDispo, setAnneesDispo] = useState<number[]>([]);
   const [dashLoading, setDashLoading] = useState(false);
   const [filterAnnees, setFilterAnnees] = useState<string>("tous");
   const [filterGF, setFilterGF] = useState("tous");
+  const [recalcLoading, setRecalcLoading] = useState(false);
 
   // ── Détail ───────────────────────────────────────────────────────────────────
   const [detailMandats, setDetailMandats] = useState<Mandat[]>([]);
@@ -316,6 +361,7 @@ export default function PilotageFinancierPage() {
   const [aiAnnee, setAiAnnee] = useState(new Date().getFullYear().toString());
   const [aiResult, setAiResult] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   // ── Chargement données dashboard ─────────────────────────────────────────────
 
@@ -323,7 +369,7 @@ export default function PilotageFinancierPage() {
     setDashLoading(true);
     const { data, error } = await supabase
       .from("mandats")
-      .select("id,annee,n_bordereau,n_piece,tiers,objet,compte,montant_ht,montant_ttc,date_emission,retour_tresorerie,groupe_fonctionnel,libelle_compte,categorie")
+      .select("id,annee,n_bordereau,n_piece,tiers,objet,compte,montant_ht,montant_ttc,date_emission,retour_tresorerie,groupe_fonctionnel,libelle_compte,categorie,import_id")
       .order("date_emission", { ascending: true });
     if (error) { toast.error("Erreur chargement mandats"); setDashLoading(false); return; }
     const all = (data as Mandat[]) ?? [];
@@ -351,7 +397,18 @@ export default function PilotageFinancierPage() {
     setDetailLoading(false);
   }, [fDateDebut, fDateFin, fGF, fCompte, fTiers]);
 
+  const loadImports = useCallback(async () => {
+    setImportsLoading(true);
+    const { data, error } = await supabase
+      .from("mandats_imports")
+      .select("id,nom_fichier,annee,nb_lignes,montant_total,imported_at")
+      .order("imported_at", { ascending: false });
+    if (!error) setImports((data as MandatImport[]) ?? []);
+    setImportsLoading(false);
+  }, []);
+
   useEffect(() => { loadDashboard(); }, [loadDashboard]);
+  useEffect(() => { loadImports(); }, [loadImports]);
 
   // ── Données dérivées dashboard ────────────────────────────────────────────────
 
@@ -423,7 +480,6 @@ export default function PilotageFinancierPage() {
     setImportLoading(true);
     try {
       const rows = await parsePDF(f);
-      // Marquer les doublons potentiels déjà en base
       const { data: existing } = await supabase
         .from("mandats")
         .select("n_bordereau,n_piece")
@@ -448,17 +504,16 @@ export default function PilotageFinancierPage() {
   };
 
   const importMandats = async () => {
-    if (!parsedRows.length) return;
+    if (!parsedRows.length || !file) return;
     setImportLoading(true);
 
-    // Charger tout le référentiel comptes en mémoire (un seul SELECT)
+    // Charger le référentiel comptes
     const { data: refData, error: refError } = await supabase.from("comptes_referentiel").select("*");
     if (refError) { toast.error("Erreur chargement référentiel : " + refError.message); setImportLoading(false); return; }
     const refMap = new Map<string, CompteRef>(
       ((refData as CompteRef[]) ?? []).map(r => [r.compte.trim(), r])
     );
 
-    // Lookup avec fallback : match exact → préfixe décroissant → 'Non classé'
     const findRef = (compte: string): CompteRef | undefined => {
       const c = compte.trim();
       const exact = refMap.get(c);
@@ -471,28 +526,54 @@ export default function PilotageFinancierPage() {
     };
 
     const annee = parseInt(anneeImport);
-    const payload = parsedRows
-      .filter(r => !r.isDuplicate && !r.isInvalid)
-      .map(r => {
-        const ref = findRef(r.compte);
-        return {
-          annee,
-          n_bordereau: r.n_bordereau,
-          n_piece: r.n_piece,
-          tiers: r.tiers || null,
-          objet: r.objet || null,
-          compte: r.compte || null,
-          montant_ht: r.montant_ht,
-          montant_ttc: r.montant_ttc,
-          date_emission: r.date_emission,
-          retour_tresorerie: r.retour_tresorerie,
-          groupe_fonctionnel: ref?.groupe_fonctionnel ?? "Non classé",
-          libelle_compte: ref?.libelle ?? null,
-          categorie: ref?.categorie ?? null,
-        };
-      });
+    const toImport = parsedRows.filter(r => !r.isDuplicate && !r.isInvalid);
 
-    if (payload.length === 0) { toast.info("Aucune nouvelle ligne à importer"); setImportLoading(false); return; }
+    if (toImport.length === 0) { toast.info("Aucune nouvelle ligne à importer"); setImportLoading(false); return; }
+
+    // Calculer le montant total des nouvelles lignes
+    const montantTotal = toImport.reduce((s, r) => s + (r.montant_ttc ?? 0), 0);
+
+    // Créer l'enregistrement d'import
+    const { data: importRecord, error: importErr } = await supabase
+      .from("mandats_imports")
+      .insert({
+        nom_fichier: file.name,
+        annee,
+        nb_lignes: toImport.length,
+        montant_total: montantTotal,
+      })
+      .select("id")
+      .single();
+
+    if (importErr || !importRecord) {
+      toast.error("Erreur création import : " + (importErr?.message ?? "unknown"));
+      setImportLoading(false);
+      return;
+    }
+
+    const importId = importRecord.id;
+
+    const payload = toImport.map(r => {
+      const ref = findRef(r.compte);
+      // Priorité : référentiel → mapping GF → Non classé
+      const gf = ref?.groupe_fonctionnel ?? getGroupeFonctionnel(r.compte);
+      return {
+        annee,
+        n_bordereau: r.n_bordereau,
+        n_piece: r.n_piece,
+        tiers: r.tiers || null,
+        objet: r.objet || null,
+        compte: r.compte || null,
+        montant_ht: r.montant_ht,
+        montant_ttc: r.montant_ttc,
+        date_emission: r.date_emission,
+        retour_tresorerie: r.retour_tresorerie,
+        groupe_fonctionnel: gf,
+        libelle_compte: ref?.libelle ?? null,
+        categorie: ref?.categorie ?? null,
+        import_id: importId,
+      };
+    });
 
     const { error } = await supabase.from("mandats").upsert(payload, {
       onConflict: "annee,n_bordereau,n_piece",
@@ -500,11 +581,64 @@ export default function PilotageFinancierPage() {
     });
 
     setImportLoading(false);
-    if (error) { toast.error("Erreur import : " + error.message); return; }
+    if (error) {
+      // Rollback : supprimer l'import créé
+      await supabase.from("mandats_imports").delete().eq("id", importId);
+      toast.error("Erreur import : " + error.message);
+      return;
+    }
+
     toast.success(`${payload.length} mandat(s) importé(s) avec succès`);
     setParsedRows([]);
     setImportStats(null);
     setFile(null);
+    loadDashboard();
+    loadImports();
+  };
+
+  // ── Suppression import ────────────────────────────────────────────────────────
+
+  const deleteImport = async (id: string) => {
+    setDeleteLoading(true);
+    const { error } = await supabase.from("mandats_imports").delete().eq("id", id);
+    setDeleteLoading(false);
+    setDeleteConfirm(null);
+    if (error) { toast.error("Erreur suppression : " + error.message); return; }
+    toast.success("Import et mandats associés supprimés");
+    loadImports();
+    loadDashboard();
+  };
+
+  // ── Recalcul GF ──────────────────────────────────────────────────────────────
+
+  const recalculeGF = async () => {
+    setRecalcLoading(true);
+    // Récupérer tous les mandats non classés
+    const { data, error } = await supabase
+      .from("mandats")
+      .select("id,compte")
+      .eq("groupe_fonctionnel", "Non classé");
+
+    if (error) { toast.error("Erreur : " + error.message); setRecalcLoading(false); return; }
+    const rows = (data as { id: string; compte: string | null }[]) ?? [];
+    if (rows.length === 0) { toast.info("Aucun mandat 'Non classé' à recalculer"); setRecalcLoading(false); return; }
+
+    // Batch UPDATE par groupes de 50
+    const BATCH = 50;
+    let updated = 0;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const batch = rows.slice(i, i + BATCH);
+      for (const row of batch) {
+        const gf = getGroupeFonctionnel(row.compte ?? "");
+        if (gf !== "Non classé") {
+          await supabase.from("mandats").update({ groupe_fonctionnel: gf }).eq("id", row.id);
+          updated++;
+        }
+      }
+    }
+
+    setRecalcLoading(false);
+    toast.success(`${updated} mandat(s) mis à jour sur ${rows.length} non classés`);
     loadDashboard();
   };
 
@@ -561,10 +695,173 @@ export default function PilotageFinancierPage() {
     setAiResult(data?.analyse ?? data?.text ?? JSON.stringify(data, null, 2));
   };
 
+  // ── Génération rapport PDF IA ─────────────────────────────────────────────────
+
+  const generateIAPdf = async () => {
+    if (!aiResult) return;
+    setPdfLoading(true);
+    try {
+      const annees = [...new Set(mandats.map(m => m.annee))].sort().join(", ");
+      const now = new Date().toLocaleDateString("fr-FR");
+      const totalGlobal = mandats.reduce((s, m) => s + (m.montant_ttc ?? 0), 0);
+
+      const fmtK = (v: number) => v.toLocaleString("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+
+      // Capture graphiques (si onglet dashboard rendu)
+      const chartLineImg = await captureById("chart-evolution-mensuelle");
+      const chartPieImg = await captureById("chart-repartition-gf");
+
+      // Top 10 comptes global
+      const byCompte: Record<string, { montant: number; libelle: string; gf: string }> = {};
+      for (const m of mandats) {
+        const k = m.compte ?? "—";
+        if (!byCompte[k]) byCompte[k] = { montant: 0, libelle: m.libelle_compte ?? "", gf: m.groupe_fonctionnel ?? "" };
+        byCompte[k].montant += m.montant_ttc ?? 0;
+      }
+      const top10Comptes = Object.entries(byCompte)
+        .map(([c, v]) => ({ compte: c, ...v }))
+        .sort((a, b) => b.montant - a.montant)
+        .slice(0, 10);
+
+      // Récap par GF
+      const gfRecap = [
+        { gf: "GF1", label: GF_LABELS.GF1, montant: kpis.gf1, color: GF_COLORS.GF1 },
+        { gf: "GF2", label: GF_LABELS.GF2, montant: kpis.gf2, color: GF_COLORS.GF2 },
+        { gf: "GF3", label: GF_LABELS.GF3, montant: kpis.gf3, color: GF_COLORS.GF3 },
+      ].filter(g => g.montant > 0);
+
+      const pages: string[] = [];
+
+      // ── Page 1 — Garde + Vue d'ensemble ──────────────────────────────────────
+      const kpiSection = pdfKpis([
+        { label: "Total TTC", value: fmtK(totalGlobal), color: C.primary },
+        { label: "GF1 — Soins", value: fmtK(kpis.gf1), color: GF_COLORS.GF1 },
+        { label: "GF2 — Personnel", value: fmtK(kpis.gf2), color: GF_COLORS.GF2 },
+        { label: "GF3 — Structure", value: fmtK(kpis.gf3), color: GF_COLORS.GF3 },
+      ]);
+
+      const gfRecapTable = pdfTable(
+        ["Groupe Fonctionnel", "Montant TTC", "% du total"],
+        gfRecap.map(g => [
+          esc(g.label),
+          fmtK(g.montant),
+          totalGlobal > 0 ? `${((g.montant / totalGlobal) * 100).toFixed(1)}%` : "—",
+        ])
+      );
+
+      let page1Content = `
+        ${pdfSectionTitle("Rapport d'Analyse Financière")}
+        <div style="padding:0 28px;">
+          <div style="background:#FFF7ED;border-radius:8px;padding:14px 16px;border:1px solid #FED7AA;margin-bottom:8px;">
+            <div style="font-size:12px;color:#92400E;font-family:Arial,sans-serif;">
+              <strong>Période :</strong> ${esc(annees)} &nbsp;|&nbsp; <strong>Généré le :</strong> ${now} &nbsp;|&nbsp; <strong>Mandats :</strong> ${mandats.length}
+            </div>
+          </div>
+        </div>
+        ${kpiSection}
+        ${pdfSectionTitle("Répartition par Groupe Fonctionnel")}
+        ${gfRecapTable}
+      `;
+
+      if (chartLineImg) {
+        page1Content += pdfSectionTitle("Évolution mensuelle des dépenses");
+        page1Content += pdfImage(chartLineImg, "Évolution mensuelle TTC par groupe fonctionnel");
+      }
+
+      pages.push(pdfPage(page1Content, "Pilotage Financier", 1, 0));
+
+      // ── Page 2 — Top comptes + Camembert ─────────────────────────────────────
+      let page2Content = pdfSectionTitle("Top 10 comptes par montant TTC");
+      page2Content += pdfTable(
+        ["Compte", "Libellé", "Groupe", "Montant TTC", "% total"],
+        top10Comptes.map(r => [
+          `<span style="font-family:monospace;">${esc(r.compte)}</span>`,
+          esc(r.libelle) || "—",
+          esc(r.gf) || "—",
+          fmtK(r.montant),
+          totalGlobal > 0 ? `${((r.montant / totalGlobal) * 100).toFixed(1)}%` : "—",
+        ])
+      );
+
+      if (chartPieImg) {
+        page2Content += pdfSectionTitle("Répartition globale GF");
+        page2Content += pdfImage(chartPieImg, "Répartition des dépenses par groupe fonctionnel");
+      }
+
+      pages.push(pdfPage(page2Content, "Pilotage Financier", 2, 0));
+
+      // ── Page 3 — Analyse IA ───────────────────────────────────────────────────
+      const iaPeriod = `${aiMois}/${aiAnnee}`;
+      const iaContent = `
+        ${pdfSectionTitle("Analyse IA")}
+        <div style="padding:0 28px;">
+          <div style="background:#F5F0EB;border-radius:8px;padding:16px;border-left:4px solid ${C.primary};">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+              <div style="width:24px;height:24px;background:${C.primary};border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <span style="color:white;font-size:12px;font-family:Arial,sans-serif;">✦</span>
+              </div>
+              <span style="font-size:11px;font-weight:700;color:${C.primary};font-family:Arial,sans-serif;text-transform:uppercase;letter-spacing:0.5px;">
+                Analyse générée par IA le ${now} — Période : ${iaPeriod}
+              </span>
+            </div>
+            <div style="font-size:11px;color:#2D2D2D;font-family:Arial,sans-serif;line-height:1.7;white-space:pre-wrap;">${esc(aiResult)}</div>
+          </div>
+        </div>
+      `;
+      pages.push(pdfPage(iaContent, "Pilotage Financier", 3, 0));
+
+      // ── Pages 4+ — Détail mandats (paginé par 30) ────────────────────────────
+      const sorted = [...mandats].sort((a, b) =>
+        (a.date_emission ?? "").localeCompare(b.date_emission ?? "")
+      );
+      const ROWS_PER_PAGE = 30;
+      for (let i = 0; i < sorted.length; i += ROWS_PER_PAGE) {
+        const chunk = sorted.slice(i, i + ROWS_PER_PAGE);
+        const pageNum = 4 + Math.floor(i / ROWS_PER_PAGE);
+        const detailContent = `
+          ${pdfSectionTitle(`Détail des mandats — lignes ${i + 1} à ${Math.min(i + ROWS_PER_PAGE, sorted.length)}`)}
+          ${pdfTable(
+            ["Date", "Bordereau", "Tiers", "Objet", "Compte", "GF", "TTC"],
+            chunk.map(m => [
+              m.date_emission ? new Date(m.date_emission).toLocaleDateString("fr-FR") : "—",
+              String(m.n_bordereau),
+              esc(m.tiers?.substring(0, 30) ?? "—"),
+              esc(m.objet?.substring(0, 35) ?? "—"),
+              `<span style="font-family:monospace;">${esc(m.compte ?? "—")}</span>`,
+              esc(m.groupe_fonctionnel ?? "—"),
+              m.montant_ttc != null ? fmtK(m.montant_ttc) : "—",
+            ]),
+            ["8%", "8%", "20%", "25%", "8%", "15%", "10%"]
+          )}
+        `;
+        pages.push(pdfPage(detailContent, "Pilotage Financier — Confidentiel", pageNum, 0));
+      }
+
+      // Re-numéroter avec le total correct
+      const total = pages.length;
+      const renumbered = pages.map((p, i) =>
+        p.replace(/, 0\)$/, `, ${total})`).replace(/page ${i + 1} \/ 0/, `${i + 1} / ${total}`)
+      );
+
+      await buildAndSavePdf(
+        pages,
+        `rapport_financier_${annees.replace(/,\s*/g, "-")}_${Date.now()}.pdf`
+      );
+      toast.success("Rapport PDF généré avec succès");
+    } catch (e: any) {
+      toast.error("Erreur génération PDF : " + e.message);
+    }
+    setPdfLoading(false);
+  };
+
   // ── Pagination détail ─────────────────────────────────────────────────────────
 
   const totalPages = Math.ceil(detailMandats.length / PAGE_SIZE);
   const pagedMandats = detailMandats.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  // ── Import à confirmer (delete) ───────────────────────────────────────────────
+
+  const importToDelete = imports.find(i => i.id === deleteConfirm);
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -707,6 +1004,91 @@ export default function PilotageFinancierPage() {
               )}
             </div>
           )}
+
+          {/* ── Historique des imports ──────────────────────────────────────────── */}
+          <div className="rounded-xl border border-border overflow-hidden">
+            <div className="p-3 bg-muted/40 border-b border-border flex items-center justify-between">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+                Historique des imports
+              </p>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={loadImports} disabled={importsLoading}>
+                <RefreshCw className={`w-3.5 h-3.5 ${importsLoading ? "animate-spin" : ""}`} />
+              </Button>
+            </div>
+
+            {deleteConfirm && importToDelete && (
+              <div className="p-4 bg-red-50 dark:bg-red-950/20 border-b border-red-200 dark:border-red-800 flex items-center gap-3">
+                <Trash2 className="w-4 h-4 text-red-600 shrink-0" />
+                <p className="text-xs text-red-700 dark:text-red-400 flex-1">
+                  Supprimer <strong>{importToDelete.nom_fichier}</strong> supprimera{" "}
+                  <strong>{importToDelete.nb_lignes ?? "?"} mandat(s)</strong>. Confirmer ?
+                </p>
+                <Button
+                  size="sm" variant="destructive" className="h-7 text-xs gap-1"
+                  onClick={() => deleteImport(deleteConfirm)}
+                  disabled={deleteLoading}
+                >
+                  {deleteLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                  Supprimer
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setDeleteConfirm(null)}>
+                  Annuler
+                </Button>
+              </div>
+            )}
+
+            {importsLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : imports.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-8">
+                Aucun import enregistré
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="text-[11px] bg-muted/20">
+                      <TableHead>Fichier</TableHead>
+                      <TableHead>Année</TableHead>
+                      <TableHead className="text-right">Nb lignes</TableHead>
+                      <TableHead className="text-right">Montant total TTC</TableHead>
+                      <TableHead>Date d'import</TableHead>
+                      <TableHead></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {imports.map(imp => (
+                      <TableRow key={imp.id} className="text-[11px]">
+                        <TableCell className="font-medium max-w-[200px] truncate" title={imp.nom_fichier}>
+                          {imp.nom_fichier}
+                        </TableCell>
+                        <TableCell>{imp.annee ?? "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums">{imp.nb_lignes ?? "—"}</TableCell>
+                        <TableCell className="text-right tabular-nums font-semibold">
+                          {imp.montant_total != null ? fmtEuroFull(imp.montant_total) : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          {new Date(imp.imported_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="icon" variant="ghost"
+                            className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => setDeleteConfirm(imp.id)}
+                            title="Supprimer cet import"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
         </TabsContent>
 
         {/* ── Onglet Tableau de bord ─────────────────────────────────────────────── */}
@@ -722,12 +1104,12 @@ export default function PilotageFinancierPage() {
               </SelectContent>
             </Select>
             <Select value={filterGF} onValueChange={setFilterGF}>
-              <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-52 h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="tous">Tous les GF</SelectItem>
-                <SelectItem value="GF1">GF1</SelectItem>
-                <SelectItem value="GF2">GF2</SelectItem>
-                <SelectItem value="GF3">GF3</SelectItem>
+                <SelectItem value="GF1">GF1 — Soins & hébergement</SelectItem>
+                <SelectItem value="GF2">GF2 — Personnel & dépendance</SelectItem>
+                <SelectItem value="GF3">GF3 — Structure & gestion</SelectItem>
                 <SelectItem value="Non classé">Non classé</SelectItem>
               </SelectContent>
             </Select>
@@ -735,15 +1117,24 @@ export default function PilotageFinancierPage() {
             <span className="ml-auto text-xs text-muted-foreground">
               {filteredMandats.length} mandat{filteredMandats.length !== 1 ? "s" : ""}
             </span>
+            <Button
+              size="sm" variant="outline" className="h-8 gap-1.5 text-xs"
+              onClick={recalculeGF}
+              disabled={recalcLoading}
+              title="Recalcule le groupe fonctionnel pour tous les mandats 'Non classé'"
+            >
+              {recalcLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Recalculer les GF
+            </Button>
           </div>
 
           {/* KPIs */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {[
               { label: "Total TTC", value: kpis.total, accent: "border-l-[#c46b48]", num: "text-[#c46b48]" },
-              { label: "GF1 — Hébergement", value: kpis.gf1, accent: "border-l-blue-400", num: "text-blue-600" },
-              { label: "GF2 — Personnel", value: kpis.gf2, accent: "border-l-emerald-400", num: "text-emerald-600" },
-              { label: "GF3 — Gestion", value: kpis.gf3, accent: "border-l-orange-400", num: "text-orange-600" },
+              { label: "GF1 — Soins & hébergement", value: kpis.gf1, accent: "border-l-blue-400", num: "text-blue-600" },
+              { label: "GF2 — Personnel & dépendance", value: kpis.gf2, accent: "border-l-emerald-400", num: "text-emerald-600" },
+              { label: "GF3 — Structure & gestion", value: kpis.gf3, accent: "border-l-orange-400", num: "text-orange-600" },
             ].map(k => (
               <div key={k.label} className={`rounded-xl border-l-4 ${k.accent} border border-border/60 bg-card px-4 py-4 shadow-sm`}>
                 <p className="text-xs text-muted-foreground mb-1">{k.label}</p>
@@ -755,8 +1146,8 @@ export default function PilotageFinancierPage() {
             <div className="flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-400">
               <ArrowUpDown className="w-3.5 h-3.5 shrink-0" />
               <span>
-                <strong>{fmtEuro(kpis.nonclasse)}</strong> non rattachés à un GF (compte non référencé).
-                Exécutez la migration <code>20260331140000</code> dans le SQL Editor Supabase pour corriger les lignes existantes.
+                <strong>{fmtEuro(kpis.nonclasse)}</strong> non rattachés à un GF.{" "}
+                Utilisez le bouton <strong>Recalculer les GF</strong> pour tenter un reclassement automatique.
               </span>
             </div>
           )}
@@ -774,19 +1165,21 @@ export default function PilotageFinancierPage() {
                   <CardTitle className="text-sm font-semibold">Évolution mensuelle des dépenses TTC</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <LineChart data={monthlyData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                      <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11 }} />
-                      <YAxis tickFormatter={v => fmtEuro(v)} tick={{ fontSize: 10 }} width={75} />
-                      <Tooltip formatter={(v: number) => fmtEuroFull(v)} labelFormatter={monthLabel} />
-                      <Legend formatter={(v) => GF_LABELS[v as keyof typeof GF_LABELS] ?? v} />
-                      <Line type="monotone" dataKey="total" stroke="#6b7280" strokeWidth={2} dot={false} name="Total" />
-                      <Line type="monotone" dataKey="GF1" stroke={GF_COLORS.GF1} strokeWidth={1.5} dot={false} />
-                      <Line type="monotone" dataKey="GF2" stroke={GF_COLORS.GF2} strokeWidth={1.5} dot={false} />
-                      <Line type="monotone" dataKey="GF3" stroke={GF_COLORS.GF3} strokeWidth={1.5} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <div id="chart-evolution-mensuelle">
+                    <ResponsiveContainer width="100%" height={260}>
+                      <LineChart data={monthlyData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11 }} />
+                        <YAxis tickFormatter={v => fmtEuro(v)} tick={{ fontSize: 10 }} width={75} />
+                        <Tooltip formatter={(v: number) => fmtEuroFull(v)} labelFormatter={monthLabel} />
+                        <Legend formatter={(v) => GF_LABELS[v as keyof typeof GF_LABELS] ?? v} />
+                        <Line type="monotone" dataKey="total" stroke="#6b7280" strokeWidth={2} dot={false} name="Total" />
+                        <Line type="monotone" dataKey="GF1" stroke={GF_COLORS.GF1} strokeWidth={1.5} dot={false} />
+                        <Line type="monotone" dataKey="GF2" stroke={GF_COLORS.GF2} strokeWidth={1.5} dot={false} />
+                        <Line type="monotone" dataKey="GF3" stroke={GF_COLORS.GF3} strokeWidth={1.5} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -818,30 +1211,32 @@ export default function PilotageFinancierPage() {
                     <CardTitle className="text-sm font-semibold">Répartition globale GF</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <ResponsiveContainer width="100%" height={220}>
-                      <PieChart>
-                        <Pie
-                          data={pieData}
-                          dataKey="value"
-                          nameKey="name"
-                          cx="50%"
-                          cy="50%"
-                          outerRadius={80}
-                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                          labelLine={false}
-                        >
-                          {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                        </Pie>
-                        <Tooltip formatter={(v: number) => fmtEuroFull(v)} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div className="flex justify-center gap-4 mt-2">
-                      {pieData.map(d => (
-                        <div key={d.name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <div className="w-2.5 h-2.5 rounded-full" style={{ background: d.color }} />
-                          {d.name} — {fmtEuro(d.value)}
-                        </div>
-                      ))}
+                    <div id="chart-repartition-gf">
+                      <ResponsiveContainer width="100%" height={220}>
+                        <PieChart>
+                          <Pie
+                            data={pieData}
+                            dataKey="value"
+                            nameKey="name"
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={80}
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            labelLine={false}
+                          >
+                            {pieData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                          </Pie>
+                          <Tooltip formatter={(v: number) => fmtEuroFull(v)} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="flex justify-center gap-4 mt-2">
+                        {pieData.map(d => (
+                          <div key={d.name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <div className="w-2.5 h-2.5 rounded-full" style={{ background: d.color }} />
+                            {d.name} — {fmtEuro(d.value)}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -1046,6 +1441,17 @@ export default function PilotageFinancierPage() {
                   {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
                   Générer l'analyse
                 </Button>
+                {aiResult && (
+                  <Button
+                    variant="outline"
+                    className="h-8 gap-1.5 text-xs ml-auto"
+                    onClick={generateIAPdf}
+                    disabled={pdfLoading}
+                  >
+                    {pdfLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
+                    Générer rapport PDF
+                  </Button>
+                )}
               </div>
 
               {aiResult && (
