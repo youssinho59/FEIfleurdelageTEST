@@ -47,8 +47,11 @@ import {
   Line,
   Legend,
 } from "recharts";
-import { generateStatsPdf } from "@/lib/pdfGenerator";
 import { insertSeedData } from "@/lib/seedData";
+import {
+  pdfPage, pdfKpis, pdfSectionTitle, pdfTable, pdfBadge, pdfImage,
+  captureById, captureElement, buildAndSavePdf, fmtDate, esc,
+} from "@/lib/pdfExportUtils";
 import { PLAINTE_CATEGORIES, CATEGORIE_TO_FAMILLE, FAMILLE_COLOR } from "@/lib/plaintesCategories";
 import { toast } from "sonner";
 
@@ -157,6 +160,7 @@ const StatsPage = () => {
   const [dateFrom, setDateFrom] = useState(`${currentYear - 1}-01-01`);
   const [dateTo, setDateTo] = useState(`${currentYear}-12-31`);
   const [activeStatTab, setActiveStatTab] = useState("general");
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [feiData, setFeiData] = useState<any[]>([]);
   const [plaintesData, setPlaintesData] = useState<any[]>([]);
   const [pacqActions, setPacqActions] = useState<any[]>([]);
@@ -507,14 +511,75 @@ const StatsPage = () => {
     setSeeding(false);
   };
 
-  const handleExportPdf = () => {
-    if (feiData.length === 0) {
-      toast.error("Aucune donnée FEI à exporter pour cette période");
-      return;
+  const handleExportPdf = async () => {
+    setExportingPdf(true);
+    try {
+      const SUBTITLE = `Statistiques & Analyses — ${dateFrom} au ${dateTo}`;
+      const TAB_LABELS: Record<string, string> = {
+        general:      "Vue générale",
+        fei:          "FEI & Incidents",
+        plaintes:     "Plaintes",
+        qualite:      "Qualité & Audits",
+        actions:      "Actions correctives",
+        satisfaction: "Satisfaction",
+        rh:           "RH & Activité",
+      };
+      const tabLabel = TAB_LABELS[activeStatTab] ?? activeStatTab;
+
+      // Capturer le contenu de l'onglet actif
+      const tabEl = document.getElementById(`stats-tab-${activeStatTab}`);
+      const pages: string[] = [];
+
+      if (tabEl) {
+        // Capture de l'onglet entier
+        const dataUrl = await captureElement(tabEl);
+        // L'image peut être très longue — on la découpe en pages A4
+        const img = new Image();
+        await new Promise<void>(r => { img.onload = () => r(); img.src = dataUrl; });
+        const A4_W_PX = 794 * 2; // scale 2
+        const A4_H_PX = 1123 * 2;
+        const totalSlices = Math.ceil(img.height / A4_H_PX);
+
+        for (let i = 0; i < totalSlices; i++) {
+          const canvas = document.createElement('canvas');
+          canvas.width  = A4_W_PX;
+          canvas.height = A4_H_PX;
+          const ctx = canvas.getContext('2d')!;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, A4_W_PX, A4_H_PX);
+          ctx.drawImage(img, 0, -i * A4_H_PX);
+          const sliceUrl = canvas.toDataURL('image/png');
+
+          const kpiContent = i === 0
+            ? `${pdfSectionTitle(tabLabel)}<div style="padding:0 28px;font-size:10px;color:#888;font-family:Arial,sans-serif;">Période : ${dateFrom} → ${dateTo}</div>`
+            : '';
+
+          pages.push(pdfPage(
+            `${kpiContent}${pdfImage(sliceUrl, tabLabel)}`,
+            SUBTITLE, i + 1, totalSlices
+          ));
+        }
+      } else {
+        // Fallback si l'onglet n'a pas d'ID : PDF texte basique
+        const content = `
+          ${pdfSectionTitle(tabLabel)}
+          ${pdfKpis([
+            { label: "Total FEI",       value: stats.totalFei,       color: "#C17B4E" },
+            { label: "FEI clôturées",   value: `${stats.tauxCloture}%`, color: "#16A34A" },
+            { label: "Total plaintes",  value: stats.totalPlaintes,  color: "#EA580C" },
+            { label: "Taux résolution", value: `${stats.tauxResolution}%`, color: "#1D4ED8" },
+          ])}`;
+        pages.push(pdfPage(content, SUBTITLE, 1, 1));
+      }
+
+      await buildAndSavePdf(pages, `Stats_${activeStatTab}_${dateFrom}_${dateTo}.pdf`);
+      toast.success("PDF exporté !");
+    } catch (e) {
+      console.error(e);
+      toast.error("Erreur lors de l'export PDF");
+    } finally {
+      setExportingPdf(false);
     }
-    const pdf = generateStatsPdf(feiData, dateFrom, dateTo);
-    pdf.save(`Rapport_FEI_${dateFrom}_${dateTo}.pdf`);
-    toast.success("Rapport PDF généré !");
   };
 
   const isEmpty = feiData.length === 0 && plaintesData.length === 0;
@@ -541,8 +606,9 @@ const StatsPage = () => {
               Données démo
             </Button>
           )}
-          <Button size="sm" onClick={handleExportPdf} className="gap-2">
-            <Download className="w-4 h-4" /> Exporter PDF
+          <Button size="sm" onClick={handleExportPdf} disabled={exportingPdf} className="gap-2">
+            {exportingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {exportingPdf ? "Export…" : "Exporter PDF"}
           </Button>
         </div>
       </div>
@@ -634,7 +700,7 @@ const StatsPage = () => {
           {/* ════════════════════════════════════════════════════════
               TAB 1 — Vue générale
           ════════════════════════════════════════════════════════ */}
-          <TabsContent value="general" className="space-y-8 mt-6">
+          <TabsContent value="general" id="stats-tab-general" className="space-y-8 mt-6">
 
             {/* KPI FEI + Plaintes résumé */}
             <div>
@@ -889,7 +955,7 @@ const StatsPage = () => {
           {/* ════════════════════════════════════════════════════════
               TAB 2 — FEI & Incidents
           ════════════════════════════════════════════════════════ */}
-          <TabsContent value="fei" className="space-y-8 mt-6">
+          <TabsContent value="fei" id="stats-tab-fei" className="space-y-8 mt-6">
 
             {/* KPI FEI */}
             <div>
@@ -1128,7 +1194,7 @@ const StatsPage = () => {
           {/* ════════════════════════════════════════════════════════
               TAB 3 — Plaintes & Réclamations
           ════════════════════════════════════════════════════════ */}
-          <TabsContent value="plaintes" className="space-y-8 mt-6">
+          <TabsContent value="plaintes" id="stats-tab-plaintes" className="space-y-8 mt-6">
 
             {/* KPI Plaintes */}
             <div>
@@ -1351,7 +1417,7 @@ const StatsPage = () => {
           {/* ════════════════════════════════════════════════════════
               TAB 4 — Qualité & Audits
           ════════════════════════════════════════════════════════ */}
-          <TabsContent value="qualite" className="space-y-8 mt-6">
+          <TabsContent value="qualite" id="stats-tab-qualite" className="space-y-8 mt-6">
 
             <div>
               <SectionTitle icon={Shield} title="Actions correctives — Vue qualité" color="text-emerald-600" />
@@ -1416,7 +1482,7 @@ const StatsPage = () => {
           {/* ════════════════════════════════════════════════════════
               TAB 5 — Actions correctives (PACQS opérationnel)
           ════════════════════════════════════════════════════════ */}
-          <TabsContent value="actions" className="space-y-8 mt-6">
+          <TabsContent value="actions" id="stats-tab-actions" className="space-y-8 mt-6">
 
             <div>
               <SectionTitle icon={Target} title="PACQS Opérationnel — Plan d'actions correctives" color="text-emerald-600" />
@@ -1502,7 +1568,7 @@ const StatsPage = () => {
           {/* ════════════════════════════════════════════════════════
               TAB 6 — Satisfaction
           ════════════════════════════════════════════════════════ */}
-          <TabsContent value="satisfaction" className="space-y-8 mt-6">
+          <TabsContent value="satisfaction" id="stats-tab-satisfaction" className="space-y-8 mt-6">
 
             <div>
               <SectionTitle icon={Smile} title="Données de satisfaction" color="text-blue-500" />
@@ -1566,7 +1632,7 @@ const StatsPage = () => {
               TAB 7 — RH & Activité (admin only)
           ════════════════════════════════════════════════════════ */}
           {isAdmin && (
-            <TabsContent value="rh" className="space-y-8 mt-6">
+            <TabsContent value="rh" id="stats-tab-rh" className="space-y-8 mt-6">
               <div>
                 <SectionTitle icon={Briefcase} title="Indicateurs RH & Activité" color="text-purple-600" />
                 {rhIndicateurs.length === 0 ? (

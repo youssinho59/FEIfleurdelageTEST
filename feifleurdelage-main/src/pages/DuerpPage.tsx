@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import jsPDF from "jspdf";
+import {
+  pdfPage, pdfKpis, pdfSectionTitle, pdfTable, pdfBadge,
+  pdfSectionHeader, pdfProgressBar, buildAndSavePdf, chunkArr, fmtDate, esc,
+} from "@/lib/pdfExportUtils";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -569,217 +572,144 @@ export default function DuerpPage() {
 
   // ── PDF export ─────────────────────────────────────────────────────────────
 
-  const handleExportDuerpPdf = () => {
+  const handleExportDuerpPdf = async () => {
     if (!selectedVersionId) {
       toast.error("Sélectionnez une version pour exporter");
       return;
     }
     setExportingPdf(true);
     try {
-      const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-      const pageW = doc.internal.pageSize.getWidth();
-      const pageH = doc.internal.pageSize.getHeight();
-      const today = new Date().toLocaleDateString("fr-FR");
+      const SUBTITLE = "Document Unique d'Évaluation des Risques Professionnels";
+      const ROWS_PER_PAGE = 12;
+      const today = new Date().toISOString().split("T")[0];
       const versionInfo = selectedVersion;
 
-      // ── Page de garde ──────────────────────────────────────────────────────
-      doc.setFillColor(220, 230, 242);
-      doc.rect(0, 0, pageW, 60, "F");
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(14);
-      doc.setTextColor(30, 60, 100);
-      doc.text("Document Unique d'Évaluation des Risques Professionnels (DUERP)", pageW / 2, 22, { align: "center" });
-
-      doc.setFontSize(12);
-      doc.setTextColor(50, 80, 130);
-      doc.text("EHPAD La Fleur de l'Âge", pageW / 2, 32, { align: "center" });
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.setTextColor(60, 60, 80);
-      if (versionInfo) {
-        doc.text(`Version : ${versionInfo.annee} — ${versionInfo.titre}`, pageW / 2, 42, { align: "center" });
-        if (versionInfo.date_validation) {
-          doc.text(`Validé le : ${new Date(versionInfo.date_validation).toLocaleDateString("fr-FR")}`, pageW / 2, 49, { align: "center" });
-        }
-      }
-      doc.text(`Date d'édition : ${today}`, pageW / 2, 56, { align: "center" });
-
-      doc.setFontSize(8);
-      doc.setTextColor(100, 100, 120);
-      doc.text("Conformément à l'article R.4121-1 du Code du travail", pageW / 2, pageH - 10, { align: "center" });
-
-      // ── Sections par unité de travail ──────────────────────────────────────
+      // Groupement par unité de travail
       const grouped: Record<string, DuerpRisque[]> = {};
       for (const r of risquesVersion) {
         if (!grouped[r.unite_travail]) grouped[r.unite_travail] = [];
         grouped[r.unite_travail].push(r);
       }
 
-      const cols = [
-        { header: "N°",              width: 8  },
-        { header: "Situation",       width: 52 },
-        { header: "Dangers",         width: 38 },
-        { header: "Prob",            width: 10 },
-        { header: "Grav",            width: 10 },
-        { header: "Crit",            width: 10 },
-        { header: "Mesures proposées", width: 52 },
-        { header: "Priorité",        width: 18 },
-        { header: "Statut",          width: 18 },
-      ];
-      const tableWidth = cols.reduce((s, c) => s + c.width, 0);
-      const marginLeft = (pageW - tableWidth) / 2;
-      const rowH = 8;
-      const headerH = 9;
+      const totalRisques  = risquesVersion.length;
+      const critiques      = risquesVersion.filter(r => (r.criticite ?? 0) > 8).length;
+      const enTraitement   = risquesVersion.filter(r => r.statut === "en_traitement").length;
+      const unitesTravail  = Object.keys(grouped).length;
 
+      // Calcul total pages
+      let totalPages = 2; // garde + synthèse
+      Object.values(grouped).forEach(rs => { totalPages += Math.ceil(rs.length / ROWS_PER_PAGE); });
+
+      const pages: string[] = [];
+      let pageNum = 0;
+
+      // ── Page de garde ─────────────────────────────────────────────────────
+      pageNum++;
+      const versionLabel = versionInfo
+        ? `Version ${versionInfo.annee} — ${esc(versionInfo.titre)}${versionInfo.date_validation ? ` · Validé le ${fmtDate(versionInfo.date_validation)}` : ''}`
+        : '';
+      const coverContent = `
+        ${pdfSectionTitle("Document Unique d'Évaluation des Risques Professionnels")}
+        <div style="padding:0 28px;">
+          <div style="background:#EFF6FF;border-left:3px solid #1D4ED8;border-radius:4px;padding:10px 14px;font-size:10px;color:#1D4ED8;font-family:Arial,sans-serif;margin-bottom:14px;">
+            Art. R.4121-1 du Code du travail — ${esc(versionLabel)}
+          </div>
+        </div>
+        ${pdfKpis([
+          { label: "Total risques",      value: totalRisques,  color: "#C17B4E" },
+          { label: "Critiques (crit>8)", value: critiques,     color: "#DC2626" },
+          { label: "En traitement",      value: enTraitement,  color: "#EA580C" },
+          { label: "Unités de travail",  value: unitesTravail, color: "#1D4ED8" },
+        ])}
+        ${pdfSectionTitle("Résumé par unité de travail")}
+        ${pdfTable(
+          ["Unité de travail", "Total risques", "Critiques (>8)", "En traitement", "Clos"],
+          Object.entries(grouped).map(([unite, rs]) => [
+            esc(unite),
+            String(rs.length),
+            pdfBadge(String(rs.filter(r => (r.criticite ?? 0) > 8).length), rs.filter(r => (r.criticite ?? 0) > 8).length > 0 ? 'error' : 'success'),
+            String(rs.filter(r => r.statut === "en_traitement").length),
+            String(rs.filter(r => r.statut === "clos").length),
+          ]),
+          ['38%', '16%', '16%', '16%', '14%']
+        )}`;
+      pages.push(pdfPage(coverContent, SUBTITLE, pageNum, totalPages));
+
+      // ── Pages par unité de travail ────────────────────────────────────────
       for (const [unite, unitRisques] of Object.entries(grouped)) {
-        doc.addPage();
-
-        // Section header
-        doc.setFillColor(220, 230, 242);
-        doc.rect(marginLeft, 10, tableWidth, 10, "F");
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10);
-        doc.setTextColor(30, 60, 100);
-        doc.text(`Unité de travail : ${unite}   (${unitRisques.length} risque${unitRisques.length > 1 ? "s" : ""})`, marginLeft + 3, 17);
-
-        // Table header
-        let x = marginLeft;
-        const headerY = 24;
-        doc.setFillColor(240, 244, 250);
-        doc.rect(marginLeft, headerY, tableWidth, headerH, "F");
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(7);
-        doc.setTextColor(50, 60, 80);
-        for (const col of cols) {
-          doc.rect(x, headerY, col.width, headerH);
-          doc.text(col.header, x + col.width / 2, headerY + 6, { align: "center" });
-          x += col.width;
-        }
-
-        // Table rows
-        let y = headerY + headerH;
-        unitRisques.forEach((r, idx) => {
-          if (y + rowH > pageH - 15) {
-            doc.addPage();
-            y = 15;
-            // Repeat header
-            x = marginLeft;
-            doc.setFillColor(240, 244, 250);
-            doc.rect(marginLeft, y, tableWidth, headerH, "F");
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(7);
-            doc.setTextColor(50, 60, 80);
-            for (const col of cols) {
-              doc.rect(x, y, col.width, headerH);
-              doc.text(col.header, x + col.width / 2, y + 6, { align: "center" });
-              x += col.width;
-            }
-            y += headerH;
-          }
-
-          const crit = r.criticite ?? null;
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(6.5);
-          doc.setTextColor(30, 30, 30);
-
-          x = marginLeft;
-          const cellData = [
-            String(idx + 1),
-            r.situation_dangereuse,
-            r.dangers ?? "",
-            r.probabilite !== null ? String(r.probabilite) : "",
-            r.gravite !== null ? String(r.gravite) : "",
-            crit !== null ? String(crit) : "",
-            r.mesures_proposees ?? "",
-            PRIORITE_RISQUE_CONFIG[r.priorite].label,
-            RISQUE_STATUT_CONFIG[r.statut].label,
-          ];
-
-          cols.forEach((col, ci) => {
-            doc.rect(x, y, col.width, rowH);
-            // Color criticité cell
-            if (ci === 5 && crit !== null) {
-              if (crit > 8) doc.setTextColor(180, 30, 30);
-              else if (crit >= 5) doc.setTextColor(180, 100, 20);
-              else doc.setTextColor(30, 120, 60);
-            } else {
-              doc.setTextColor(30, 30, 30);
-            }
-            const cellText = doc.splitTextToSize(cellData[ci], col.width - 2);
-            doc.text(cellText[0] ?? "", x + col.width / 2, y + 5, { align: "center" });
-            x += col.width;
+        const chunks = chunkArr(unitRisques, ROWS_PER_PAGE);
+        for (const chunk of chunks) {
+          pageNum++;
+          const rows = chunk.map((r, idx) => {
+            const crit = r.criticite ?? null;
+            const critBadge = crit !== null
+              ? pdfBadge(String(crit), crit > 8 ? 'error' : crit >= 5 ? 'warning' : 'success')
+              : '—';
+            const prioBadge = pdfBadge(PRIORITE_RISQUE_CONFIG[r.priorite].label,
+              r.priorite === 'critique' ? 'critical' : r.priorite === 'haute' ? 'error' : r.priorite === 'moyenne' ? 'warning' : 'neutral');
+            const statutBadge = pdfBadge(RISQUE_STATUT_CONFIG[r.statut].label,
+              r.statut === 'clos' ? 'success' : r.statut === 'en_traitement' ? 'warning' : 'info');
+            return [
+              String(idx + 1),
+              esc(r.situation_dangereuse),
+              esc(r.dangers ?? '—'),
+              esc(r.personnes_exposees ?? '—'),
+              String(r.probabilite ?? '—'),
+              String(r.gravite ?? '—'),
+              critBadge,
+              esc(r.mesures_existantes ?? '—'),
+              esc(r.mesures_proposees ?? '—'),
+              prioBadge,
+              statutBadge,
+            ];
           });
-          doc.setTextColor(30, 30, 30);
-          y += rowH;
-        });
+
+          const content = `
+            ${pdfSectionHeader(
+              `Unité de travail : ${unite}`,
+              `${unitRisques.length} risque(s) · ${unitRisques.filter(r => (r.criticite ?? 0) > 8).length} critique(s)`,
+              '#1e3a6e'
+            )}
+            ${pdfTable(
+              ["N°", "Situation dangereuse", "Dangers", "Personnes exposées", "P", "G", "Crit", "Mesures existantes", "Mesures proposées", "Priorité", "Statut"],
+              rows,
+              ['4%', '13%', '10%', '10%', '3%', '3%', '6%', '14%', '14%', '9%', '8%']
+            )}`;
+          pages.push(pdfPage(content, SUBTITLE, pageNum, totalPages));
+        }
       }
 
-      // ── Page de synthèse ───────────────────────────────────────────────────
-      doc.addPage();
+      // ── Page de synthèse ──────────────────────────────────────────────────
+      pageNum++;
+      const synthRows = Object.entries(grouped).map(([unite, rs]) => [
+        esc(unite),
+        String(rs.length),
+        pdfBadge(String(rs.filter(r => (r.criticite ?? 0) > 8).length), rs.filter(r => (r.criticite ?? 0) > 8).length > 0 ? 'error' : 'success'),
+        String(rs.filter(r => r.statut === "en_traitement").length),
+        String(rs.filter(r => r.statut === "clos").length),
+      ]);
 
-      doc.setFillColor(220, 230, 242);
-      doc.rect(0, 0, pageW, 18, "F");
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(12);
-      doc.setTextColor(30, 60, 100);
-      doc.text("Synthèse par unité de travail", pageW / 2, 12, { align: "center" });
+      const synthContent = `
+        ${pdfSectionTitle("Synthèse par unité de travail")}
+        ${pdfKpis([
+          { label: "Total risques",   value: totalRisques, color: "#C17B4E" },
+          { label: "Critiques (>8)",  value: critiques,    color: "#DC2626" },
+          { label: "En traitement",   value: enTraitement, color: "#EA580C" },
+        ])}
+        ${pdfTable(
+          ["Unité de travail", "Total", "Critiques (>8)", "En traitement", "Clos"],
+          synthRows,
+          ['38%', '12%', '18%', '16%', '16%']
+        )}
+        <div style="padding:0 28px;">
+          <div style="font-size:9px;color:#888;font-family:Arial,sans-serif;font-style:italic;margin-top:16px;">
+            Document établi par la Direction · Ce document doit être mis à jour au moins une fois par an.
+          </div>
+        </div>`;
+      pages.push(pdfPage(synthContent, SUBTITLE, pageNum, totalPages));
 
-      const synthCols = [
-        { header: "Unité de travail",  width: 60 },
-        { header: "Total risques",     width: 28 },
-        { header: "Critiques (>8)",    width: 32 },
-        { header: "En traitement",     width: 32 },
-        { header: "Clos",              width: 22 },
-      ];
-      const synthTableWidth = synthCols.reduce((s, c) => s + c.width, 0);
-      const synthMarginLeft = (pageW - synthTableWidth) / 2;
-      let sy = 24;
-      const sHeaderH = 9;
-      const sRowH = 8;
-
-      // Header row
-      let sx = synthMarginLeft;
-      doc.setFillColor(240, 244, 250);
-      doc.rect(synthMarginLeft, sy, synthTableWidth, sHeaderH, "F");
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8);
-      doc.setTextColor(50, 60, 80);
-      for (const col of synthCols) {
-        doc.rect(sx, sy, col.width, sHeaderH);
-        doc.text(col.header, sx + col.width / 2, sy + 6, { align: "center" });
-        sx += col.width;
-      }
-      sy += sHeaderH;
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(30, 30, 30);
-      for (const [unite, unitRisques] of Object.entries(grouped)) {
-        const total = unitRisques.length;
-        const critiques = unitRisques.filter(r => (r.criticite ?? 0) > 8).length;
-        const enTraitement = unitRisques.filter(r => r.statut === "en_traitement").length;
-        const clos = unitRisques.filter(r => r.statut === "clos").length;
-        sx = synthMarginLeft;
-        const rowData = [unite, String(total), String(critiques), String(enTraitement), String(clos)];
-        synthCols.forEach((col, ci) => {
-          doc.rect(sx, sy, col.width, sRowH);
-          doc.text(rowData[ci], sx + col.width / 2, sy + 5.5, { align: "center" });
-          sx += col.width;
-        });
-        sy += sRowH;
-      }
-
-      sy += 10;
-      doc.setFont("helvetica", "italic");
-      doc.setFontSize(9);
-      doc.setTextColor(80, 80, 100);
-      doc.text(`Document établi par la Direction — Mis à jour le ${today}`, pageW / 2, sy, { align: "center" });
-      doc.text("Ce document doit être mis à jour au moins une fois par an", pageW / 2, sy + 7, { align: "center" });
-
-      const fileName = `DUERP_${versionInfo ? versionInfo.annee : "export"}_${today.replace(/\//g, "-")}.pdf`;
-      doc.save(fileName);
+      const fileName = `DUERP_${versionInfo ? versionInfo.annee : "export"}_${today}.pdf`;
+      await buildAndSavePdf(pages, fileName);
       toast.success("PDF exporté avec succès");
     } catch (e) {
       console.error(e);

@@ -10,6 +10,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import {
+  pdfPage, pdfKpis, pdfSectionTitle, pdfTable, pdfBadge,
+  pdfSectionHeader, pdfProgressBar, buildAndSavePdf, chunkArr, fmtDate, esc,
+} from "@/lib/pdfExportUtils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -18,7 +22,7 @@ import {
   ClipboardCheck, Plus, ListTodo, Clock, CheckCircle2,
   AlertTriangle, User, Calendar, FileText, Pencil, Trash2,
   Filter, TrendingUp, MessageSquare, Send, ChevronDown, ChevronUp, UserCheck,
-  X, ExternalLink, Loader2,
+  X, ExternalLink, Loader2, FileDown,
 } from "lucide-react";
 
 type Priorite = "haute" | "moyenne" | "faible";
@@ -500,6 +504,116 @@ export default function PlanActionsCorrectives() {
   const canEdit = (a: ActionCorrective) => isAdmin || a.user_id === user?.id;
   const canComment = (a: ActionCorrective) => isAdmin || a.responsable_id === user?.id || a.user_id === user?.id;
 
+  // ── Export PDF ─────────────────────────────────────────────────────────────
+
+  const [exportingPdf, setExportingPdf] = useState(false);
+
+  const handleExportPdf = async () => {
+    setExportingPdf(true);
+    try {
+      const SUBTITLE = "Plan d'Actions Correctives Opérationnel (PACQS)";
+      const ROWS_PER_PAGE = 14;
+      const today = new Date().toISOString().split("T")[0];
+
+      const aFaire_c   = actions.filter(a => a.statut === "a_faire").length;
+      const enCours_c  = actions.filter(a => a.statut === "en_cours").length;
+      const realisees_c = actions.filter(a => a.statut === "realisee" || a.statut === "evaluee").length;
+      const pct        = actions.length > 0 ? Math.round((realisees_c / actions.length) * 100) : 0;
+      const retards_c  = actions.filter(isRetard).length;
+
+      const PRIORITE_BADGE: Record<Priorite, 'error'|'warning'|'success'> = { haute: 'error', moyenne: 'warning', faible: 'success' };
+      const STATUT_BADGE: Record<Statut, 'neutral'|'info'|'success'|'warning'> = {
+        a_faire: 'neutral', en_cours: 'info', realisee: 'success', evaluee: 'success',
+      };
+
+      // Pages : 1 cover + pages par source
+      const sources = SOURCES_ACTION.filter(s => actions.some(a => a.source === s));
+      const sansSrc = actions.filter(a => !a.source);
+      let totalPages = 1 + sources.length + (sansSrc.length > 0 ? 1 : 0);
+      const pages: string[] = [];
+      let pageNum = 0;
+
+      // ── Page de garde ───────────────────────────────────────────────────────
+      pageNum++;
+      const coverContent = `
+        ${pdfSectionTitle("Plan d'Actions Correctives Opérationnel")}
+        ${pdfKpis([
+          { label: "Total actions",     value: actions.length, color: "#C17B4E" },
+          { label: "À faire",           value: aFaire_c,       color: "#6B7280" },
+          { label: "En cours",          value: enCours_c,      color: "#1D4ED8" },
+          { label: "Réalisées",         value: realisees_c,    color: "#16A34A" },
+          { label: "En retard",         value: retards_c,      color: "#DC2626" },
+        ])}
+        ${pdfProgressBar(pct)}
+        ${pdfSectionTitle("Résumé par source")}
+        ${pdfTable(
+          ["Source", "Total", "À faire", "En cours", "Réalisées"],
+          [
+            ...sources.map(s => {
+              const sa = actions.filter(a => a.source === s);
+              return [
+                esc(s),
+                String(sa.length),
+                String(sa.filter(a => a.statut === "a_faire").length),
+                String(sa.filter(a => a.statut === "en_cours").length),
+                String(sa.filter(a => a.statut === "realisee" || a.statut === "evaluee").length),
+              ];
+            }),
+            ...(sansSrc.length > 0 ? [[
+              '<em>Sans source</em>',
+              String(sansSrc.length),
+              String(sansSrc.filter(a => a.statut === "a_faire").length),
+              String(sansSrc.filter(a => a.statut === "en_cours").length),
+              String(sansSrc.filter(a => a.statut === "realisee" || a.statut === "evaluee").length),
+            ]] : []),
+          ],
+          ['40%', '12%', '16%', '16%', '16%']
+        )}`;
+      pages.push(pdfPage(coverContent, SUBTITLE, pageNum, totalPages));
+
+      // ── Pages par source ────────────────────────────────────────────────────
+      const buildSourcePages = (srcActions: ActionCorrective[], srcLabel: string) => {
+        const chunks = chunkArr(srcActions, ROWS_PER_PAGE);
+        for (const chunk of chunks) {
+          pageNum++;
+          const rows = chunk.map(a => [
+            esc(a.titre),
+            pdfBadge(PRIORITE_CONFIG[a.priorite].label, PRIORITE_BADGE[a.priorite]),
+            pdfBadge(STATUT_CONFIG[a.statut].label, STATUT_BADGE[a.statut]),
+            esc(a.responsable),
+            fmtDate(a.date_echeance),
+            isRetard(a) ? pdfBadge('En retard', 'error') : '—',
+          ]);
+
+          const content = `
+            ${pdfSectionHeader(srcLabel, `${srcActions.length} action(s)`)}
+            ${pdfTable(
+              ["Titre", "Priorité", "Statut", "Responsable", "Échéance", "Retard"],
+              rows,
+              ['30%', '12%', '12%', '20%', '14%', '12%']
+            )}`;
+          pages.push(pdfPage(content, SUBTITLE, pageNum, totalPages));
+        }
+      };
+
+      for (const src of sources) {
+        buildSourcePages(actions.filter(a => a.source === src), src);
+      }
+      if (sansSrc.length > 0) {
+        buildSourcePages(sansSrc, "Sans source");
+      }
+
+      await buildAndSavePdf(pages, `PACQS_Operationnel_${today}.pdf`);
+      toast.success("PDF exporté !");
+    } catch (e) {
+      console.error(e);
+      toast.error("Erreur lors de l'export PDF");
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+
   return (
     <div className="max-w-5xl mx-auto space-y-8">
 
@@ -514,9 +628,15 @@ export default function PlanActionsCorrectives() {
             <p className="text-xs text-muted-foreground">Plan d'Amélioration Continue de la Qualité et de la Sécurité (PACQS)</p>
           </div>
         </div>
-        <Button onClick={openCreate} className="gap-2 shadow-warm shrink-0">
-          <Plus className="w-4 h-4" /> Nouvelle action
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportPdf} disabled={exportingPdf} className="gap-2 shrink-0">
+            {exportingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+            {exportingPdf ? "Export…" : "Exporter PDF"}
+          </Button>
+          <Button onClick={openCreate} className="gap-2 shadow-warm shrink-0">
+            <Plus className="w-4 h-4" /> Nouvelle action
+          </Button>
+        </div>
       </motion.div>
 
       {/* Stats */}

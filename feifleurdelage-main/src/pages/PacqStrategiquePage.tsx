@@ -17,7 +17,11 @@ import {
   Calendar, User, CheckCircle2, BarChart3,
   Download, FileSpreadsheet, Loader2, UserCheck, X, ExternalLink,
 } from "lucide-react";
-import jsPDF from "jspdf";
+import {
+  pdfPage, pdfKpis, pdfSectionTitle, pdfTable, pdfBadge,
+  pdfSectionHeader, pdfProgressBar, pdfTextBlock,
+  buildAndSavePdf, chunkArr, fmtDate, esc,
+} from "@/lib/pdfExportUtils";
 import * as XLSX from "xlsx";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -403,79 +407,111 @@ export default function PacqStrategiquePage() {
 
   const exportPDF = async () => {
     setExporting("pdf");
-    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-    const pageW = doc.internal.pageSize.getWidth();
-    let y = 15;
+    try {
+      const SUBTITLE = "Plan d'Amélioration Continue de la Qualité (PACQS Stratégique)";
+      const ACTIONS_PER_PAGE = 10;
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.text("PACQS Stratégique — Plan d'amélioration continue de la qualité", pageW / 2, y, { align: "center" });
-    y += 8;
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Exporté le ${new Date().toLocaleDateString("fr-FR")}`, pageW / 2, y, { align: "center" });
-    y += 10;
+      // Stats globales
+      const totalObjs    = allObjectifs.length;
+      const totalActions = actions.length;
+      const terminees    = actions.filter(a => a.avancement === "Terminé").length;
+      const enCours      = actions.filter(a => a.avancement === "En cours").length;
+      const pctGlobal    = totalActions > 0 ? Math.round((terminees / totalActions) * 100) : 0;
 
-    for (const theme of THEMATIQUES_ESSMS) {
-      const objs = allObjectifs.filter(o => o.theme === theme.id);
-      if (objs.length === 0) continue;
+      const themes = THEMATIQUES_ESSMS.filter(t => allObjectifs.some(o => o.theme === t.id));
+      let totalPages = 1 + themes.length; // garde + 1 par thème (simplifié)
+      const pages: string[] = [];
+      let pageNum = 0;
 
-      if (y > 170) { doc.addPage(); y = 15; }
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text(`▸ ${theme.label}`, 10, y);
-      y += 7;
+      // ── Page de garde ───────────────────────────────────────────────────────
+      pageNum++;
+      const synthRows = themes.map(t => {
+        const objs    = allObjectifs.filter(o => o.theme === t.id);
+        const acts    = actions.filter(a => objs.some(o => o.id === a.objectif_id));
+        const done    = acts.filter(a => a.avancement === "Terminé").length;
+        const pct     = acts.length > 0 ? Math.round((done / acts.length) * 100) : 0;
+        return [
+          esc(t.label),
+          String(objs.length),
+          String(acts.length),
+          pdfBadge(`${done} / ${acts.length}`, done === acts.length ? 'success' : pct > 50 ? 'warning' : 'neutral'),
+          `${pct}%`,
+        ];
+      });
 
-      for (const obj of objs) {
-        if (y > 170) { doc.addPage(); y = 15; }
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(9);
-        const ref = obj.reference ? `[${obj.reference}] ` : "";
-        const lines = doc.splitTextToSize(`${ref}${obj.intitule || ""}`, pageW - 30);
-        doc.text(lines, 14, y);
-        y += lines.length * 5;
+      const coverContent = `
+        ${pdfSectionTitle("PACQS Stratégique — Plan d'Amélioration Continue")}
+        ${pdfKpis([
+          { label: "Objectifs",              value: totalObjs,    color: "#C17B4E" },
+          { label: "Actions totales",        value: totalActions, color: "#1D4ED8" },
+          { label: "Terminées",              value: terminees,    color: "#16A34A" },
+          { label: "Progression globale",    value: `${pctGlobal}%`, color: pctGlobal >= 75 ? "#16A34A" : pctGlobal >= 40 ? "#EA580C" : "#DC2626" },
+        ])}
+        ${pdfProgressBar(pctGlobal)}
+        ${pdfSectionTitle("Récapitulatif par thème")}
+        ${pdfTable(
+          ["Thème", "Objectifs", "Actions", "Terminées", "Progression"],
+          synthRows,
+          ['40%', '12%', '12%', '18%', '18%']
+        )}`;
+      pages.push(pdfPage(coverContent, SUBTITLE, pageNum, totalPages));
 
-        if (obj.responsable || obj.priorite || obj.avancement) {
-          doc.setFont("helvetica", "italic");
-          doc.setFontSize(8);
-          const meta = [
-            obj.responsable ? `Responsable: ${obj.responsable}` : null,
-            obj.priorite    ? `Priorité: ${obj.priorite}`       : null,
-            obj.avancement  ? `Avancement: ${obj.avancement}`   : null,
-          ].filter(Boolean).join("  |  ");
-          doc.text(meta, 14, y);
-          y += 5;
-        }
+      // ── Pages par thème ────────────────────────────────────────────────────
+      const AVANCEMENT_BADGE: Record<string, 'success'|'warning'|'info'|'neutral'> = {
+        "Terminé":     'success',
+        "En cours":    'info',
+        "Finalisation":'warning',
+        "Planification":'neutral',
+        "Non initié":  'neutral',
+      };
 
-        const objActions = actions.filter(a => a.objectif_id === obj.id);
-        for (const act of objActions) {
-          if (y > 180) { doc.addPage(); y = 15; }
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(8);
-          const actLines = doc.splitTextToSize(`• ${act.intitule || ""}`, pageW - 40);
-          doc.text(actLines, 20, y);
-          y += actLines.length * 4.5;
+      for (const theme of themes) {
+        pageNum++;
+        const objs = allObjectifs.filter(o => o.theme === theme.id);
+        const rows: string[][] = [];
 
-          const meta2 = [
-            act.pilote     ? `Pilote: ${act.pilote}`          : null,
-            act.avancement ? `Avancement: ${act.avancement}`  : null,
-            act.echeance   ? `Échéance: ${new Date(act.echeance).toLocaleDateString("fr-FR")}` : null,
-          ].filter(Boolean).join("  |  ");
-          if (meta2) {
-            doc.setFontSize(7);
-            doc.setTextColor(120);
-            doc.text(meta2, 22, y);
-            doc.setTextColor(0);
-            y += 4.5;
+        for (const obj of objs) {
+          const objActions = actions.filter(a => a.objectif_id === obj.id);
+          const ref = obj.reference ? `[${obj.reference}] ` : "";
+          // Ligne objectif
+          rows.push([
+            `<strong>${esc(ref + (obj.intitule ?? ''))}</strong>`,
+            esc(obj.responsable ?? '—'),
+            pdfBadge(obj.priorite ?? '—', obj.priorite === 'Critique' ? 'critical' : obj.priorite === 'Haute' ? 'error' : 'neutral'),
+            pdfBadge(obj.avancement ?? '—', AVANCEMENT_BADGE[obj.avancement ?? ''] ?? 'neutral'),
+            fmtDate(obj.echeance),
+            `<em style="color:#888;font-size:9px;">Objectif</em>`,
+          ]);
+          // Lignes actions
+          for (const act of objActions) {
+            rows.push([
+              `<span style="padding-left:14px;">↳ ${esc(act.intitule ?? '')}</span>`,
+              esc(act.pilote ?? '—'),
+              pdfBadge(act.priorite ?? '—', act.priorite === 'Critique' ? 'critical' : act.priorite === 'Haute' ? 'error' : 'neutral'),
+              pdfBadge(act.avancement ?? '—', AVANCEMENT_BADGE[act.avancement ?? ''] ?? 'neutral'),
+              fmtDate(act.echeance),
+              `<em style="color:#888;font-size:9px;">Action</em>`,
+            ]);
           }
         }
-        y += 2;
-      }
-      y += 4;
-    }
 
-    doc.save("PACQS_Strategique.pdf");
-    setExporting(null);
+        const content = `
+          ${pdfSectionHeader(theme.label, `${objs.length} objectif(s) · ${actions.filter(a => objs.some(o => o.id === a.objectif_id)).length} action(s)`)}
+          ${pdfTable(
+            ["Objectif / Action", "Responsable / Pilote", "Priorité", "Avancement", "Échéance", "Type"],
+            rows,
+            ['32%', '18%', '12%', '14%', '12%', '8%']
+          )}`;
+        pages.push(pdfPage(content, SUBTITLE, pageNum, totalPages));
+      }
+
+      await buildAndSavePdf(pages, `PACQS_Strategique_${new Date().toISOString().split("T")[0]}.pdf`);
+    } catch (e) {
+      console.error(e);
+      toast.error("Erreur lors de l'export PDF");
+    } finally {
+      setExporting(null);
+    }
   };
 
   // ── Export Excel ─────────────────────────────────────────────────────────────

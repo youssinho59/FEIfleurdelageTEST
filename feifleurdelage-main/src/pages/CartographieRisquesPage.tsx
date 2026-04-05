@@ -501,7 +501,12 @@ export default function CartographieRisquesPage() {
   async function exportPdf() {
     setExportingPdf(true);
     try {
-      generateCartographiePdf(risques, CATEGORIES);
+      // Enrichit les risques avec le titre de l'action PACQS liée si disponible
+      const enriched = risques.map(r => ({
+        ...r,
+        pacq_action_titre: (r as any).pacq_action_titre ?? null,
+      }));
+      await generateCartographiePdf(enriched, CATEGORIES);
     } catch (err) {
       toast.error("Erreur lors de la génération du PDF");
     }
