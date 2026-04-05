@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS mandats_imports (
 
 ALTER TABLE mandats_imports ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "mandats_imports_auth" ON mandats_imports;
 CREATE POLICY "mandats_imports_auth" ON mandats_imports
   FOR ALL USING (auth.role() = 'authenticated');
 
